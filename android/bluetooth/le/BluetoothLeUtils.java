@@ -16,6 +16,7 @@
 
 package android.bluetooth.le;
 
+import android.annotation.Hide;
 import android.bluetooth.BluetoothAdapter;
 import android.util.SparseArray;
 
@@ -24,17 +25,32 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
-/**
- * Helper class for Bluetooth LE utils.
- *
- * @hide
- */
+/** Helper class for Bluetooth LE utils. */
+@Hide
 public class BluetoothLeUtils {
+    /** Returns a string composed from a byte array. */
+    static String toString(byte[] data) {
+        if (data == null) {
+            return "null";
+        }
+        if (data.length == 0) {
+            return "{}";
+        }
+        StringBuilder buffer = new StringBuilder();
+        buffer.append('{');
+        for (int i = 0; i < data.length; i++) {
+            buffer.append(data[i]);
+            if ((i + 1) < data.length) {
+                buffer.append(", ");
+            }
+        }
+        buffer.append('}');
+        return buffer.toString();
+    }
 
-    /**
-     * Returns a string composed from a {@link SparseArray}.
-     */
+    /** Returns a string composed from a {@link SparseArray}. */
     static String toString(SparseArray<byte[]> array) {
         if (array == null) {
             return "null";
@@ -51,9 +67,7 @@ public class BluetoothLeUtils {
         return buffer.toString();
     }
 
-    /**
-     * Returns a string composed from a {@link Map}.
-     */
+    /** Returns a string composed from a {@link Map}. */
     static <T> String toString(Map<T, byte[]> map) {
         if (map == null) {
             return "null";
@@ -76,9 +90,7 @@ public class BluetoothLeUtils {
         return buffer.toString();
     }
 
-    /**
-     * Check whether two {@link SparseArray} equal.
-     */
+    /** Check whether two {@link SparseArray} equal. */
     static boolean equals(SparseArray<byte[]> array, SparseArray<byte[]> otherArray) {
         if (array == otherArray) {
             return true;
@@ -100,9 +112,7 @@ public class BluetoothLeUtils {
         return true;
     }
 
-    /**
-     * Check whether two {@link Map} equal.
-     */
+    /** Check whether two {@link Map} equal. */
     static <T> boolean equals(Map<T, byte[]> map, Map<T, byte[]> otherMap) {
         if (map == otherMap) {
             return true;
@@ -128,13 +138,25 @@ public class BluetoothLeUtils {
     /**
      * Ensure Bluetooth is turned on.
      *
-     * @throws IllegalStateException If {@code adapter} is null or Bluetooth state is not {@link
-     * BluetoothAdapter#STATE_ON}.
+     * @return false If {@code adapter} is null or Bluetooth state is not {@link
+     *     BluetoothAdapter#STATE_ON}.
      */
-    static void checkAdapterStateOn(BluetoothAdapter adapter) {
-        if (adapter == null || !adapter.isLeEnabled()) {
-            throw new IllegalStateException("BT Adapter is not turned ON");
-        }
+    static boolean checkAdapterStateOn(BluetoothAdapter adapter) {
+        return adapter != null && adapter.isLeEnabled();
     }
 
+    /**
+     * Compares two UUIDs with a UUID mask.
+     *
+     * @return true if both UUIDs are equals when masked, false otherwise.
+     */
+    static boolean maskedEquals(UUID data, UUID uuid, UUID mask) {
+        if (mask == null) {
+            return Objects.equals(data, uuid);
+        }
+        return (data.getLeastSignificantBits() & mask.getLeastSignificantBits())
+                        == (uuid.getLeastSignificantBits() & mask.getLeastSignificantBits())
+                && (data.getMostSignificantBits() & mask.getMostSignificantBits())
+                        == (uuid.getMostSignificantBits() & mask.getMostSignificantBits());
+    }
 }

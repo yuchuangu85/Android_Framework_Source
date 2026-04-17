@@ -16,20 +16,31 @@
 
 package android.net.wifi.aware;
 
+import static android.Manifest.permission.ACCESS_FINE_LOCATION;
+import static android.Manifest.permission.ACCESS_WIFI_STATE;
+import static android.Manifest.permission.CHANGE_WIFI_STATE;
+import static android.Manifest.permission.NEARBY_WIFI_DEVICES;
+import static android.Manifest.permission.OVERRIDE_WIFI_CONFIG;
+
+import android.annotation.CallbackExecutor;
+import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.net.NetworkSpecifier;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.CloseGuard;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 
-import dalvik.system.CloseGuard;
-
+import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
+import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 /**
  * This class represents a Wi-Fi Aware session - an attachment to the Wi-Fi Aware service through
@@ -45,7 +56,7 @@ public class WifiAwareSession implements AutoCloseable {
     private final int mClientId;
 
     private boolean mTerminated = true;
-    private final CloseGuard mCloseGuard = CloseGuard.get();
+    private final CloseGuard mCloseGuard = new CloseGuard();
 
     /** @hide */
     public WifiAwareSession(WifiAwareManager manager, Binder binder, int clientId) {
@@ -80,6 +91,7 @@ public class WifiAwareSession implements AutoCloseable {
         mTerminated = true;
         mMgr.clear();
         mCloseGuard.close();
+        Reference.reachabilityFence(this);
     }
 
     /** @hide */
@@ -129,12 +141,21 @@ public class WifiAwareSession implements AutoCloseable {
      * Other results of the publish session operations will also be routed to callbacks
      * on the {@code callback} object. The resulting publish session can be modified using
      * {@link PublishDiscoverySession#updatePublish(PublishConfig)}.
+     * <p> The total count of currently available Wi-Fi Aware publish sessions is limited and is
+     * available via the {@link AwareResources#getAvailablePublishSessionsCount()} method.
      * <p>
      *      An application must use the {@link DiscoverySession#close()} to
      *      terminate the publish discovery session once it isn't needed. This will free
      *      resources as well terminate any on-air transmissions.
-     * <p>The application must have the {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}
-     * permission to start a publish discovery session.
+     * <p>
+     * If targeting {@link android.os.Build.VERSION_CODES#TIRAMISU} or later, the application must
+     * have {@link android.Manifest.permission#NEARBY_WIFI_DEVICES} with
+     * android:usesPermissionFlags="neverForLocation". If the application does not declare
+     * android:usesPermissionFlags="neverForLocation", then it must also have
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION}.
+     *
+     * If targeting an earlier release than {@link android.os.Build.VERSION_CODES#TIRAMISU}, the
+     * application must have {@link android.Manifest.permission#ACCESS_FINE_LOCATION}.
      *
      * @param publishConfig The {@link PublishConfig} specifying the
      *            configuration of the requested publish session.
@@ -143,6 +164,11 @@ public class WifiAwareSession implements AutoCloseable {
      * @param handler The Handler on whose thread to execute the callbacks of the {@code
      * callback} object. If a null is provided then the application's main thread will be used.
      */
+    @RequiresPermission(allOf = {
+            ACCESS_WIFI_STATE,
+            CHANGE_WIFI_STATE,
+            ACCESS_FINE_LOCATION,
+            NEARBY_WIFI_DEVICES}, conditional = true)
     public void publish(@NonNull PublishConfig publishConfig,
             @NonNull DiscoverySessionCallback callback, @Nullable Handler handler) {
         WifiAwareManager mgr = mMgr.get();
@@ -175,12 +201,21 @@ public class WifiAwareSession implements AutoCloseable {
      * Other results of the subscribe session operations will also be routed to callbacks
      * on the {@code callback} object. The resulting subscribe session can be modified using
      * {@link SubscribeDiscoverySession#updateSubscribe(SubscribeConfig)}.
+     * <p> The total count of currently available Wi-Fi Aware subscribe sessions is limited and is
+     * available via the {@link AwareResources#getAvailableSubscribeSessionsCount()} method.
      * <p>
      *      An application must use the {@link DiscoverySession#close()} to
      *      terminate the subscribe discovery session once it isn't needed. This will free
      *      resources as well terminate any on-air transmissions.
-     * <p>The application must have the {@link android.Manifest.permission#ACCESS_COARSE_LOCATION}
-     * permission to start a subscribe discovery session.
+     * <p>
+     * If targeting {@link android.os.Build.VERSION_CODES#TIRAMISU} or later, the application must
+     * have {@link android.Manifest.permission#NEARBY_WIFI_DEVICES} with
+     * android:usesPermissionFlags="neverForLocation". If the application does not declare
+     * android:usesPermissionFlags="neverForLocation", then it must also have
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION}.
+     *
+     * If targeting an earlier release than {@link android.os.Build.VERSION_CODES#TIRAMISU}, the
+     * application must have {@link android.Manifest.permission#ACCESS_FINE_LOCATION}.
      *
      * @param subscribeConfig The {@link SubscribeConfig} specifying the
      *            configuration of the requested subscribe session.
@@ -189,6 +224,11 @@ public class WifiAwareSession implements AutoCloseable {
      * @param handler The Handler on whose thread to execute the callbacks of the {@code
      * callback} object. If a null is provided then the application's main thread will be used.
      */
+    @RequiresPermission(allOf = {
+            ACCESS_WIFI_STATE,
+            CHANGE_WIFI_STATE,
+            ACCESS_FINE_LOCATION,
+            NEARBY_WIFI_DEVICES}, conditional = true)
     public void subscribe(@NonNull SubscribeConfig subscribeConfig,
             @NonNull DiscoverySessionCallback callback, @Nullable Handler handler) {
         WifiAwareManager mgr = mMgr.get();
@@ -205,6 +245,53 @@ public class WifiAwareSession implements AutoCloseable {
     }
 
     /**
+     * Set the master preference of the current Aware session. Device will use the highest master
+     * preference among all the active sessions on the device. The permitted range is 0 (the
+     * default) to 255 with 1 and 255 excluded (reserved).
+     *
+     * @param masterPreference The requested master preference
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(OVERRIDE_WIFI_CONFIG)
+    public void setMasterPreference(@IntRange(from = 0, to = 254) int masterPreference) {
+        WifiAwareManager mgr = mMgr.get();
+        if (mgr == null) {
+            Log.e(TAG, "publish: called post GC on WifiAwareManager");
+            return;
+        }
+        if (mTerminated) {
+            Log.e(TAG, "publish: called after termination");
+            return;
+        }
+        mgr.setMasterPreference(mClientId, mBinder, masterPreference);
+    }
+
+    /**
+     * Get the master preference of the current Aware session. Which configured by
+     * {@link #setMasterPreference(int)}.
+     *
+     * @param executor The executor on which callback will be invoked.
+     * @param resultsCallback An asynchronous callback that will return boolean
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(OVERRIDE_WIFI_CONFIG)
+    public void getMasterPreference(@NonNull @CallbackExecutor Executor executor,
+            @NonNull Consumer<Integer> resultsCallback) {
+        WifiAwareManager mgr = mMgr.get();
+        if (mgr == null) {
+            Log.e(TAG, "publish: called post GC on WifiAwareManager");
+            return;
+        }
+        if (mTerminated) {
+            Log.e(TAG, "publish: called after termination");
+            return;
+        }
+        mgr.getMasterPreference(mClientId, mBinder, executor, resultsCallback);
+    }
+
+    /**
      * Create a {@link android.net.NetworkRequest.Builder#setNetworkSpecifier(NetworkSpecifier)} for
      * an unencrypted WiFi Aware connection (link) to the specified peer. The
      * {@link android.net.NetworkRequest.Builder#addTransportType(int)} should be set to
@@ -213,10 +300,15 @@ public class WifiAwareSession implements AutoCloseable {
      *     This API is targeted for applications which can obtain the peer MAC address using OOB
      *     (out-of-band) discovery. Aware discovery does not provide the MAC address of the peer -
      *     when using Aware discovery use the alternative network specifier method -
-     *     {@link DiscoverySession#createNetworkSpecifierOpen(PeerHandle)}.
+     *     {@link android.net.wifi.aware.WifiAwareNetworkSpecifier.Builder}.
      * <p>
      * To set up an encrypted link use the
      * {@link #createNetworkSpecifierPassphrase(int, byte[], String)} API.
+     *
+     * @deprecated Please use in-band data-path setup, refer to
+     * {@link WifiAwareNetworkSpecifier.Builder},
+     * {@link #publish(PublishConfig, DiscoverySessionCallback, Handler)} and
+     * {@link #subscribe(SubscribeConfig, DiscoverySessionCallback, Handler)}
      *
      * @param role  The role of this device:
      *              {@link WifiAwareManager#WIFI_AWARE_DATA_PATH_ROLE_INITIATOR} or
@@ -231,6 +323,7 @@ public class WifiAwareSession implements AutoCloseable {
      * android.net.ConnectivityManager.NetworkCallback)}
      * [or other varieties of that API].
      */
+    @Deprecated
     public NetworkSpecifier createNetworkSpecifierOpen(
             @WifiAwareManager.DataPathRole int role, @NonNull byte[] peer) {
         WifiAwareManager mgr = mMgr.get();
@@ -254,7 +347,12 @@ public class WifiAwareSession implements AutoCloseable {
      *     This API is targeted for applications which can obtain the peer MAC address using OOB
      *     (out-of-band) discovery. Aware discovery does not provide the MAC address of the peer -
      *     when using Aware discovery use the alternative network specifier method -
-     *     {@link DiscoverySession#createNetworkSpecifierPassphrase(PeerHandle, String)}.
+     *     {@link android.net.wifi.aware.WifiAwareNetworkSpecifier.Builder}.
+     *
+     * @deprecated Please use in-band data-path setup, refer to
+     * {@link WifiAwareNetworkSpecifier.Builder},
+     * {@link #publish(PublishConfig, DiscoverySessionCallback, Handler)} and
+     * {@link #subscribe(SubscribeConfig, DiscoverySessionCallback, Handler)}
      *
      * @param role  The role of this device:
      *              {@link WifiAwareManager#WIFI_AWARE_DATA_PATH_ROLE_INITIATOR} or
@@ -272,6 +370,7 @@ public class WifiAwareSession implements AutoCloseable {
      * android.net.ConnectivityManager.NetworkCallback)}
      * [or other varieties of that API].
      */
+    @Deprecated
     public NetworkSpecifier createNetworkSpecifierPassphrase(
             @WifiAwareManager.DataPathRole int role, @NonNull byte[] peer,
             @NonNull String passphrase) {
@@ -300,7 +399,12 @@ public class WifiAwareSession implements AutoCloseable {
      *     This API is targeted for applications which can obtain the peer MAC address using OOB
      *     (out-of-band) discovery. Aware discovery does not provide the MAC address of the peer -
      *     when using Aware discovery use the alternative network specifier method -
-     *     {@link DiscoverySession#createNetworkSpecifierPassphrase(PeerHandle, String)}.
+     *     {@link android.net.wifi.aware.WifiAwareNetworkSpecifier.Builder}.
+     *
+     * @deprecated Please use in-band data-path setup, refer to
+     * {@link WifiAwareNetworkSpecifier.Builder},
+     * {@link #publish(PublishConfig, DiscoverySessionCallback, Handler)} and
+     * {@link #subscribe(SubscribeConfig, DiscoverySessionCallback, Handler)}
      *
      * @param role  The role of this device:
      *              {@link WifiAwareManager#WIFI_AWARE_DATA_PATH_ROLE_INITIATOR} or
@@ -322,6 +426,7 @@ public class WifiAwareSession implements AutoCloseable {
      *
      * @hide
      */
+    @Deprecated
     @SystemApi
     public NetworkSpecifier createNetworkSpecifierPmk(
             @WifiAwareManager.DataPathRole int role, @NonNull byte[] peer, @NonNull byte[] pmk) {

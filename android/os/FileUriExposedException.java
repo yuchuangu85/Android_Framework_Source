@@ -19,14 +19,19 @@ package android.os;
 import android.content.Intent;
 
 /**
- * The exception that is thrown when an application exposes a {@code file://}
- * {@link android.net.Uri} to another app.
+ * The exception that may be thrown when an application exposes a
+ * {@code file://} {@link android.net.Uri} to another app.
  * <p>
- * This exposure is discouraged since the receiving app may not have access to
- * the shared path. For example, the receiving app may not have requested the
- * {@link android.Manifest.permission#READ_EXTERNAL_STORAGE} runtime permission,
- * or the platform may be sharing the {@link android.net.Uri} across user
- * profile boundaries.
+ * This exception is a diagnostic tool for developers to identify situations
+ * where {@code file://} Uris are being exposed. It is not always thrown when a
+ * {@code file://} Uri is exposed, so it must not be relied on for security
+ * purposes on any SDK version.
+ * <p>
+ * {@code file://} Uri exposure is discouraged since the receiving app may not
+ * have access to the shared path. For example, the receiving app may not have
+ * requested the {@link android.Manifest.permission#READ_EXTERNAL_STORAGE}
+ * runtime permission, or the platform may be sharing the
+ * {@link android.net.Uri} across user profile boundaries.
  * <p>
  * Instead, apps should use {@code content://} Uris so the platform can extend
  * temporary permission for the receiving app to access the resource.
@@ -35,7 +40,7 @@ import android.content.Intent;
  * or higher. Applications targeting earlier SDK versions are allowed to share
  * {@code file://} {@link android.net.Uri}, but it's strongly discouraged.
  *
- * @see android.support.v4.content.FileProvider
+ * @see androidx.core.content.FileProvider
  * @see Intent#FLAG_GRANT_READ_URI_PERMISSION
  */
 public class FileUriExposedException extends RuntimeException {

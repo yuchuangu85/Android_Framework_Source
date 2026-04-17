@@ -16,6 +16,9 @@
 
 package android.media;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 
 /**
  * An AudioPatch describes a connection between audio sources and audio sinks.
@@ -29,10 +32,12 @@ package android.media;
  */
 public class AudioPatch {
 
+    @UnsupportedAppUsage
     private final AudioHandle mHandle;
     private final AudioPortConfig[] mSources;
     private final AudioPortConfig[] mSinks;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     AudioPatch(AudioHandle patchHandle, AudioPortConfig[] sources, AudioPortConfig[] sinks) {
         mHandle = patchHandle;
         mSources = sources;
@@ -42,6 +47,7 @@ public class AudioPatch {
     /**
      * Retrieve the list of sources of this audio patch.
      */
+    @UnsupportedAppUsage
     public AudioPortConfig[] sources() {
         return mSources;
     }
@@ -49,6 +55,7 @@ public class AudioPatch {
     /**
      * Retreive the list of sinks of this audio patch.
      */
+    @UnsupportedAppUsage
     public AudioPortConfig[] sinks() {
         return mSinks;
     }

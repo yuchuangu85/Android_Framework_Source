@@ -23,7 +23,7 @@ import android.os.Parcelable;
 /**
  * Represents an Item COMPREHENSION-TLV object.
  *
- * {@hide}
+ * @hide
  */
 public class Item implements Parcelable {
     /** Identifier of the item. */
@@ -46,7 +46,7 @@ public class Item implements Parcelable {
     public Item(Parcel in) {
         id = in.readInt();
         text = in.readString();
-        icon = in.readParcelable(null);
+        icon = in.readParcelable(Bitmap.class.getClassLoader());
     }
 
     @Override

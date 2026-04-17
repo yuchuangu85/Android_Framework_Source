@@ -17,6 +17,7 @@
 package com.android.internal.net;
 
 import android.app.PendingIntent;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.net.NetworkInfo;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -38,9 +39,15 @@ public class LegacyVpnInfo implements Parcelable {
     public static final int STATE_TIMEOUT = 4;
     public static final int STATE_FAILED = 5;
 
+    @UnsupportedAppUsage
     public String key;
+    @UnsupportedAppUsage
     public int state = -1;
     public PendingIntent intent;
+
+    @UnsupportedAppUsage
+    public LegacyVpnInfo() {
+    }
 
     @Override
     public int describeContents() {
@@ -54,6 +61,7 @@ public class LegacyVpnInfo implements Parcelable {
         out.writeParcelable(intent, flags);
     }
 
+    @UnsupportedAppUsage
     public static final Parcelable.Creator<LegacyVpnInfo> CREATOR =
             new Parcelable.Creator<LegacyVpnInfo>() {
         @Override
@@ -61,7 +69,7 @@ public class LegacyVpnInfo implements Parcelable {
             LegacyVpnInfo info = new LegacyVpnInfo();
             info.key = in.readString();
             info.state = in.readInt();
-            info.intent = in.readParcelable(null);
+            info.intent = in.readParcelable(null, android.app.PendingIntent.class);
             return info;
         }
 
@@ -75,8 +83,8 @@ public class LegacyVpnInfo implements Parcelable {
      * Return best matching {@link LegacyVpnInfo} state based on given
      * {@link NetworkInfo}.
      */
-    public static int stateFromNetworkInfo(NetworkInfo info) {
-        switch (info.getDetailedState()) {
+    public static int stateFromNetworkInfo(NetworkInfo.DetailedState state) {
+        switch (state) {
             case CONNECTING:
                 return STATE_CONNECTING;
             case CONNECTED:
@@ -86,8 +94,7 @@ public class LegacyVpnInfo implements Parcelable {
             case FAILED:
                 return STATE_FAILED;
             default:
-                Log.w(TAG, "Unhandled state " + info.getDetailedState()
-                        + " ; treating as disconnected");
+                Log.w(TAG, "Unhandled state " + state + " ; treating as disconnected");
                 return STATE_DISCONNECTED;
         }
     }

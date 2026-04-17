@@ -22,6 +22,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.res.Resources;
 import android.os.Bundle;
+import android.os.UserHandle;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Log;
@@ -107,7 +108,8 @@ public class InstallCarrierAppTrampolineActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == INSTALL_CARRIER_APP_DIALOG_REQUEST) {
             if (resultCode == DOWNLOAD_RESULT) {
-                startActivity(InstallCarrierAppUtils.getPlayStoreIntent(mPackageName));
+                startActivityAsUser(InstallCarrierAppUtils.getPlayStoreIntent(mPackageName),
+                        UserHandle.CURRENT);
             }
             finishNoAnimation();
         }

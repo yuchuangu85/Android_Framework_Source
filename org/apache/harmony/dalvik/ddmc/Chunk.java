@@ -16,6 +16,10 @@
 
 package org.apache.harmony.dalvik.ddmc;
 
+import static android.annotation.SystemApi.Client.MODULE_LIBRARIES;
+
+import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import java.nio.ByteBuffer;
 
 /**
@@ -24,24 +28,51 @@ import java.nio.ByteBuffer;
  *
  * The "offset" and "length" fields are present so handlers can over-allocate
  * or share byte buffers.
+ *
+ * @hide
  */
+@SystemApi(client = MODULE_LIBRARIES)
 public class Chunk {
 
-    /*
+    /**
      * Public members.  Do not rename without updating the VM.
+     *
+     * @hide
      */
+    @SystemApi(client = MODULE_LIBRARIES)
     public int type;                // chunk type
+    /**
+     * @hide
+     */
     public byte[] data;             // chunk data
-    public int offset, length;      // position within "data"
+    /**
+     * @hide
+     */
+    public int offset;              // position within "dataf"
+
+    /**
+     * @hide
+     */
+    public int length;
 
     /**
      * Blank constructor.  Fill in your own fields.
+     *
+     * @hide
      */
     public Chunk() {}
 
     /**
      * Constructor with all fields.
+     *
+     * @param type   chunk type
+     * @param data   chunk data
+     * @param offset offset in {@code data} where actual data starts from
+     * @param length length of the {@code data}
+     *
+     * @hide
      */
+    @SystemApi(client = MODULE_LIBRARIES)
     public Chunk(int type, byte[] data, int offset, int length) {
         this.type = type;
         this.data = data;
@@ -50,9 +81,16 @@ public class Chunk {
     }
 
     /**
-     * Construct from a ByteBuffer.  The chunk is assumed to start at
+     * Construct from a {@link ByteBuffer}.  The chunk is assumed to start at
      * offset 0 and continue to the current position.
+     *
+     * @param type chunk type
+     * @param buf  {@link ByteBuffer} containing chunk data
+     *
+     * @hide
      */
+    @UnsupportedAppUsage
+    @SystemApi(client = MODULE_LIBRARIES)
     public Chunk(int type, ByteBuffer buf) {
         this.type = type;
 
@@ -61,4 +99,3 @@ public class Chunk {
         this.length = buf.position();
     }
 }
-

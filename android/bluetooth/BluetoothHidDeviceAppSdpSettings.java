@@ -16,9 +16,11 @@
 
 package android.bluetooth;
 
+import android.annotation.NonNull;
+import android.annotation.RequiresNoPermission;
 import android.os.Parcel;
 import android.os.Parcelable;
-
+import android.util.EventLog;
 
 /**
  * Represents the Service Discovery Protocol (SDP) settings for a Bluetooth HID Device application.
@@ -26,9 +28,11 @@ import android.os.Parcelable;
  * <p>The BluetoothHidDevice framework adds the SDP record during app registration, so that the
  * Android device can be discovered as a Bluetooth HID Device.
  *
- * <p>{@see BluetoothHidDevice}
+ * @see BluetoothHidDevice
  */
 public final class BluetoothHidDeviceAppSdpSettings implements Parcelable {
+
+    private static final int MAX_DESCRIPTOR_SIZE = 2048;
 
     private final String mName;
     private final String mDescription;
@@ -49,31 +53,43 @@ public final class BluetoothHidDeviceAppSdpSettings implements Parcelable {
      *     href="www.usb.org/developers/hidpage/HID1_11.pdf">
      *     www.usb.org/developers/hidpage/HID1_11.pdf Chapter 6</a> Maximum length is 2048 bytes.
      */
+    @RequiresNoPermission
     public BluetoothHidDeviceAppSdpSettings(
             String name, String description, String provider, byte subclass, byte[] descriptors) {
         mName = name;
         mDescription = description;
         mProvider = provider;
         mSubclass = subclass;
+
+        if (descriptors == null || descriptors.length > MAX_DESCRIPTOR_SIZE) {
+            EventLog.writeEvent(0x534e4554, "119819889", -1, "");
+            throw new IllegalArgumentException(
+                    "descriptors must be not null and shorter than " + MAX_DESCRIPTOR_SIZE);
+        }
         mDescriptors = descriptors.clone();
     }
 
+    @RequiresNoPermission
     public String getName() {
         return mName;
     }
 
+    @RequiresNoPermission
     public String getDescription() {
         return mDescription;
     }
 
+    @RequiresNoPermission
     public String getProvider() {
         return mProvider;
     }
 
+    @RequiresNoPermission
     public byte getSubclass() {
         return mSubclass;
     }
 
+    @RequiresNoPermission
     public byte[] getDescriptors() {
         return mDescriptors;
     }
@@ -83,12 +99,11 @@ public final class BluetoothHidDeviceAppSdpSettings implements Parcelable {
         return 0;
     }
 
-    public static final Parcelable.Creator<BluetoothHidDeviceAppSdpSettings> CREATOR =
-            new Parcelable.Creator<BluetoothHidDeviceAppSdpSettings>() {
-
+    @NonNull
+    public static final Creator<BluetoothHidDeviceAppSdpSettings> CREATOR =
+            new Creator<>() {
                 @Override
                 public BluetoothHidDeviceAppSdpSettings createFromParcel(Parcel in) {
-
                     return new BluetoothHidDeviceAppSdpSettings(
                             in.readString(),
                             in.readString(),
@@ -105,9 +120,9 @@ public final class BluetoothHidDeviceAppSdpSettings implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        out.writeString(mName);
-        out.writeString(mDescription);
-        out.writeString(mProvider);
+        BluetoothUtils.writeStringToParcel(out, mName);
+        BluetoothUtils.writeStringToParcel(out, mDescription);
+        BluetoothUtils.writeStringToParcel(out, mProvider);
         out.writeByte(mSubclass);
         out.writeByteArray(mDescriptors);
     }

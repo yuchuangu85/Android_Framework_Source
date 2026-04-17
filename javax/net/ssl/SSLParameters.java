@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,10 +29,12 @@ import java.security.AlgorithmConstraints;
 import java.util.Map;
 import java.util.List;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.Set;
 
 /**
  * Encapsulates parameters for an SSL/TLS connection. The parameters
@@ -74,6 +76,9 @@ public class SSLParameters {
     private Map<Integer, SNIServerName> sniNames = null;
     private Map<Integer, SNIMatcher> sniMatchers = null;
     private boolean preferLocalCipherSuites;
+    // Android-added: Integrate ALPN-related methods from OpenJDK 9+181
+    private String[] applicationProtocols = new String[0];
+    private String[] namedGroups = null;
 
     /**
      * Constructs SSLParameters.
@@ -246,16 +251,17 @@ public class SSLParameters {
         return identificationAlgorithm;
     }
 
+    // Android-changed: Use "on-path" to comply with Android's inclusive language guidance.
     /**
      * Sets the endpoint identification algorithm.
      * <p>
      * If the <code>algorithm</code> parameter is non-null or non-empty, the
      * endpoint identification/verification procedures must be handled during
-     * SSL/TLS handshaking.  This is to prevent man-in-the-middle attacks.
+     * SSL/TLS handshaking.  This is to prevent on-path attacks.
      *
      * @param algorithm The standard string name of the endpoint
      *     identification algorithm (or null).  See Appendix A in the <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/CryptoSpec.html#AppA">
+     *   "{@docRoot}/../technotes/guides/security/crypto/CryptoSpec.html#AppA">
      *     Java Cryptography Architecture API Specification &amp; Reference </a>
      *     for information about standard algorithm names.
      *
@@ -463,5 +469,204 @@ public class SSLParameters {
      */
     public final boolean getUseCipherSuitesOrder() {
         return preferLocalCipherSuites;
+    }
+
+    // BEGIN Android-added: Integrate ALPN-related methods from OpenJDK 9+181
+    // Also removed references to DTLS in documentation; Android doesn't support DTLS.
+    /**
+     * Returns a prioritized array of application-layer protocol names that
+     * can be negotiated over the SSL/TLS protocols.
+     * <p>
+     * The array could be empty (zero-length), in which case protocol
+     * indications will not be used.
+     * <p>
+     * This method will return a new array each time it is invoked.
+     *
+     * @return a non-null, possibly zero-length array of application protocol
+     *         {@code String}s.  The array is ordered based on protocol
+     *         preference, with {@code protocols[0]} being the most preferred.
+     * @see #setApplicationProtocols
+     * @since 9
+     */
+    public String[] getApplicationProtocols() {
+        return applicationProtocols.clone();
+    }
+
+    /**
+     * Sets the prioritized array of application-layer protocol names that
+     * can be negotiated over the SSL/TLS protocols.
+     * <p>
+     * If application-layer protocols are supported by the underlying
+     * SSL/TLS implementation, this method configures which values can
+     * be negotiated by protocols such as <a
+     * href="http://www.ietf.org/rfc/rfc7301.txt"> RFC 7301 </a>, the
+     * Application Layer Protocol Negotiation (ALPN).
+     * <p>
+     * If this end of the connection is expected to offer application protocol
+     * values, all protocols configured by this method will be sent to the
+     * peer.
+     * <p>
+     * If this end of the connection is expected to select the application
+     * protocol value, the {@code protocols} configured by this method are
+     * compared with those sent by the peer.  The first matched value becomes
+     * the negotiated value.  If none of the {@code protocols} were actually
+     * requested by the peer, the underlying protocol will determine what
+     * action to take.  (For example, ALPN will send a
+     * {@code "no_application_protocol"} alert and terminate the connection.)
+     * <p>
+     * @implSpec
+     * This method will make a copy of the {@code protocols} array.
+     *
+     * @param protocols   an ordered array of application protocols,
+     *                    with {@code protocols[0]} being the most preferred.
+     *                    If the array is empty (zero-length), protocol
+     *                    indications will not be used.
+     * @throws IllegalArgumentException if protocols is null, or if
+     *                    any element in a non-empty array is null or an
+     *                    empty (zero-length) string
+     * @see #getApplicationProtocols
+     * @since 9
+     */
+    public void setApplicationProtocols(String[] protocols) {
+        if (protocols == null) {
+            throw new IllegalArgumentException("protocols was null");
+        }
+
+        String[] tempProtocols = protocols.clone();
+
+        for (String p : tempProtocols) {
+            if (p == null || p.equals("")) {
+                throw new IllegalArgumentException(
+                    "An element of protocols was null/empty");
+            }
+        }
+        applicationProtocols = tempProtocols;
+    }
+    // END Android-added: Integrate ALPN-related methods from OpenJDK 9+181
+
+    /**
+     * Returns a prioritized array of key exchange named groups names that
+     * can be used over the SSL/TLS/DTLS protocols.
+     * <p>
+     * Note that the standard list of key exchange named groups are defined
+     * in the <a href=
+     * "{@docRoot}/../specs/security/standard-names.html#named-groups">
+     * Named Groups</a> section of the Java Security Standard Algorithm
+     * Names Specification.  Providers may support named groups not defined
+     * in this list or may not use the recommended name for a certain named
+     * group.
+     * <p>
+     * The set of named groups that will be used over the SSL/TLS/DTLS
+     * connections is determined by the returned array of this method and the
+     * underlying provider-specific default named groups.
+     * <p>
+     * If the returned array is {@code null}, then the underlying
+     * provider-specific default named groups will be used over the
+     * SSL/TLS/DTLS connections.
+     * <p>
+     * If the returned array is empty (zero-length), then the named group
+     * negotiation mechanism is turned off for SSL/TLS/DTLS protocols, and
+     * the connections may not be able to be established if the negotiation
+     * mechanism is required by a certain SSL/TLS/DTLS protocol.  This
+     * parameter will override the underlying provider-specific default
+     * name groups.
+     * <p>
+     * If the returned array is not {@code null} or empty (zero-length),
+     * then the named groups in the returned array will be used over
+     * the SSL/TLS/DTLS connections.  This parameter will override the
+     * underlying provider-specific default named groups.
+     * <p>
+     * This method returns the most recent value passed to
+     * {@link #setNamedGroups} if that method has been called and otherwise
+     * returns the default named groups for connection populated objects,
+     * or {@code null} for pre-populated objects.
+     *
+     * @apiNote
+     * Note that a provider may not have been updated to support this method
+     * and in that case may return {@code null} instead of the default
+     * named groups for connection populated objects.
+     *
+     * @implNote
+     * The SunJSSE provider supports this method.
+     *
+     * @implNote
+     * Note that applications may use the
+     * {@systemProperty jdk.tls.namedGroups} system property with the SunJSSE
+     * provider to override the provider-specific default named groups.
+     *
+     * @return an array of key exchange named group names {@code Strings} or
+     *         {@code null} if none have been set.  For non-null returns, this
+     *         method will return a new array each time it is invoked.  The
+     *         array is ordered based on named group preference, with the first
+     *         entry being the most preferred.  Providers should ignore unknown
+     *         named group names while establishing the SSL/TLS/DTLS
+     *         connections.
+     * @see #setNamedGroups
+     *
+     * @since 20
+     */
+    public String[] getNamedGroups() {
+        return clone(namedGroups);
+    }
+
+    /**
+     * Sets the prioritized array of key exchange named groups names that
+     * can be used over the SSL/TLS/DTLS protocols.
+     * <p>
+     * Note that the standard list of key exchange named groups are defined in
+     * the <a href=
+     * "{@docRoot}/../specs/security/standard-names.html#named-groups">
+     * Named Groups</a> section of the Java Security Standard Algorithm
+     * Names Specification.  Providers may support named groups not defined
+     * in this list or may not use the recommended name for a certain named
+     * group.
+     * <p>
+     * The set of named groups that will be used over the SSL/TLS/DTLS
+     * connections is determined by the input parameter {@code namedGroups}
+     * array and the underlying provider-specific default named groups.
+     * See {@link #getNamedGroups} for specific details on how the
+     * parameters are used in SSL/TLS/DTLS connections.
+     *
+     * @apiNote
+     * Note that a provider may not have been updated to support this method
+     * and in that case may ignore the named groups that are set.
+     *
+     * @implNote
+     * The SunJSSE provider supports this method.
+     *
+     * @param namedGroups an ordered array of key exchange named group names
+     *        with the first entry being the most preferred, or {@code null}.
+     *        This method will make a copy of this array. Providers should
+     *        ignore unknown named group scheme names while establishing the
+     *        SSL/TLS/DTLS connections.
+     * @throws IllegalArgumentException if any element in the
+     *        {@code namedGroups} array is a duplicate, {@code null} or
+     *        {@linkplain String#isBlank() blank}.
+     *
+     * @see #getNamedGroups
+     *
+     * @since 20
+     */
+    public void setNamedGroups(String[] namedGroups) {
+        String[] tempGroups = null;
+
+        if (namedGroups != null) {
+            tempGroups = namedGroups.clone();
+            Set<String> groupsSet = new HashSet<>();
+            for (String namedGroup : tempGroups) {
+                if (namedGroup == null || namedGroup.isBlank()) {
+                    throw new IllegalArgumentException(
+                        "An element of namedGroups is null or blank");
+                }
+
+                if (groupsSet.contains(namedGroup)) {
+                    throw new IllegalArgumentException(
+                        "Duplicate element of namedGroups: " + namedGroup);
+                }
+                groupsSet.add(namedGroup);
+            }
+        }
+
+        this.namedGroups = tempGroups;
     }
 }

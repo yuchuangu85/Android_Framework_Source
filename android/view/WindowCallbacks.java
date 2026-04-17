@@ -16,7 +16,7 @@
 
 package android.view;
 
-import android.graphics.Rect;
+import android.graphics.RecordingCanvas;
 
 /**
  * These callbacks are used to communicate window configuration changes while the user is performing
@@ -27,36 +27,10 @@ import android.graphics.Rect;
  */
 public interface WindowCallbacks {
 
-    public static final int RESIZE_MODE_INVALID = -1;
-    public static final int RESIZE_MODE_FREEFORM = 0;
-    public static final int RESIZE_MODE_DOCKED_DIVIDER = 1;
-
-    /**
-     * Called by the system when the window got changed by the user, before the layouter got called.
-     * It also gets called when the insets changed, or when the window switched between a fullscreen
-     * layout or a non-fullscreen layout. It can be used to perform a "quick and dirty" resize which
-     * should never take more then 4ms to complete.
-     *
-     * <p>At the time the layouting has not happened yet.
-     *
-     * @param newBounds The new window frame bounds.
-     * @param fullscreen Whether the window is currently drawing in fullscreen.
-     * @param systemInsets The current visible system insets for the window.
-     * @param stableInsets The stable insets for the window.
-     */
-    void onWindowSizeIsChanging(Rect newBounds, boolean fullscreen, Rect systemInsets,
-            Rect stableInsets);
-
     /**
      * Called when a drag resize starts.
-     *
-     * @param initialBounds The initial bounds where the window will be.
-     * @param fullscreen Whether the window is currently drawing in fullscreen.
-     * @param systemInsets The current visible system insets for the window.
-     * @param stableInsets The stable insets for the window.
      */
-    void onWindowDragResizeStart(Rect initialBounds, boolean fullscreen, Rect systemInsets,
-            Rect stableInsets, int resizeMode);
+    void onWindowDragResizeStart();
 
     /**
      * Called when a drag resize ends.
@@ -82,5 +56,5 @@ public interface WindowCallbacks {
      *
      * @param canvas The canvas to draw on.
      */
-    void onPostDraw(DisplayListCanvas canvas);
+    void onPostDraw(RecordingCanvas canvas);
 }

@@ -17,6 +17,8 @@
 package android.os;
 
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 import java.util.ArrayList;
 
 /**
@@ -54,7 +56,7 @@ import java.util.ArrayList;
  * Structure of results output is up to implementor of
  * {@link PerformanceResultsWriter }.
  *
- * {@hide} Pending approval for public API.
+ * @hide Pending approval for public API.
  */
 public class PerformanceCollector {
 
@@ -285,6 +287,7 @@ public class PerformanceCollector {
     private long mCpuTime;
     private long mExecTime;
 
+    @UnsupportedAppUsage
     public PerformanceCollector() {
     }
 
@@ -302,6 +305,7 @@ public class PerformanceCollector {
      * @param label description of code block between beginSnapshot and
      *              endSnapshot, used to label output
      */
+    @UnsupportedAppUsage
     public void beginSnapshot(String label) {
         if (mPerfWriter != null)
             mPerfWriter.writeBeginSnapshot(label);
@@ -346,6 +350,7 @@ public class PerformanceCollector {
      *         <li>{@link #METRIC_KEY_OTHER_SHARED_DIRTY other_shared_dirty}
      *         </ul>
      */
+    @UnsupportedAppUsage
     public Bundle endSnapshot() {
         endPerformanceSnapshot();
         if (mPerfWriter != null)
@@ -359,6 +364,7 @@ public class PerformanceCollector {
      * @param label description of code block between startTiming and
      *        stopTiming, used to label output
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void startTiming(String label) {
         if (mPerfWriter != null)
             mPerfWriter.writeStartTiming(label);
@@ -392,7 +398,7 @@ public class PerformanceCollector {
         iteration.putString(METRIC_KEY_LABEL, label);
         iteration.putLong(METRIC_KEY_EXECUTION_TIME, mExecTime);
         iteration.putLong(METRIC_KEY_CPU_TIME, mCpuTime);
-        mPerfMeasurement.getParcelableArrayList(METRIC_KEY_ITERATIONS).add(iteration);
+        mPerfMeasurement.getParcelableArrayList(METRIC_KEY_ITERATIONS, Bundle.class).add(iteration);
 
         mExecTime = SystemClock.uptimeMillis();
         mCpuTime = Process.getElapsedCpuTime();
@@ -408,6 +414,7 @@ public class PerformanceCollector {
      *         between calls to startTiming and stopTiming. List of iterations
      *         is keyed by {@link #METRIC_KEY_ITERATIONS iterations}.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public Bundle stopTiming(String label) {
         addIteration(label);
         if (mPerfWriter != null)

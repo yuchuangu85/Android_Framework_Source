@@ -16,12 +16,29 @@
 
 package android.view;
 
+import static android.os.IInputConstants.INPUT_EVENT_FLAG_IS_ACCESSIBILITY_EVENT;
+import static android.view.Display.INVALID_DISPLAY;
+
+import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.os.IInputConstants;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.method.MetaKeyKeyListener;
 import android.util.Log;
 import android.util.SparseIntArray;
 import android.view.KeyCharacterMap.KeyData;
+
+import com.android.hardware.input.Flags;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Object used to report key and button events.
@@ -80,18 +97,25 @@ import android.view.KeyCharacterMap.KeyData;
 public class KeyEvent extends InputEvent implements Parcelable {
     /** Key code constant: Unknown key code. */
     public static final int KEYCODE_UNKNOWN         = 0;
-    /** Key code constant: Soft Left key.
-     * Usually situated below the display on phones and used as a multi-function
-     * feature key for selecting a software defined function shown on the bottom left
-     * of the display. */
+    /**
+     * Key code constant: Soft Left key.
+     * <p>
+     * Usually situated below the display on phones and used as a multi-function feature key for
+     * selecting a software defined function shown on the bottom left of the display.
+     */
     public static final int KEYCODE_SOFT_LEFT       = 1;
-    /** Key code constant: Soft Right key.
-     * Usually situated below the display on phones and used as a multi-function
-     * feature key for selecting a software defined function shown on the bottom right
-     * of the display. */
+    /**
+     * Key code constant: Soft Right key.
+     * <p>
+     * Usually situated below the display on phones and used as a multi-function feature key for
+     * selecting a software defined function shown on the bottom right of the display.
+     */
     public static final int KEYCODE_SOFT_RIGHT      = 2;
-    /** Key code constant: Home key.
-     * This key is handled by the framework and is never delivered to applications. */
+    /**
+     * Key code constant: Home key.
+     * <p>
+     * This key is handled by the framework and is never delivered to applications.
+     */
     public static final int KEYCODE_HOME            = 3;
     /** Key code constant: Back key. */
     public static final int KEYCODE_BACK            = 4;
@@ -123,31 +147,55 @@ public class KeyEvent extends InputEvent implements Parcelable {
     public static final int KEYCODE_STAR            = 17;
     /** Key code constant: '#' key. */
     public static final int KEYCODE_POUND           = 18;
-    /** Key code constant: Directional Pad Up key.
-     * May also be synthesized from trackball motions. */
+    /**
+     * Key code constant: Directional Pad Up key.
+     * <p>
+     * May also be synthesized from trackball motions.
+     */
     public static final int KEYCODE_DPAD_UP         = 19;
-    /** Key code constant: Directional Pad Down key.
-     * May also be synthesized from trackball motions. */
+    /**
+     * Key code constant: Directional Pad Down key.
+     * <p>
+     * May also be synthesized from trackball motions.
+     */
     public static final int KEYCODE_DPAD_DOWN       = 20;
-    /** Key code constant: Directional Pad Left key.
-     * May also be synthesized from trackball motions. */
+    /**
+     * Key code constant: Directional Pad Left key.
+     * <p>
+     * May also be synthesized from trackball motions.
+     */
     public static final int KEYCODE_DPAD_LEFT       = 21;
-    /** Key code constant: Directional Pad Right key.
-     * May also be synthesized from trackball motions. */
+    /**
+     * Key code constant: Directional Pad Right key.
+     * <p>
+     * May also be synthesized from trackball motions.
+     */
     public static final int KEYCODE_DPAD_RIGHT      = 22;
-    /** Key code constant: Directional Pad Center key.
-     * May also be synthesized from trackball motions. */
+    /**
+     * Key code constant: Directional Pad Center key.
+     * <p>
+     * May also be synthesized from trackball motions.
+     */
     public static final int KEYCODE_DPAD_CENTER     = 23;
-    /** Key code constant: Volume Up key.
-     * Adjusts the speaker volume up. */
+    /**
+     * Key code constant: Volume Up key.
+     * <p>
+     * Adjusts the speaker volume up.
+     */
     public static final int KEYCODE_VOLUME_UP       = 24;
-    /** Key code constant: Volume Down key.
-     * Adjusts the speaker volume down. */
+    /**
+     * Key code constant: Volume Down key.
+     * <p>
+     * Adjusts the speaker volume down.
+     */
     public static final int KEYCODE_VOLUME_DOWN     = 25;
     /** Key code constant: Power key. */
     public static final int KEYCODE_POWER           = 26;
-    /** Key code constant: Camera key.
-     * Used to launch a camera application or take pictures. */
+    /**
+     * Key code constant: Camera key.
+     * <p>
+     * Used to launch a camera application or take pictures.
+     */
     public static final int KEYCODE_CAMERA          = 27;
     /** Key code constant: Clear key. */
     public static final int KEYCODE_CLEAR           = 28;
@@ -219,19 +267,31 @@ public class KeyEvent extends InputEvent implements Parcelable {
     public static final int KEYCODE_TAB             = 61;
     /** Key code constant: Space key. */
     public static final int KEYCODE_SPACE           = 62;
-    /** Key code constant: Symbol modifier key.
-     * Used to enter alternate symbols. */
+    /**
+     * Key code constant: Symbol modifier key.
+     * <p>
+     * Used to enter alternate symbols.
+     */
     public static final int KEYCODE_SYM             = 63;
-    /** Key code constant: Explorer special function key.
-     * Used to launch a browser application. */
+    /**
+     * Key code constant: Explorer special function key.
+     * <p>
+     * Used to launch a browser application.
+     */
     public static final int KEYCODE_EXPLORER        = 64;
-    /** Key code constant: Envelope special function key.
-     * Used to launch a mail application. */
+    /**
+     * Key code constant: Envelope special function key.
+     * <p>
+     * Used to launch a mail application.
+     */
     public static final int KEYCODE_ENVELOPE        = 65;
     /** Key code constant: Enter key. */
     public static final int KEYCODE_ENTER           = 66;
-    /** Key code constant: Backspace key.
-     * Deletes characters before the insertion point, unlike {@link #KEYCODE_FORWARD_DEL}. */
+    /**
+     * Key code constant: Backspace key.
+     * <p>
+     * Deletes characters before the insertion point, unlike {@link #KEYCODE_FORWARD_DEL}.
+     */
     public static final int KEYCODE_DEL             = 67;
     /** Key code constant: '`' (backtick) key. */
     public static final int KEYCODE_GRAVE           = 68;
@@ -253,16 +313,25 @@ public class KeyEvent extends InputEvent implements Parcelable {
     public static final int KEYCODE_SLASH           = 76;
     /** Key code constant: '@' key. */
     public static final int KEYCODE_AT              = 77;
-    /** Key code constant: Number modifier key.
+    /**
+     * Key code constant: Number modifier key.
+     * <p>
      * Used to enter numeric symbols.
      * This key is not Num Lock; it is more like {@link #KEYCODE_ALT_LEFT} and is
-     * interpreted as an ALT key by {@link android.text.method.MetaKeyKeyListener}. */
+     * interpreted as an ALT key by {@link android.text.method.MetaKeyKeyListener}.
+     */
     public static final int KEYCODE_NUM             = 78;
-    /** Key code constant: Headset Hook key.
-     * Used to hang up calls and stop media. */
+    /**
+     * Key code constant: Headset Hook key.
+     * <p>
+     * Used to hang up calls and stop media.
+     */
     public static final int KEYCODE_HEADSETHOOK     = 79;
-    /** Key code constant: Camera Focus key.
-     * Used to focus the camera. */
+    /**
+     * Key code constant: Camera Focus key.
+     * <p>
+     * Used to focus the camera.
+     */
     public static final int KEYCODE_FOCUS           = 80;   // *Camera* focus
     /** Key code constant: '+' key. */
     public static final int KEYCODE_PLUS            = 81;
@@ -284,80 +353,138 @@ public class KeyEvent extends InputEvent implements Parcelable {
     public static final int KEYCODE_MEDIA_REWIND    = 89;
     /** Key code constant: Fast Forward media key. */
     public static final int KEYCODE_MEDIA_FAST_FORWARD = 90;
-    /** Key code constant: Mute key.
-     * Mutes the microphone, unlike {@link #KEYCODE_VOLUME_MUTE}. */
+    /**
+     * Key code constant: Mute key.
+     * <p>
+     * Mute key for the microphone (unlike {@link #KEYCODE_VOLUME_MUTE}, which is the speaker
+     * mute key).
+     */
     public static final int KEYCODE_MUTE            = 91;
     /** Key code constant: Page Up key. */
     public static final int KEYCODE_PAGE_UP         = 92;
     /** Key code constant: Page Down key. */
     public static final int KEYCODE_PAGE_DOWN       = 93;
-    /** Key code constant: Picture Symbols modifier key.
-     * Used to switch symbol sets (Emoji, Kao-moji). */
-    public static final int KEYCODE_PICTSYMBOLS     = 94;   // switch symbol-sets (Emoji,Kao-moji)
-    /** Key code constant: Switch Charset modifier key.
-     * Used to switch character sets (Kanji, Katakana). */
-    public static final int KEYCODE_SWITCH_CHARSET  = 95;   // switch char-sets (Kanji,Katakana)
-    /** Key code constant: A Button key.
+    /**
+     * Key code constant: Picture Symbols modifier key.
+     * <p>
+     * Used to switch symbol sets (Emoji, Kao-moji).
+     */
+    public static final int KEYCODE_PICTSYMBOLS     = 94;
+    /**
+     * Key code constant: Switch Charset modifier key.
+     * <p>
+     * Used to switch character sets (Kanji, Katakana).
+     */
+    public static final int KEYCODE_SWITCH_CHARSET  = 95;
+    /**
+     * Key code constant: A Button key.
+     * <p>
      * On a game controller, the A button should be either the button labeled A
-     * or the first button on the bottom row of controller buttons. */
+     * or the first button on the bottom row of controller buttons.
+     */
     public static final int KEYCODE_BUTTON_A        = 96;
-    /** Key code constant: B Button key.
+    /**
+     * Key code constant: B Button key.
+     * <p>
      * On a game controller, the B button should be either the button labeled B
-     * or the second button on the bottom row of controller buttons. */
+     * or the second button on the bottom row of controller buttons.
+     */
     public static final int KEYCODE_BUTTON_B        = 97;
-    /** Key code constant: C Button key.
+    /**
+     * Key code constant: C Button key.
+     * <p>
      * On a game controller, the C button should be either the button labeled C
-     * or the third button on the bottom row of controller buttons. */
+     * or the third button on the bottom row of controller buttons.
+     */
     public static final int KEYCODE_BUTTON_C        = 98;
-    /** Key code constant: X Button key.
+    /**
+     * Key code constant: X Button key.
+     * <p>
      * On a game controller, the X button should be either the button labeled X
-     * or the first button on the upper row of controller buttons. */
+     * or the first button on the upper row of controller buttons.
+     */
     public static final int KEYCODE_BUTTON_X        = 99;
-    /** Key code constant: Y Button key.
+    /**
+     * Key code constant: Y Button key.
+     * <p>
      * On a game controller, the Y button should be either the button labeled Y
-     * or the second button on the upper row of controller buttons. */
+     * or the second button on the upper row of controller buttons.
+     */
     public static final int KEYCODE_BUTTON_Y        = 100;
-    /** Key code constant: Z Button key.
+    /**
+     * Key code constant: Z Button key.
+     * <p>
      * On a game controller, the Z button should be either the button labeled Z
-     * or the third button on the upper row of controller buttons. */
+     * or the third button on the upper row of controller buttons.
+     */
     public static final int KEYCODE_BUTTON_Z        = 101;
-    /** Key code constant: L1 Button key.
+    /**
+     * Key code constant: L1 Button key.
+     * <p>
      * On a game controller, the L1 button should be either the button labeled L1 (or L)
-     * or the top left trigger button. */
+     * or the top left trigger button.
+     */
     public static final int KEYCODE_BUTTON_L1       = 102;
-    /** Key code constant: R1 Button key.
+    /**
+     * Key code constant: R1 Button key.
+     * <p>
      * On a game controller, the R1 button should be either the button labeled R1 (or R)
-     * or the top right trigger button. */
+     * or the top right trigger button.
+     */
     public static final int KEYCODE_BUTTON_R1       = 103;
-    /** Key code constant: L2 Button key.
+    /**
+     * Key code constant: L2 Button key.
+     * <p>
      * On a game controller, the L2 button should be either the button labeled L2
-     * or the bottom left trigger button. */
+     * or the bottom left trigger button.
+     */
     public static final int KEYCODE_BUTTON_L2       = 104;
-    /** Key code constant: R2 Button key.
+    /**
+     * Key code constant: R2 Button key.
+     * <p>
      * On a game controller, the R2 button should be either the button labeled R2
-     * or the bottom right trigger button. */
+     * or the bottom right trigger button.
+     */
     public static final int KEYCODE_BUTTON_R2       = 105;
-    /** Key code constant: Left Thumb Button key.
+    /**
+     * Key code constant: Left Thumb Button key.
+     * <p>
      * On a game controller, the left thumb button indicates that the left (or only)
-     * joystick is pressed. */
+     * joystick is pressed.
+     */
     public static final int KEYCODE_BUTTON_THUMBL   = 106;
-    /** Key code constant: Right Thumb Button key.
+    /**
+     * Key code constant: Right Thumb Button key.
+     * <p>
      * On a game controller, the right thumb button indicates that the right
-     * joystick is pressed. */
+     * joystick is pressed.
+     */
     public static final int KEYCODE_BUTTON_THUMBR   = 107;
-    /** Key code constant: Start Button key.
-     * On a game controller, the button labeled Start. */
+    /**
+     * Key code constant: Start Button key.
+     * <p>
+     * On a game controller, the button labeled Start.
+     */
     public static final int KEYCODE_BUTTON_START    = 108;
-    /** Key code constant: Select Button key.
-     * On a game controller, the button labeled Select. */
+    /**
+     * Key code constant: Select Button key.
+     * <p>
+     * On a game controller, the button labeled Select.
+     */
     public static final int KEYCODE_BUTTON_SELECT   = 109;
-    /** Key code constant: Mode Button key.
-     * On a game controller, the button labeled Mode. */
+    /**
+     * Key code constant: Mode Button key.
+     * <p>
+     * On a game controller, the button labeled Mode.
+     */
     public static final int KEYCODE_BUTTON_MODE     = 110;
     /** Key code constant: Escape key. */
     public static final int KEYCODE_ESCAPE          = 111;
-    /** Key code constant: Forward Delete key.
-     * Deletes characters ahead of the insertion point, unlike {@link #KEYCODE_DEL}. */
+    /**
+     * Key code constant: Forward Delete key.
+     * <p>
+     * Deletes characters ahead of the insertion point, unlike {@link #KEYCODE_DEL}.
+     */
     public static final int KEYCODE_FORWARD_DEL     = 112;
     /** Key code constant: Left Control modifier key. */
     public static final int KEYCODE_CTRL_LEFT       = 113;
@@ -373,33 +500,57 @@ public class KeyEvent extends InputEvent implements Parcelable {
     public static final int KEYCODE_META_RIGHT      = 118;
     /** Key code constant: Function modifier key. */
     public static final int KEYCODE_FUNCTION        = 119;
-    /** Key code constant: System Request / Print Screen key. */
+    /**
+     * Key code constant: System Request / Print Screen key.
+     * <p>
+     * This key is sent to the app first and only if the app doesn't handle it, the framework
+     * handles it (to take a screenshot), unlike {@link #KEYCODE_SCREENSHOT} which is fully
+     * handled by the framework.
+     */
     public static final int KEYCODE_SYSRQ           = 120;
     /** Key code constant: Break / Pause key. */
     public static final int KEYCODE_BREAK           = 121;
-    /** Key code constant: Home Movement key.
-     * Used for scrolling or moving the cursor around to the start of a line
-     * or to the top of a list. */
+    /**
+     * Key code constant: Home Movement key.
+     * <p>
+     * Used for scrolling or moving the cursor around to the start of a line or
+     * to the top of a list.
+     */
     public static final int KEYCODE_MOVE_HOME       = 122;
-    /** Key code constant: End Movement key.
-     * Used for scrolling or moving the cursor around to the end of a line
-     * or to the bottom of a list. */
+    /**
+     * Key code constant: End Movement key.
+     * <p>
+     * Used for scrolling or moving the cursor around to the end of a line or
+     * to the bottom of a list.
+     */
     public static final int KEYCODE_MOVE_END        = 123;
-    /** Key code constant: Insert key.
-     * Toggles insert / overwrite edit mode. */
+    /**
+     * Key code constant: Insert key.
+     * <p>
+     * Toggles insert / overwrite edit mode.
+     */
     public static final int KEYCODE_INSERT          = 124;
-    /** Key code constant: Forward key.
-     * Navigates forward in the history stack.  Complement of {@link #KEYCODE_BACK}. */
+    /**
+     * Key code constant: Forward key.
+     * <p>
+     * Navigates forward in the history stack. Complement of {@link #KEYCODE_BACK}.
+     */
     public static final int KEYCODE_FORWARD         = 125;
     /** Key code constant: Play media key. */
     public static final int KEYCODE_MEDIA_PLAY      = 126;
     /** Key code constant: Pause media key. */
     public static final int KEYCODE_MEDIA_PAUSE     = 127;
-    /** Key code constant: Close media key.
-     * May be used to close a CD tray, for example. */
+    /**
+     * Key code constant: Close media key.
+     * <p>
+     * May be used to close a CD tray, for example.
+     */
     public static final int KEYCODE_MEDIA_CLOSE     = 128;
-    /** Key code constant: Eject media key.
-     * May be used to eject a CD tray, for example. */
+    /**
+     * Key code constant: Eject media key.
+     * <p>
+     * May be used to eject a CD tray, for example.
+     */
     public static final int KEYCODE_MEDIA_EJECT     = 129;
     /** Key code constant: Record media key. */
     public static final int KEYCODE_MEDIA_RECORD    = 130;
@@ -427,9 +578,12 @@ public class KeyEvent extends InputEvent implements Parcelable {
     public static final int KEYCODE_F11             = 141;
     /** Key code constant: F12 key. */
     public static final int KEYCODE_F12             = 142;
-    /** Key code constant: Num Lock key.
+    /**
+     * Key code constant: Num Lock key.
+     * <p>
      * This is the Num Lock key; it is different from {@link #KEYCODE_NUM}.
-     * This key alters the behavior of other keys on the numeric keypad. */
+     * This key alters the behavior of other keys on the numeric keypad.
+     */
     public static final int KEYCODE_NUM_LOCK        = 143;
     /** Key code constant: Numeric keypad '0' key. */
     public static final int KEYCODE_NUMPAD_0        = 144;
@@ -471,136 +625,227 @@ public class KeyEvent extends InputEvent implements Parcelable {
     public static final int KEYCODE_NUMPAD_LEFT_PAREN = 162;
     /** Key code constant: Numeric keypad ')' key. */
     public static final int KEYCODE_NUMPAD_RIGHT_PAREN = 163;
-    /** Key code constant: Volume Mute key.
-     * Mutes the speaker, unlike {@link #KEYCODE_MUTE}.
-     * This key should normally be implemented as a toggle such that the first press
-     * mutes the speaker and the second press restores the original volume. */
+    /**
+     * Key code constant: Volume Mute key.
+     * <p>
+     * Mute key for speaker (unlike {@link #KEYCODE_MUTE}, which is the mute key for the
+     * microphone).
+     * This key should normally be implemented as a toggle such that the first press mutes the
+     * speaker and the second press restores the original volume.
+     */
     public static final int KEYCODE_VOLUME_MUTE     = 164;
-    /** Key code constant: Info key.
-     * Common on TV remotes to show additional information related to what is
-     * currently being viewed. */
+    /**
+     * Key code constant: Info key.
+     * <p>
+     * Common on TV remotes to show additional information related to what is currently
+     * being viewed.
+     */
     public static final int KEYCODE_INFO            = 165;
-    /** Key code constant: Channel up key.
-     * On TV remotes, increments the television channel. */
+    /**
+     * Key code constant: Channel up key.
+     * <p>
+     * On TV remotes, increments the television channel.
+     */
     public static final int KEYCODE_CHANNEL_UP      = 166;
-    /** Key code constant: Channel down key.
-     * On TV remotes, decrements the television channel. */
+    /**
+     * Key code constant: Channel down key.
+     * <p>
+     * On TV remotes, decrements the television channel.
+     */
     public static final int KEYCODE_CHANNEL_DOWN    = 167;
     /** Key code constant: Zoom in key. */
     public static final int KEYCODE_ZOOM_IN         = 168;
     /** Key code constant: Zoom out key. */
     public static final int KEYCODE_ZOOM_OUT        = 169;
-    /** Key code constant: TV key.
-     * On TV remotes, switches to viewing live TV. */
+    /**
+     * Key code constant: TV key.
+     * <p>
+     * On TV remotes, switches to viewing live TV.
+     */
     public static final int KEYCODE_TV              = 170;
-    /** Key code constant: Window key.
+    /**
+     * Key code constant: Window key.
+     * <p>
      * On TV remotes, toggles picture-in-picture mode or other windowing functions.
-     * On Android Wear devices, triggers a display offset. */
+     * On Android Wear devices, triggers a display offset.
+     */
     public static final int KEYCODE_WINDOW          = 171;
-    /** Key code constant: Guide key.
-     * On TV remotes, shows a programming guide. */
+    /**
+     * Key code constant: Guide key.
+     * <p>
+     * On TV remotes, shows a programming guide.
+     */
     public static final int KEYCODE_GUIDE           = 172;
-    /** Key code constant: DVR key.
-     * On some TV remotes, switches to a DVR mode for recorded shows. */
+    /**
+     * Key code constant: DVR key.
+     * <p>
+     * On some TV remotes, switches to a DVR mode for recorded shows.
+     */
     public static final int KEYCODE_DVR             = 173;
-    /** Key code constant: Bookmark key.
-     * On some TV remotes, bookmarks content or web pages. */
+    /**
+     * Key code constant: Bookmark key.
+     * <p>
+     * On some TV remotes, bookmarks content or web pages.
+     */
     public static final int KEYCODE_BOOKMARK        = 174;
-    /** Key code constant: Toggle captions key.
-     * Switches the mode for closed-captioning text, for example during television shows. */
+    /**
+     * Key code constant: Toggle captions key.
+     * <p>
+     * Switches the mode for closed-captioning text, for example during television shows.
+     */
     public static final int KEYCODE_CAPTIONS        = 175;
-    /** Key code constant: Settings key.
-     * Starts the system settings activity. */
+    /**
+     * Key code constant: Settings key.
+     * <p>
+     * Starts the system settings activity.
+     */
     public static final int KEYCODE_SETTINGS        = 176;
-    /** Key code constant: TV power key.
-     * On TV remotes, toggles the power on a television screen. */
+    /**
+     * Key code constant: TV power key.
+     * <p>
+     * On HDMI TV panel devices and Android TV devices that don't support HDMI, toggles the power
+     * state of the device.
+     * On HDMI source devices, toggles the power state of the HDMI-connected TV via HDMI-CEC and
+     * makes the source device follow this power state.
+     */
     public static final int KEYCODE_TV_POWER        = 177;
-    /** Key code constant: TV input key.
-     * On TV remotes, switches the input on a television screen. */
+    /**
+     * Key code constant: TV input key.
+     * <p>
+     * On TV remotes, switches the input on a television screen.
+     */
     public static final int KEYCODE_TV_INPUT        = 178;
-    /** Key code constant: Set-top-box power key.
-     * On TV remotes, toggles the power on an external Set-top-box. */
+    /**
+     * Key code constant: Set-top-box power key.
+     * <p>
+     * On TV remotes, toggles the power on an external Set-top-box.
+     */
     public static final int KEYCODE_STB_POWER       = 179;
-    /** Key code constant: Set-top-box input key.
-     * On TV remotes, switches the input mode on an external Set-top-box. */
+    /**
+     * Key code constant: Set-top-box input key.
+     * <p>
+     * On TV remotes, switches the input mode on an external Set-top-box.
+     */
     public static final int KEYCODE_STB_INPUT       = 180;
-    /** Key code constant: A/V Receiver power key.
-     * On TV remotes, toggles the power on an external A/V Receiver. */
+    /**
+     * Key code constant: A/V Receiver power key.
+     * <p>
+     * On TV remotes, toggles the power on an external A/V Receiver.
+     */
     public static final int KEYCODE_AVR_POWER       = 181;
-    /** Key code constant: A/V Receiver input key.
-     * On TV remotes, switches the input mode on an external A/V Receiver. */
+    /**
+     * Key code constant: A/V Receiver input key.
+     * <p>
+     * On TV remotes, switches the input mode on an external A/V Receiver.
+     */
     public static final int KEYCODE_AVR_INPUT       = 182;
-    /** Key code constant: Red "programmable" key.
-     * On TV remotes, acts as a contextual/programmable key. */
+    /**
+     * Key code constant: Red "programmable" key.
+     * <p>
+     * On TV remotes, acts as a contextual/programmable key.
+     */
     public static final int KEYCODE_PROG_RED        = 183;
-    /** Key code constant: Green "programmable" key.
-     * On TV remotes, actsas a contextual/programmable key. */
+    /**
+     * Key code constant: Green "programmable" key.
+     * <p>
+     * On TV remotes, acts as a contextual/programmable key.
+     */
     public static final int KEYCODE_PROG_GREEN      = 184;
-    /** Key code constant: Yellow "programmable" key.
-     * On TV remotes, acts as a contextual/programmable key. */
+    /**
+     * Key code constant: Yellow "programmable" key.
+     * <p>
+     * On TV remotes, acts as a contextual/programmable key.
+     */
     public static final int KEYCODE_PROG_YELLOW     = 185;
-    /** Key code constant: Blue "programmable" key.
-     * On TV remotes, acts as a contextual/programmable key. */
+    /**
+     * Key code constant: Blue "programmable" key.
+     * <p>
+     * On TV remotes, acts as a contextual/programmable key.
+     */
     public static final int KEYCODE_PROG_BLUE       = 186;
-    /** Key code constant: App switch key.
-     * Should bring up the application switcher dialog. */
+    /**
+     * Key code constant: App switch key.
+     * <p>
+     * Should bring up the application switcher dialog.
+     */
     public static final int KEYCODE_APP_SWITCH      = 187;
-    /** Key code constant: Generic Game Pad Button #1.*/
+    /** Key code constant: Generic Game Pad Button #1. */
     public static final int KEYCODE_BUTTON_1        = 188;
-    /** Key code constant: Generic Game Pad Button #2.*/
+    /** Key code constant: Generic Game Pad Button #2. */
     public static final int KEYCODE_BUTTON_2        = 189;
-    /** Key code constant: Generic Game Pad Button #3.*/
+    /** Key code constant: Generic Game Pad Button #3. */
     public static final int KEYCODE_BUTTON_3        = 190;
-    /** Key code constant: Generic Game Pad Button #4.*/
+    /** Key code constant: Generic Game Pad Button #4. */
     public static final int KEYCODE_BUTTON_4        = 191;
-    /** Key code constant: Generic Game Pad Button #5.*/
+    /** Key code constant: Generic Game Pad Button #5. */
     public static final int KEYCODE_BUTTON_5        = 192;
-    /** Key code constant: Generic Game Pad Button #6.*/
+    /** Key code constant: Generic Game Pad Button #6. */
     public static final int KEYCODE_BUTTON_6        = 193;
-    /** Key code constant: Generic Game Pad Button #7.*/
+    /** Key code constant: Generic Game Pad Button #7. */
     public static final int KEYCODE_BUTTON_7        = 194;
-    /** Key code constant: Generic Game Pad Button #8.*/
+    /** Key code constant: Generic Game Pad Button #8. */
     public static final int KEYCODE_BUTTON_8        = 195;
-    /** Key code constant: Generic Game Pad Button #9.*/
+    /** Key code constant: Generic Game Pad Button #9. */
     public static final int KEYCODE_BUTTON_9        = 196;
-    /** Key code constant: Generic Game Pad Button #10.*/
+    /** Key code constant: Generic Game Pad Button #10. */
     public static final int KEYCODE_BUTTON_10       = 197;
-    /** Key code constant: Generic Game Pad Button #11.*/
+    /** Key code constant: Generic Game Pad Button #11. */
     public static final int KEYCODE_BUTTON_11       = 198;
-    /** Key code constant: Generic Game Pad Button #12.*/
+    /** Key code constant: Generic Game Pad Button #12. */
     public static final int KEYCODE_BUTTON_12       = 199;
-    /** Key code constant: Generic Game Pad Button #13.*/
+    /** Key code constant: Generic Game Pad Button #13. */
     public static final int KEYCODE_BUTTON_13       = 200;
-    /** Key code constant: Generic Game Pad Button #14.*/
+    /** Key code constant: Generic Game Pad Button #14. */
     public static final int KEYCODE_BUTTON_14       = 201;
-    /** Key code constant: Generic Game Pad Button #15.*/
+    /** Key code constant: Generic Game Pad Button #15. */
     public static final int KEYCODE_BUTTON_15       = 202;
-    /** Key code constant: Generic Game Pad Button #16.*/
+    /** Key code constant: Generic Game Pad Button #16. */
     public static final int KEYCODE_BUTTON_16       = 203;
-    /** Key code constant: Language Switch key.
-     * Toggles the current input language such as switching between English and Japanese on
-     * a QWERTY keyboard.  On some devices, the same function may be performed by
-     * pressing Shift+Spacebar. */
+    /**
+     * Key code constant: Language Switch key.
+     * <p>
+     * Toggles the current input language such as switching between English and Japanese on a
+     * QWERTY keyboard.
+     * On some devices, the same function may be performed by pressing <kbd>Shift + Spacebar</kbd>.
+     */
     public static final int KEYCODE_LANGUAGE_SWITCH = 204;
-    /** Key code constant: Manner Mode key.
-     * Toggles silent or vibrate mode on and off to make the device behave more politely
-     * in certain settings such as on a crowded train.  On some devices, the key may only
-     * operate when long-pressed. */
+    /**
+     * Key code constant: Manner Mode key.
+     * <p>
+     * Toggles silent or vibrate mode on and off to make the device behave more politely in certain
+     * settings such as on a crowded train.
+     * On some devices, the key may only operate when long-pressed.
+     */
     public static final int KEYCODE_MANNER_MODE     = 205;
-    /** Key code constant: 3D Mode key.
-     * Toggles the display between 2D and 3D mode. */
+    /**
+     * Key code constant: 3D Mode key.
+     * <p>
+     * Toggles the display between 2D and 3D mode.
+     */
     public static final int KEYCODE_3D_MODE         = 206;
-    /** Key code constant: Contacts special function key.
-     * Used to launch an address book application. */
+    /**
+     * Key code constant: Contacts special function key.
+     * <p>
+     * Used to launch an address book application.
+     */
     public static final int KEYCODE_CONTACTS        = 207;
-    /** Key code constant: Calendar special function key.
-     * Used to launch a calendar application. */
+    /**
+     * Key code constant: Calendar special function key.
+     * <p>
+     * Used to launch a calendar application.
+     */
     public static final int KEYCODE_CALENDAR        = 208;
-    /** Key code constant: Music special function key.
-     * Used to launch a music player application. */
+    /**
+     * Key code constant: Music special function key.
+     * <p>
+     * Used to launch a music player application.
+     */
     public static final int KEYCODE_MUSIC           = 209;
-    /** Key code constant: Calculator special function key.
-     * Used to launch a calculator application. */
+    /**
+     * Key code constant: Calculator special function key.
+     * <p>
+     * Used to launch a calculator application.
+     */
     public static final int KEYCODE_CALCULATOR      = 210;
     /** Key code constant: Japanese full-width / half-width key. */
     public static final int KEYCODE_ZENKAKU_HANKAKU = 211;
@@ -618,177 +863,316 @@ public class KeyEvent extends InputEvent implements Parcelable {
     public static final int KEYCODE_RO              = 217;
     /** Key code constant: Japanese kana key. */
     public static final int KEYCODE_KANA            = 218;
-    /** Key code constant: Assist key.
-     * Launches the global assist activity.  Not delivered to applications. */
+    /**
+     * Key code constant: Assist key.
+     * <p>
+     * Launches the global assist activity.
+     * Not delivered to applications.
+     */
     public static final int KEYCODE_ASSIST          = 219;
-    /** Key code constant: Brightness Down key.
-     * Adjusts the screen brightness down. */
+    /**
+     * Key code constant: Brightness Down key.
+     * <p>
+     * Adjusts the screen brightness down.
+     */
     public static final int KEYCODE_BRIGHTNESS_DOWN = 220;
-    /** Key code constant: Brightness Up key.
-     * Adjusts the screen brightness up. */
+    /**
+     * Key code constant: Brightness Up key.
+     * <p>
+     * Adjusts the screen brightness up.
+     */
     public static final int KEYCODE_BRIGHTNESS_UP   = 221;
-    /** Key code constant: Audio Track key.
-     * Switches the audio tracks. */
+    /**
+     * Key code constant: Audio Track key.
+     * <p>
+     * Switches the audio tracks.
+     */
     public static final int KEYCODE_MEDIA_AUDIO_TRACK = 222;
-    /** Key code constant: Sleep key.
-     * Puts the device to sleep.  Behaves somewhat like {@link #KEYCODE_POWER} but it
-     * has no effect if the device is already asleep. */
+    /**
+     * Key code constant: Sleep key.
+     * <p>
+     * Puts the device to sleep.
+     * Behaves somewhat like {@link #KEYCODE_POWER} but it has no effect if the device is
+     * already asleep.
+     */
     public static final int KEYCODE_SLEEP           = 223;
-    /** Key code constant: Wakeup key.
-     * Wakes up the device.  Behaves somewhat like {@link #KEYCODE_POWER} but it
-     * has no effect if the device is already awake. */
+    /**
+     * Key code constant: Wakeup key.
+     * <p>
+     * Wakes up the device.
+     * Behaves somewhat like {@link #KEYCODE_POWER} but it has no effect if the device is
+     * already awake.
+     */
     public static final int KEYCODE_WAKEUP          = 224;
-    /** Key code constant: Pairing key.
-     * Initiates peripheral pairing mode. Useful for pairing remote control
-     * devices or game controllers, especially if no other input mode is
-     * available. */
+    /**
+     * Key code constant: Pairing key.
+     * <p>
+     * Initiates peripheral pairing mode.
+     * Useful for pairing remote control devices or game controllers, especially if no other
+     * input mode is available.
+     */
     public static final int KEYCODE_PAIRING         = 225;
-    /** Key code constant: Media Top Menu key.
-     * Goes to the top of media menu. */
+    /**
+     * Key code constant: Media Top Menu key.
+     * <p>
+     * Goes to the top of media menu.
+     */
     public static final int KEYCODE_MEDIA_TOP_MENU  = 226;
     /** Key code constant: '11' key. */
     public static final int KEYCODE_11              = 227;
     /** Key code constant: '12' key. */
     public static final int KEYCODE_12              = 228;
-    /** Key code constant: Last Channel key.
-     * Goes to the last viewed channel. */
+    /**
+     * Key code constant: Last Channel key.
+     * <p>
+     * Goes to the last viewed channel.
+     */
     public static final int KEYCODE_LAST_CHANNEL    = 229;
-    /** Key code constant: TV data service key.
-     * Displays data services like weather, sports. */
+    /**
+     * Key code constant: TV data service key.
+     * <p>
+     * Displays data services like weather, sports.
+     */
     public static final int KEYCODE_TV_DATA_SERVICE = 230;
-    /** Key code constant: Voice Assist key.
-     * Launches the global voice assist activity. Not delivered to applications. */
+    /**
+     * Key code constant: Voice Assist key.
+     * <p>
+     * Launches the global voice assist activity.
+     * Not delivered to applications.
+     */
     public static final int KEYCODE_VOICE_ASSIST = 231;
-    /** Key code constant: Radio key.
-     * Toggles TV service / Radio service. */
+    /**
+     * Key code constant: Radio key.
+     * <p>
+     * Toggles TV service / Radio service.
+     */
     public static final int KEYCODE_TV_RADIO_SERVICE = 232;
-    /** Key code constant: Teletext key.
-     * Displays Teletext service. */
+    /**
+     * Key code constant: Teletext key.
+     * <p>
+     * Displays Teletext service.
+     */
     public static final int KEYCODE_TV_TELETEXT = 233;
-    /** Key code constant: Number entry key.
-     * Initiates to enter multi-digit channel nubmber when each digit key is assigned
-     * for selecting separate channel. Corresponds to Number Entry Mode (0x1D) of CEC
-     * User Control Code. */
+    /**
+     * Key code constant: Number entry key.
+     * <p>
+     * Initiates to enter multi-digit channel number when each digit key is assigned for selecting
+     * a separate channel.
+     * Corresponds to Number Entry Mode (0x1D) of CEC User Control Code.
+     */
     public static final int KEYCODE_TV_NUMBER_ENTRY = 234;
-    /** Key code constant: Analog Terrestrial key.
-     * Switches to analog terrestrial broadcast service. */
+    /**
+     * Key code constant: Analog Terrestrial key.
+     * <p>
+     * Switches to analog terrestrial broadcast service.
+     */
     public static final int KEYCODE_TV_TERRESTRIAL_ANALOG = 235;
-    /** Key code constant: Digital Terrestrial key.
-     * Switches to digital terrestrial broadcast service. */
+    /**
+     * Key code constant: Digital Terrestrial key.
+     * <p>
+     * Switches to digital terrestrial broadcast service.
+     */
     public static final int KEYCODE_TV_TERRESTRIAL_DIGITAL = 236;
-    /** Key code constant: Satellite key.
-     * Switches to digital satellite broadcast service. */
+    /**
+     * Key code constant: Satellite key.
+     * <p>
+     * Switches to digital satellite broadcast service.
+     */
     public static final int KEYCODE_TV_SATELLITE = 237;
-    /** Key code constant: BS key.
-     * Switches to BS digital satellite broadcasting service available in Japan. */
+    /**
+     * Key code constant: BS key.
+     * <p>
+     * Switches to BS digital satellite broadcasting service available in Japan.
+     */
     public static final int KEYCODE_TV_SATELLITE_BS = 238;
-    /** Key code constant: CS key.
-     * Switches to CS digital satellite broadcasting service available in Japan. */
+    /**
+     * Key code constant: CS key.
+     * <p>
+     * Switches to CS digital satellite broadcasting service available in Japan.
+     */
     public static final int KEYCODE_TV_SATELLITE_CS = 239;
-    /** Key code constant: BS/CS key.
-     * Toggles between BS and CS digital satellite services. */
+    /**
+     * Key code constant: BS/CS key.
+     * <p>
+     * Toggles between BS and CS digital satellite services.
+     */
     public static final int KEYCODE_TV_SATELLITE_SERVICE = 240;
-    /** Key code constant: Toggle Network key.
-     * Toggles selecting broacast services. */
+    /**
+     * Key code constant: Toggle Network key.
+     * <p>
+     * Toggles selecting broadcast services.
+     */
     public static final int KEYCODE_TV_NETWORK = 241;
-    /** Key code constant: Antenna/Cable key.
-     * Toggles broadcast input source between antenna and cable. */
+    /**
+     * Key code constant: Antenna/Cable key.
+     * <p>
+     * Toggles broadcast input source between antenna and cable.
+     */
     public static final int KEYCODE_TV_ANTENNA_CABLE = 242;
-    /** Key code constant: HDMI #1 key.
-     * Switches to HDMI input #1. */
+    /**
+     * Key code constant: HDMI #1 key.
+     * <p>
+     * Switches to HDMI input #1.
+     */
     public static final int KEYCODE_TV_INPUT_HDMI_1 = 243;
-    /** Key code constant: HDMI #2 key.
-     * Switches to HDMI input #2. */
+    /**
+     * Key code constant: HDMI #2 key.
+     * <p>
+     * Switches to HDMI input #2.
+     */
     public static final int KEYCODE_TV_INPUT_HDMI_2 = 244;
-    /** Key code constant: HDMI #3 key.
-     * Switches to HDMI input #3. */
+    /**
+     * Key code constant: HDMI #3 key.
+     * <p>
+     * Switches to HDMI input #3.
+     */
     public static final int KEYCODE_TV_INPUT_HDMI_3 = 245;
-    /** Key code constant: HDMI #4 key.
-     * Switches to HDMI input #4. */
+    /**
+     * Key code constant: HDMI #4 key.
+     * <p>
+     * Switches to HDMI input #4.
+     */
     public static final int KEYCODE_TV_INPUT_HDMI_4 = 246;
-    /** Key code constant: Composite #1 key.
-     * Switches to composite video input #1. */
+    /**
+     * Key code constant: Composite #1 key.
+     * <p>
+     * Switches to composite video input #1.
+     */
     public static final int KEYCODE_TV_INPUT_COMPOSITE_1 = 247;
-    /** Key code constant: Composite #2 key.
-     * Switches to composite video input #2. */
+    /**
+     * Key code constant: Composite #2 key.
+     * <p>
+     * Switches to composite video input #2.
+     */
     public static final int KEYCODE_TV_INPUT_COMPOSITE_2 = 248;
-    /** Key code constant: Component #1 key.
-     * Switches to component video input #1. */
+    /**
+     * Key code constant: Component #1 key.
+     * <p>
+     * Switches to component video input #1.
+     */
     public static final int KEYCODE_TV_INPUT_COMPONENT_1 = 249;
-    /** Key code constant: Component #2 key.
-     * Switches to component video input #2. */
+    /**
+     * Key code constant: Component #2 key.
+     * <p>
+     * Switches to component video input #2.
+     */
     public static final int KEYCODE_TV_INPUT_COMPONENT_2 = 250;
-    /** Key code constant: VGA #1 key.
-     * Switches to VGA (analog RGB) input #1. */
+    /**
+     * Key code constant: VGA #1 key.
+     * <p>
+     * Switches to VGA (analog RGB) input #1.
+     */
     public static final int KEYCODE_TV_INPUT_VGA_1 = 251;
-    /** Key code constant: Audio description key.
-     * Toggles audio description off / on. */
+    /**
+     * Key code constant: Audio description key.
+     * <p>
+     * Toggles audio description off / on.
+     */
     public static final int KEYCODE_TV_AUDIO_DESCRIPTION = 252;
-    /** Key code constant: Audio description mixing volume up key.
-     * Louden audio description volume as compared with normal audio volume. */
+    /**
+     * Key code constant: Audio description mixing volume up key.
+     * <p>
+     * Louden audio description volume as compared with normal audio volume.
+     */
     public static final int KEYCODE_TV_AUDIO_DESCRIPTION_MIX_UP = 253;
-    /** Key code constant: Audio description mixing volume down key.
-     * Lessen audio description volume as compared with normal audio volume. */
+    /**
+     * Key code constant: Audio description mixing volume down key.
+     * <p>
+     * Lessen audio description volume as compared with normal audio volume.
+     */
     public static final int KEYCODE_TV_AUDIO_DESCRIPTION_MIX_DOWN = 254;
-    /** Key code constant: Zoom mode key.
-     * Changes Zoom mode (Normal, Full, Zoom, Wide-zoom, etc.) */
+    /**
+     * Key code constant: Zoom mode key.
+     * <p>
+     * Changes Zoom mode (Normal, Full, Zoom, Wide-zoom, etc.).
+     */
     public static final int KEYCODE_TV_ZOOM_MODE = 255;
-    /** Key code constant: Contents menu key.
-     * Goes to the title list. Corresponds to Contents Menu (0x0B) of CEC User Control
-     * Code */
+    /**
+     * Key code constant: Contents menu key.
+     * <p>
+     * Goes to the title list.
+     * Corresponds to Contents Menu (0x0B) of CEC User Control Code.
+     */
     public static final int KEYCODE_TV_CONTENTS_MENU = 256;
-    /** Key code constant: Media context menu key.
-     * Goes to the context menu of media contents. Corresponds to Media Context-sensitive
-     * Menu (0x11) of CEC User Control Code. */
+    /**
+     * Key code constant: Media context menu key.
+     * <p>
+     * Goes to the context menu of media contents.
+     * Corresponds to Media Context-sensitive Menu (0x11) of CEC User Control Code.
+     */
     public static final int KEYCODE_TV_MEDIA_CONTEXT_MENU = 257;
-    /** Key code constant: Timer programming key.
-     * Goes to the timer recording menu. Corresponds to Timer Programming (0x54) of
-     * CEC User Control Code. */
+    /**
+     * Key code constant: Timer programming key.
+     * <p>
+     * Goes to the timer recording menu.
+     * Corresponds to Timer Programming (0x54) of CEC User Control Code.
+     */
     public static final int KEYCODE_TV_TIMER_PROGRAMMING = 258;
     /** Key code constant: Help key. */
     public static final int KEYCODE_HELP = 259;
-    /** Key code constant: Navigate to previous key.
-     * Goes backward by one item in an ordered collection of items. */
+    /**
+     * Key code constant: Navigate to previous key.
+     * <p>
+     * Goes backward by one item in an ordered collection of items.
+     */
     public static final int KEYCODE_NAVIGATE_PREVIOUS = 260;
-    /** Key code constant: Navigate to next key.
-     * Advances to the next item in an ordered collection of items. */
+    /**
+     * Key code constant: Navigate to next key.
+     * <p>
+     * Advances to the next item in an ordered collection of items.
+     */
     public static final int KEYCODE_NAVIGATE_NEXT   = 261;
-    /** Key code constant: Navigate in key.
-     * Activates the item that currently has focus or expands to the next level of a navigation
-     * hierarchy. */
+    /**
+     * Key code constant: Navigate in key.
+     * <p>
+     * Activates the item that currently has focus or expands to the next level of a
+     * navigation hierarchy.
+     */
     public static final int KEYCODE_NAVIGATE_IN     = 262;
-    /** Key code constant: Navigate out key.
-     * Backs out one level of a navigation hierarchy or collapses the item that currently has
-     * focus. */
+    /**
+     * Key code constant: Navigate out key.
+     * <p>
+     * Backs out one level of a navigation hierarchy or collapses the item that currently
+     * has focus.
+     */
     public static final int KEYCODE_NAVIGATE_OUT    = 263;
-    /** Key code constant: Primary stem key for Wear
-     * Main power/reset button on watch. */
+    /**
+     * Key code constant: Primary stem key for Wear.
+     * <p>
+     * Main power/reset button on watch.
+     */
     public static final int KEYCODE_STEM_PRIMARY = 264;
-    /** Key code constant: Generic stem key 1 for Wear */
+    /** Key code constant: Generic stem key 1 for Wear. */
     public static final int KEYCODE_STEM_1 = 265;
-    /** Key code constant: Generic stem key 2 for Wear */
+    /** Key code constant: Generic stem key 2 for Wear. */
     public static final int KEYCODE_STEM_2 = 266;
-    /** Key code constant: Generic stem key 3 for Wear */
+    /** Key code constant: Generic stem key 3 for Wear. */
     public static final int KEYCODE_STEM_3 = 267;
-    /** Key code constant: Directional Pad Up-Left */
+    /** Key code constant: Directional Pad Up-Left. */
     public static final int KEYCODE_DPAD_UP_LEFT    = 268;
-    /** Key code constant: Directional Pad Down-Left */
+    /** Key code constant: Directional Pad Down-Left. */
     public static final int KEYCODE_DPAD_DOWN_LEFT  = 269;
-    /** Key code constant: Directional Pad Up-Right */
+    /** Key code constant: Directional Pad Up-Right. */
     public static final int KEYCODE_DPAD_UP_RIGHT   = 270;
-    /** Key code constant: Directional Pad Down-Right */
+    /** Key code constant: Directional Pad Down-Right. */
     public static final int KEYCODE_DPAD_DOWN_RIGHT = 271;
     /** Key code constant: Skip forward media key. */
     public static final int KEYCODE_MEDIA_SKIP_FORWARD = 272;
     /** Key code constant: Skip backward media key. */
     public static final int KEYCODE_MEDIA_SKIP_BACKWARD = 273;
-    /** Key code constant: Step forward media key.
-     * Steps media forward, one frame at a time. */
+    /**
+     * Key code constant: Step forward media key.
+     * <p>
+     * Steps media forward, one frame at a time.
+     */
     public static final int KEYCODE_MEDIA_STEP_FORWARD = 274;
-    /** Key code constant: Step backward media key.
-     * Steps media backward, one frame at a time. */
+    /**
+     * Key code constant: Step backward media key.
+     * <p>
+     * Steps media backward, one frame at a time.
+     */
     public static final int KEYCODE_MEDIA_STEP_BACKWARD = 275;
-    /** Key code constant: put device to sleep unless a wakelock is held. */
+    /** Key code constant: Put device to sleep unless a wakelock is held. */
     public static final int KEYCODE_SOFT_SLEEP = 276;
     /** Key code constant: Cut key. */
     public static final int KEYCODE_CUT = 277;
@@ -796,20 +1180,571 @@ public class KeyEvent extends InputEvent implements Parcelable {
     public static final int KEYCODE_COPY = 278;
     /** Key code constant: Paste key. */
     public static final int KEYCODE_PASTE = 279;
-    /** Key code constant: Consumed by the system for navigation up */
+    /** Key code constant: Consumed by the system for navigation up. */
     public static final int KEYCODE_SYSTEM_NAVIGATION_UP = 280;
-    /** Key code constant: Consumed by the system for navigation down */
+    /** Key code constant: Consumed by the system for navigation down. */
     public static final int KEYCODE_SYSTEM_NAVIGATION_DOWN = 281;
-    /** Key code constant: Consumed by the system for navigation left*/
+    /** Key code constant: Consumed by the system for navigation left. */
     public static final int KEYCODE_SYSTEM_NAVIGATION_LEFT = 282;
-    /** Key code constant: Consumed by the system for navigation right */
+    /** Key code constant: Consumed by the system for navigation right. */
     public static final int KEYCODE_SYSTEM_NAVIGATION_RIGHT = 283;
-    /** Key code constant: Show all apps */
+    /** Key code constant: Show all apps. */
     public static final int KEYCODE_ALL_APPS = 284;
     /** Key code constant: Refresh key. */
     public static final int KEYCODE_REFRESH = 285;
+    /**
+     * Key code constant: Thumbs up key.
+     * <p>
+     * Apps can use this to let user upvote content.
+     */
+    public static final int KEYCODE_THUMBS_UP = 286;
+    /**
+     * Key code constant: Thumbs down key.
+     * <p>
+     * Apps can use this to let user downvote content.
+     */
+    public static final int KEYCODE_THUMBS_DOWN = 287;
+    /**
+     * Key code constant: Used to switch current {@link android.accounts.Account} that is
+     * consuming content.
+     * <p>
+     * May be consumed by system to set account globally.
+     */
+    public static final int KEYCODE_PROFILE_SWITCH = 288;
+    /** Key code constant: Video Application key #1. */
+    public static final int KEYCODE_VIDEO_APP_1 = 289;
+    /** Key code constant: Video Application key #2. */
+    public static final int KEYCODE_VIDEO_APP_2 = 290;
+    /** Key code constant: Video Application key #3. */
+    public static final int KEYCODE_VIDEO_APP_3 = 291;
+    /** Key code constant: Video Application key #4. */
+    public static final int KEYCODE_VIDEO_APP_4 = 292;
+    /** Key code constant: Video Application key #5. */
+    public static final int KEYCODE_VIDEO_APP_5 = 293;
+    /** Key code constant: Video Application key #6. */
+    public static final int KEYCODE_VIDEO_APP_6 = 294;
+    /** Key code constant: Video Application key #7. */
+    public static final int KEYCODE_VIDEO_APP_7 = 295;
+    /** Key code constant: Video Application key #8. */
+    public static final int KEYCODE_VIDEO_APP_8 = 296;
+    /** Key code constant: Featured Application key #1. */
+    public static final int KEYCODE_FEATURED_APP_1 = 297;
+    /** Key code constant: Featured Application key #2. */
+    public static final int KEYCODE_FEATURED_APP_2 = 298;
+    /** Key code constant: Featured Application key #3. */
+    public static final int KEYCODE_FEATURED_APP_3 = 299;
+    /** Key code constant: Featured Application key #4. */
+    public static final int KEYCODE_FEATURED_APP_4 = 300;
+    /** Key code constant: Demo Application key #1. */
+    public static final int KEYCODE_DEMO_APP_1 = 301;
+    /** Key code constant: Demo Application key #2. */
+    public static final int KEYCODE_DEMO_APP_2 = 302;
+    /** Key code constant: Demo Application key #3. */
+    public static final int KEYCODE_DEMO_APP_3 = 303;
+    /** Key code constant: Demo Application key #4. */
+    public static final int KEYCODE_DEMO_APP_4 = 304;
+    /** Key code constant: Keyboard backlight down. */
+    public static final int KEYCODE_KEYBOARD_BACKLIGHT_DOWN = 305;
+    /** Key code constant: Keyboard backlight up. */
+    public static final int KEYCODE_KEYBOARD_BACKLIGHT_UP = 306;
+    /** Key code constant: Keyboard backlight toggle. */
+    public static final int KEYCODE_KEYBOARD_BACKLIGHT_TOGGLE = 307;
+    /**
+     * Key code constant: The primary button on the barrel of a stylus.
+     * <p>
+     * This is usually the button closest to the tip of the stylus.
+     */
+    public static final int KEYCODE_STYLUS_BUTTON_PRIMARY = 308;
+    /**
+     * Key code constant: The secondary button on the barrel of a stylus.
+     * <p>
+     * This is usually the second button from the tip of the stylus.
+     */
+    public static final int KEYCODE_STYLUS_BUTTON_SECONDARY = 309;
+    /**
+     * Key code constant: The tertiary button on the barrel of a stylus.
+     * <p>
+     * This is usually the third button from the tip of the stylus.
+     */
+    public static final int KEYCODE_STYLUS_BUTTON_TERTIARY = 310;
+    /**
+     * Key code constant: A button on the tail end of a stylus.
+     * <p>
+     * The use of this button does not usually correspond to the function of an eraser.
+     */
+    public static final int KEYCODE_STYLUS_BUTTON_TAIL = 311;
+    /**
+     * Key code constant: To open recent apps view (a.k.a. Overview).
+     * <p>
+     * This key is handled by the framework and is never delivered to applications.
+     */
+    public static final int KEYCODE_RECENT_APPS = 312;
+    /**
+     * Key code constant: A button whose usage can be customized by the user through the system.
+     * <p>
+     * User customizable key #1.
+     */
+    public static final int KEYCODE_MACRO_1 = 313;
+    /**
+     * Key code constant: A button whose usage can be customized by the user through the system.
+     * <p>
+     * User customizable key #2.
+     */
+    public static final int KEYCODE_MACRO_2 = 314;
+    /**
+     * Key code constant: A button whose usage can be customized by the user through the system.
+     * <p>
+     * User customizable key #3.
+     */
+    public static final int KEYCODE_MACRO_3 = 315;
+    /**
+     * Key code constant: A button whose usage can be customized by the user through the system.
+     * <p>
+     * User customizable key #4.
+     */
+    public static final int KEYCODE_MACRO_4 = 316;
+    /** Key code constant: To open emoji picker. */
+    public static final int KEYCODE_EMOJI_PICKER = 317;
+    /**
+     * Key code constant: To take a screenshot.
+     * <p>
+     * This key is fully handled by the framework and will not be sent to the foreground app,
+     * unlike {@link #KEYCODE_SYSRQ} which is sent to the app first and only if the app doesn't
+     * handle it, the framework handles it (to take a screenshot).
+     */
+    public static final int KEYCODE_SCREENSHOT = 318;
+    /** Key code constant: To start dictate to an input field */
+    public static final int KEYCODE_DICTATE = 319;
+    /**
+     * Key code constant: AC New.
+     * <p>
+     * e.g. To create a new instance of a window, open a new tab, etc.
+     */
+    public static final int KEYCODE_NEW = 320;
+    /**
+     * Key code constant: AC Close.
+     * <p>
+     * e.g. To close current instance of the application window, close the current tab, etc.
+     */
+    public static final int KEYCODE_CLOSE = 321;
+    /** Key code constant: To toggle 'Do Not Disturb' mode. */
+    public static final int KEYCODE_DO_NOT_DISTURB = 322;
+    /** Key code constant: To print. */
+    public static final int KEYCODE_PRINT = 323;
+    /** Key code constant: To lock the screen. */
+    public static final int KEYCODE_LOCK = 324;
+    /** Key code constant: To toggle fullscreen mode (on the current application). */
+    public static final int KEYCODE_FULLSCREEN = 325;
+    /** Key code constant: F13 key. */
+    public static final int KEYCODE_F13 = 326;
+    /** Key code constant: F14 key. */
+    public static final int KEYCODE_F14 = 327;
+    /** Key code constant: F15 key. */
+    public static final int KEYCODE_F15 = 328;
+    /** Key code constant: F16 key. */
+    public static final int KEYCODE_F16 = 329;
+    /** Key code constant: F17 key. */
+    public static final int KEYCODE_F17 = 330;
+    /** Key code constant: F18 key. */
+    public static final int KEYCODE_F18 = 331;
+    /** Key code constant: F19 key. */
+    public static final int KEYCODE_F19 = 332;
+    /** Key code constant: F20 key. */
+    public static final int KEYCODE_F20 = 333;
+    /** Key code constant: F21 key. */
+    public static final int KEYCODE_F21 = 334;
+    /** Key code constant: F22 key. */
+    public static final int KEYCODE_F22 = 335;
+    /** Key code constant: F23 key. */
+    public static final int KEYCODE_F23 = 336;
+    /** Key code constant: F24 key. */
+    public static final int KEYCODE_F24 = 337;
+    /**
+     * Key code constant: System Accessibility key.
+     * <p>
+     * Introduced by HUTRR116, toggles the system bound accessibility UI/command
+     * (i.e. invoke system-specific accessibility UI or user-customized accessibility
+     * feature). Some example usages could be to toggle Talkback or toggle display
+     * color inversion. Applications will not receive this keycode.
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_NEW_26Q2_KEYCODES)
+    public static final int KEYCODE_ACCESSIBILITY = 338;
+    /** Key code constant: Contextual Search key.
+     * <p>
+     * Introduced by HUTRR119, invokes an AI agent to perform an action on the
+     * content currently selected by the user (e.g., highlighted text, active
+     * image, or selected file) or invoke a selection experience. Often referred
+     * to as "Select to Search" or "Summarize Selection."
+     *
+     * This key is fully handled by the framework and will not be sent to the
+     * foreground app.
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_NEW_26Q2_KEYCODES)
+    public static final int KEYCODE_CONTEXTUAL_SEARCH = 339;
+    /**
+     * Key code constant: Contextual Insert key.
+     * <p>
+     * Introduced by HUTRR119, triggers a contextual overlay that enables the
+     * user to search, retrieve, and generate content for immediate insertion
+     * into the active focused element.
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_NEW_26Q2_KEYCODES)
+    public static final int KEYCODE_CONTEXTUAL_INSERT = 340;
 
-    private static final int LAST_KEYCODE = KEYCODE_REFRESH;
+    /**
+     * Integer value of the last KEYCODE. Increases as new keycodes are added to KeyEvent.
+     * @hide
+     */
+    @TestApi
+    @SuppressWarnings("FlaggedApi")
+    public static final int LAST_KEYCODE = KEYCODE_CONTEXTUAL_INSERT;
+
+    /** @hide */
+    @IntDef(prefix = {"KEYCODE_"}, value = {
+            KEYCODE_UNKNOWN,
+            KEYCODE_SOFT_LEFT,
+            KEYCODE_SOFT_RIGHT,
+            KEYCODE_HOME,
+            KEYCODE_BACK,
+            KEYCODE_CALL,
+            KEYCODE_ENDCALL,
+            KEYCODE_0,
+            KEYCODE_1,
+            KEYCODE_2,
+            KEYCODE_3,
+            KEYCODE_4,
+            KEYCODE_5,
+            KEYCODE_6,
+            KEYCODE_7,
+            KEYCODE_8,
+            KEYCODE_9,
+            KEYCODE_STAR,
+            KEYCODE_POUND,
+            KEYCODE_DPAD_UP,
+            KEYCODE_DPAD_DOWN,
+            KEYCODE_DPAD_LEFT,
+            KEYCODE_DPAD_RIGHT,
+            KEYCODE_DPAD_CENTER,
+            KEYCODE_VOLUME_UP,
+            KEYCODE_VOLUME_DOWN,
+            KEYCODE_POWER,
+            KEYCODE_CAMERA,
+            KEYCODE_CLEAR,
+            KEYCODE_A,
+            KEYCODE_B,
+            KEYCODE_C,
+            KEYCODE_D,
+            KEYCODE_E,
+            KEYCODE_F,
+            KEYCODE_G,
+            KEYCODE_H,
+            KEYCODE_I,
+            KEYCODE_J,
+            KEYCODE_K,
+            KEYCODE_L,
+            KEYCODE_M,
+            KEYCODE_N,
+            KEYCODE_O,
+            KEYCODE_P,
+            KEYCODE_Q,
+            KEYCODE_R,
+            KEYCODE_S,
+            KEYCODE_T,
+            KEYCODE_U,
+            KEYCODE_V,
+            KEYCODE_W,
+            KEYCODE_X,
+            KEYCODE_Y,
+            KEYCODE_Z,
+            KEYCODE_COMMA,
+            KEYCODE_PERIOD,
+            KEYCODE_ALT_LEFT,
+            KEYCODE_ALT_RIGHT,
+            KEYCODE_SHIFT_LEFT,
+            KEYCODE_SHIFT_RIGHT,
+            KEYCODE_TAB,
+            KEYCODE_SPACE,
+            KEYCODE_SYM,
+            KEYCODE_EXPLORER,
+            KEYCODE_ENVELOPE,
+            KEYCODE_ENTER,
+            KEYCODE_DEL,
+            KEYCODE_GRAVE,
+            KEYCODE_MINUS,
+            KEYCODE_EQUALS,
+            KEYCODE_LEFT_BRACKET,
+            KEYCODE_RIGHT_BRACKET,
+            KEYCODE_BACKSLASH,
+            KEYCODE_SEMICOLON,
+            KEYCODE_APOSTROPHE,
+            KEYCODE_SLASH,
+            KEYCODE_AT,
+            KEYCODE_NUM,
+            KEYCODE_HEADSETHOOK,
+            KEYCODE_FOCUS,
+            KEYCODE_PLUS,
+            KEYCODE_MENU,
+            KEYCODE_NOTIFICATION,
+            KEYCODE_SEARCH,
+            KEYCODE_MEDIA_PLAY_PAUSE,
+            KEYCODE_MEDIA_STOP,
+            KEYCODE_MEDIA_NEXT,
+            KEYCODE_MEDIA_PREVIOUS,
+            KEYCODE_MEDIA_REWIND,
+            KEYCODE_MEDIA_FAST_FORWARD,
+            KEYCODE_MUTE,
+            KEYCODE_PAGE_UP,
+            KEYCODE_PAGE_DOWN,
+            KEYCODE_PICTSYMBOLS,
+            KEYCODE_SWITCH_CHARSET,
+            KEYCODE_BUTTON_A,
+            KEYCODE_BUTTON_B,
+            KEYCODE_BUTTON_C,
+            KEYCODE_BUTTON_X,
+            KEYCODE_BUTTON_Y,
+            KEYCODE_BUTTON_Z,
+            KEYCODE_BUTTON_L1,
+            KEYCODE_BUTTON_R1,
+            KEYCODE_BUTTON_L2,
+            KEYCODE_BUTTON_R2,
+            KEYCODE_BUTTON_THUMBL,
+            KEYCODE_BUTTON_THUMBR,
+            KEYCODE_BUTTON_START,
+            KEYCODE_BUTTON_SELECT,
+            KEYCODE_BUTTON_MODE,
+            KEYCODE_ESCAPE,
+            KEYCODE_FORWARD_DEL,
+            KEYCODE_CTRL_LEFT,
+            KEYCODE_CTRL_RIGHT,
+            KEYCODE_CAPS_LOCK,
+            KEYCODE_SCROLL_LOCK,
+            KEYCODE_META_LEFT,
+            KEYCODE_META_RIGHT,
+            KEYCODE_FUNCTION,
+            KEYCODE_SYSRQ,
+            KEYCODE_BREAK,
+            KEYCODE_MOVE_HOME,
+            KEYCODE_MOVE_END,
+            KEYCODE_INSERT,
+            KEYCODE_FORWARD,
+            KEYCODE_MEDIA_PLAY,
+            KEYCODE_MEDIA_PAUSE,
+            KEYCODE_MEDIA_CLOSE,
+            KEYCODE_MEDIA_EJECT,
+            KEYCODE_MEDIA_RECORD,
+            KEYCODE_F1,
+            KEYCODE_F2,
+            KEYCODE_F3,
+            KEYCODE_F4,
+            KEYCODE_F5,
+            KEYCODE_F6,
+            KEYCODE_F7,
+            KEYCODE_F8,
+            KEYCODE_F9,
+            KEYCODE_F10,
+            KEYCODE_F11,
+            KEYCODE_F12,
+            KEYCODE_NUM_LOCK,
+            KEYCODE_NUMPAD_0,
+            KEYCODE_NUMPAD_1,
+            KEYCODE_NUMPAD_2,
+            KEYCODE_NUMPAD_3,
+            KEYCODE_NUMPAD_4,
+            KEYCODE_NUMPAD_5,
+            KEYCODE_NUMPAD_6,
+            KEYCODE_NUMPAD_7,
+            KEYCODE_NUMPAD_8,
+            KEYCODE_NUMPAD_9,
+            KEYCODE_NUMPAD_DIVIDE,
+            KEYCODE_NUMPAD_MULTIPLY,
+            KEYCODE_NUMPAD_SUBTRACT,
+            KEYCODE_NUMPAD_ADD,
+            KEYCODE_NUMPAD_DOT,
+            KEYCODE_NUMPAD_COMMA,
+            KEYCODE_NUMPAD_ENTER,
+            KEYCODE_NUMPAD_EQUALS,
+            KEYCODE_NUMPAD_LEFT_PAREN,
+            KEYCODE_NUMPAD_RIGHT_PAREN,
+            KEYCODE_VOLUME_MUTE,
+            KEYCODE_INFO,
+            KEYCODE_CHANNEL_UP,
+            KEYCODE_CHANNEL_DOWN,
+            KEYCODE_ZOOM_IN,
+            KEYCODE_ZOOM_OUT,
+            KEYCODE_TV,
+            KEYCODE_WINDOW,
+            KEYCODE_GUIDE,
+            KEYCODE_DVR,
+            KEYCODE_BOOKMARK,
+            KEYCODE_CAPTIONS,
+            KEYCODE_SETTINGS,
+            KEYCODE_TV_POWER,
+            KEYCODE_TV_INPUT,
+            KEYCODE_STB_POWER,
+            KEYCODE_STB_INPUT,
+            KEYCODE_AVR_POWER,
+            KEYCODE_AVR_INPUT,
+            KEYCODE_PROG_RED,
+            KEYCODE_PROG_GREEN,
+            KEYCODE_PROG_YELLOW,
+            KEYCODE_PROG_BLUE,
+            KEYCODE_APP_SWITCH,
+            KEYCODE_BUTTON_1,
+            KEYCODE_BUTTON_2,
+            KEYCODE_BUTTON_3,
+            KEYCODE_BUTTON_4,
+            KEYCODE_BUTTON_5,
+            KEYCODE_BUTTON_6,
+            KEYCODE_BUTTON_7,
+            KEYCODE_BUTTON_8,
+            KEYCODE_BUTTON_9,
+            KEYCODE_BUTTON_10,
+            KEYCODE_BUTTON_11,
+            KEYCODE_BUTTON_12,
+            KEYCODE_BUTTON_13,
+            KEYCODE_BUTTON_14,
+            KEYCODE_BUTTON_15,
+            KEYCODE_BUTTON_16,
+            KEYCODE_LANGUAGE_SWITCH,
+            KEYCODE_MANNER_MODE,
+            KEYCODE_3D_MODE,
+            KEYCODE_CONTACTS,
+            KEYCODE_CALENDAR,
+            KEYCODE_MUSIC,
+            KEYCODE_CALCULATOR,
+            KEYCODE_ZENKAKU_HANKAKU,
+            KEYCODE_EISU,
+            KEYCODE_MUHENKAN,
+            KEYCODE_HENKAN,
+            KEYCODE_KATAKANA_HIRAGANA,
+            KEYCODE_YEN,
+            KEYCODE_RO,
+            KEYCODE_KANA,
+            KEYCODE_ASSIST,
+            KEYCODE_BRIGHTNESS_DOWN,
+            KEYCODE_BRIGHTNESS_UP,
+            KEYCODE_MEDIA_AUDIO_TRACK,
+            KEYCODE_SLEEP,
+            KEYCODE_WAKEUP,
+            KEYCODE_PAIRING,
+            KEYCODE_MEDIA_TOP_MENU,
+            KEYCODE_11,
+            KEYCODE_12,
+            KEYCODE_LAST_CHANNEL,
+            KEYCODE_TV_DATA_SERVICE,
+            KEYCODE_VOICE_ASSIST,
+            KEYCODE_TV_RADIO_SERVICE,
+            KEYCODE_TV_TELETEXT,
+            KEYCODE_TV_NUMBER_ENTRY,
+            KEYCODE_TV_TERRESTRIAL_ANALOG,
+            KEYCODE_TV_TERRESTRIAL_DIGITAL,
+            KEYCODE_TV_SATELLITE,
+            KEYCODE_TV_SATELLITE_BS,
+            KEYCODE_TV_SATELLITE_CS,
+            KEYCODE_TV_SATELLITE_SERVICE,
+            KEYCODE_TV_NETWORK,
+            KEYCODE_TV_ANTENNA_CABLE,
+            KEYCODE_TV_INPUT_HDMI_1,
+            KEYCODE_TV_INPUT_HDMI_2,
+            KEYCODE_TV_INPUT_HDMI_3,
+            KEYCODE_TV_INPUT_HDMI_4,
+            KEYCODE_TV_INPUT_COMPOSITE_1,
+            KEYCODE_TV_INPUT_COMPOSITE_2,
+            KEYCODE_TV_INPUT_COMPONENT_1,
+            KEYCODE_TV_INPUT_COMPONENT_2,
+            KEYCODE_TV_INPUT_VGA_1,
+            KEYCODE_TV_AUDIO_DESCRIPTION,
+            KEYCODE_TV_AUDIO_DESCRIPTION_MIX_UP,
+            KEYCODE_TV_AUDIO_DESCRIPTION_MIX_DOWN,
+            KEYCODE_TV_ZOOM_MODE,
+            KEYCODE_TV_CONTENTS_MENU,
+            KEYCODE_TV_MEDIA_CONTEXT_MENU,
+            KEYCODE_TV_TIMER_PROGRAMMING,
+            KEYCODE_HELP,
+            KEYCODE_NAVIGATE_PREVIOUS,
+            KEYCODE_NAVIGATE_NEXT,
+            KEYCODE_NAVIGATE_IN,
+            KEYCODE_NAVIGATE_OUT,
+            KEYCODE_STEM_PRIMARY,
+            KEYCODE_STEM_1,
+            KEYCODE_STEM_2,
+            KEYCODE_STEM_3,
+            KEYCODE_DPAD_UP_LEFT,
+            KEYCODE_DPAD_DOWN_LEFT,
+            KEYCODE_DPAD_UP_RIGHT,
+            KEYCODE_DPAD_DOWN_RIGHT,
+            KEYCODE_MEDIA_SKIP_FORWARD,
+            KEYCODE_MEDIA_SKIP_BACKWARD,
+            KEYCODE_MEDIA_STEP_FORWARD,
+            KEYCODE_MEDIA_STEP_BACKWARD,
+            KEYCODE_SOFT_SLEEP,
+            KEYCODE_CUT,
+            KEYCODE_COPY,
+            KEYCODE_PASTE,
+            KEYCODE_SYSTEM_NAVIGATION_UP,
+            KEYCODE_SYSTEM_NAVIGATION_DOWN,
+            KEYCODE_SYSTEM_NAVIGATION_LEFT,
+            KEYCODE_SYSTEM_NAVIGATION_RIGHT,
+            KEYCODE_ALL_APPS,
+            KEYCODE_REFRESH,
+            KEYCODE_THUMBS_UP,
+            KEYCODE_THUMBS_DOWN,
+            KEYCODE_PROFILE_SWITCH,
+            KEYCODE_VIDEO_APP_1,
+            KEYCODE_VIDEO_APP_2,
+            KEYCODE_VIDEO_APP_3,
+            KEYCODE_VIDEO_APP_4,
+            KEYCODE_VIDEO_APP_5,
+            KEYCODE_VIDEO_APP_6,
+            KEYCODE_VIDEO_APP_7,
+            KEYCODE_VIDEO_APP_8,
+            KEYCODE_FEATURED_APP_1,
+            KEYCODE_FEATURED_APP_2,
+            KEYCODE_FEATURED_APP_3,
+            KEYCODE_FEATURED_APP_4,
+            KEYCODE_DEMO_APP_1,
+            KEYCODE_DEMO_APP_2,
+            KEYCODE_DEMO_APP_3,
+            KEYCODE_DEMO_APP_4,
+            KEYCODE_KEYBOARD_BACKLIGHT_DOWN,
+            KEYCODE_KEYBOARD_BACKLIGHT_UP,
+            KEYCODE_KEYBOARD_BACKLIGHT_TOGGLE,
+            KEYCODE_STYLUS_BUTTON_PRIMARY,
+            KEYCODE_STYLUS_BUTTON_SECONDARY,
+            KEYCODE_STYLUS_BUTTON_TERTIARY,
+            KEYCODE_STYLUS_BUTTON_TAIL,
+            KEYCODE_RECENT_APPS,
+            KEYCODE_MACRO_1,
+            KEYCODE_MACRO_2,
+            KEYCODE_MACRO_3,
+            KEYCODE_MACRO_4,
+            KEYCODE_EMOJI_PICKER,
+            KEYCODE_SCREENSHOT,
+            KEYCODE_DICTATE,
+            KEYCODE_NEW,
+            KEYCODE_CLOSE,
+            KEYCODE_DO_NOT_DISTURB,
+            KEYCODE_PRINT,
+            KEYCODE_LOCK,
+            KEYCODE_FULLSCREEN,
+            KEYCODE_F13,
+            KEYCODE_F14,
+            KEYCODE_F15,
+            KEYCODE_F16,
+            KEYCODE_F17,
+            KEYCODE_F18,
+            KEYCODE_F19,
+            KEYCODE_F20,
+            KEYCODE_F21,
+            KEYCODE_F22,
+            KEYCODE_F23,
+            KEYCODE_F24,
+            KEYCODE_ACCESSIBILITY,
+            KEYCODE_CONTEXTUAL_SEARCH,
+            KEYCODE_CONTEXTUAL_INSERT,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    @interface KeyCode {}
 
     // NOTE: If you add a new keycode here you must also add it to:
     //  isSystem()
@@ -828,6 +1763,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
 
     // Symbolic names of all metakeys in bit order from least significant to most significant.
     // Accordingly there are exactly 32 values in this table.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final String[] META_SYMBOLIC_NAMES = new String[] {
         "META_SHIFT_ON",
         "META_ALT_ON",
@@ -881,21 +1817,33 @@ public class KeyEvent extends InputEvent implements Parcelable {
      */
     public static final int ACTION_UP               = 1;
     /**
+     * @deprecated No longer used by the input system.
      * {@link #getAction} value: multiple duplicate key events have
      * occurred in a row, or a complex string is being delivered.  If the
-     * key code is not {#link {@link #KEYCODE_UNKNOWN} then the
-     * {#link {@link #getRepeatCount()} method returns the number of times
+     * key code is not {@link #KEYCODE_UNKNOWN} then the
+     * {@link #getRepeatCount()} method returns the number of times
      * the given key code should be executed.
      * Otherwise, if the key code is {@link #KEYCODE_UNKNOWN}, then
      * this is a sequence of characters as returned by {@link #getCharacters}.
      */
+    @Deprecated
     public static final int ACTION_MULTIPLE         = 2;
+
+    /** @hide */
+    @IntDef(prefix = {"ACTION_"}, value = {
+            ACTION_DOWN,
+            ACTION_UP,
+            ACTION_MULTIPLE,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    @interface Action {}
 
     /**
      * SHIFT key locked in CAPS mode.
      * Reserved for use by {@link MetaKeyKeyListener} for a published constant in its API.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int META_CAP_LOCKED = 0x100;
 
     /**
@@ -903,6 +1851,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * Reserved for use by {@link MetaKeyKeyListener} for a published constant in its API.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int META_ALT_LOCKED = 0x200;
 
     /**
@@ -910,6 +1859,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * Reserved for use by {@link MetaKeyKeyListener} for a published constant in its API.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int META_SYM_LOCKED = 0x400;
 
     /**
@@ -918,6 +1868,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * in its API that is currently being retained for legacy reasons.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int META_SELECTING = 0x800;
 
     /**
@@ -1075,6 +2026,33 @@ public class KeyEvent extends InputEvent implements Parcelable {
      */
     public static final int META_SCROLL_LOCK_ON = 0x400000;
 
+    /** @hide */
+    @IntDef(flag = true, prefix = {"META_"}, value = {
+            META_CAP_LOCKED,
+            META_ALT_LOCKED,
+            META_SYM_LOCKED,
+            META_SELECTING,
+            META_ALT_ON,
+            META_ALT_LEFT_ON,
+            META_ALT_RIGHT_ON,
+            META_SHIFT_ON,
+            META_SHIFT_LEFT_ON,
+            META_SHIFT_RIGHT_ON,
+            META_SYM_ON,
+            META_FUNCTION_ON,
+            META_CTRL_ON,
+            META_CTRL_LEFT_ON,
+            META_CTRL_RIGHT_ON,
+            META_META_ON,
+            META_META_LEFT_ON,
+            META_META_RIGHT_ON,
+            META_CAPS_LOCK_ON,
+            META_NUM_LOCK_ON,
+            META_SCROLL_LOCK_ON,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    @interface MetaState {}
+
     /**
      * This mask is a combination of {@link #META_SHIFT_ON}, {@link #META_SHIFT_LEFT_ON}
      * and {@link #META_SHIFT_RIGHT_ON}.
@@ -1149,7 +2127,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * action for a key until it receives an up or the long press timeout has
      * expired.
      */
-    public static final int FLAG_CANCELED = 0x20;
+    public static final int FLAG_CANCELED = IInputConstants.INPUT_EVENT_FLAG_CANCELED;
 
     /**
      * This key event was generated by a virtual (on-screen) hard key area.
@@ -1189,6 +2167,14 @@ public class KeyEvent extends InputEvent implements Parcelable {
     public static final int FLAG_FALLBACK = 0x400;
 
     /**
+     * This flag indicates that this event was modified by or generated from an accessibility
+     * service. Value = 0x800
+     * @hide
+     */
+    @TestApi
+    public static final int FLAG_IS_ACCESSIBILITY_EVENT = INPUT_EVENT_FLAG_IS_ACCESSIBILITY_EVENT;
+
+    /**
      * Signifies that the key is being predispatched.
      * @hide
      */
@@ -1209,7 +2195,28 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * @see #isTainted
      * @see #setTainted
      */
-    public static final int FLAG_TAINTED = 0x80000000;
+    public static final int FLAG_TAINTED = IInputConstants.INPUT_EVENT_FLAG_TAINTED;
+
+    /** @hide */
+    @IntDef(flag = true, prefix = { "FLAG_" }, value = {
+            FLAG_WOKE_HERE,
+            FLAG_SOFT_KEYBOARD,
+            FLAG_KEEP_TOUCH_MODE,
+            FLAG_FROM_SYSTEM,
+            FLAG_EDITOR_ACTION,
+            FLAG_CANCELED,
+            FLAG_VIRTUAL_HARD_KEY,
+            FLAG_LONG_PRESS,
+            FLAG_CANCELED_LONG_PRESS,
+            FLAG_TRACKING,
+            FLAG_FALLBACK,
+            FLAG_IS_ACCESSIBILITY_EVENT,
+            FLAG_PREDISPATCH,
+            FLAG_START_TRACKING,
+            FLAG_TAINTED,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    @interface Flag {}
 
     /**
      * Returns the maximum keycode.
@@ -1237,17 +2244,42 @@ public class KeyEvent extends InputEvent implements Parcelable {
 
     private KeyEvent mNext;
 
+    private int mId;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mDeviceId;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private int mSource;
+    private int mDisplayId = INVALID_DISPLAY;
+    // NOTE: mHmac is private and not used in this class, but it's used on native side / parcel.
+    private @Nullable byte[] mHmac;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @MetaState
     private int mMetaState;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @Action
     private int mAction;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mKeyCode;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mScanCode;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mRepeatCount;
+    @UnsupportedAppUsage
+    @Flag
     private int mFlags;
+    /**
+     * The time when the key initially was pressed, in nanoseconds. Only millisecond precision is
+     * exposed as public api, so this must always be converted to / from milliseconds when used.
+     */
     private long mDownTime;
+    /**
+     * The time when the current key event occurred. If mAction is ACTION_DOWN, then this is equal
+     * to mDownTime. Only millisecond precision is exposed as public api, so this must always be
+     * converted to / from milliseconds when used.
+     */
     private long mEventTime;
-    private String mCharacters;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    private @Nullable String mCharacters;
 
     public interface Callback {
         /**
@@ -1309,8 +2341,12 @@ public class KeyEvent extends InputEvent implements Parcelable {
 
     private static native String nativeKeyCodeToString(int keyCode);
     private static native int nativeKeyCodeFromString(String keyCode);
+    private static native int nativeNextId();
 
     private KeyEvent() {
+        this(/* downTime= */ 0, /* eventTime= */ 0, /* action= */ 0, /* code= */0, /* repeat= */ 0,
+                /* metaState= */ 0, /* deviceId= */ 0, /* scancode= */ 0, /* flags= */ 0,
+                /* source= */ 0, /* characters= */ null);
     }
 
     /**
@@ -1321,10 +2357,9 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * @param code The key code.
      */
     public KeyEvent(int action, int code) {
-        mAction = action;
-        mKeyCode = code;
-        mRepeatCount = 0;
-        mDeviceId = KeyCharacterMap.VIRTUAL_KEYBOARD;
+        this(/* downTime= */ 0, /* eventTime= */ 0, action, code, /* repeat= */ 0,
+                /* metaState= */ 0, /* deviceId= */ KeyCharacterMap.VIRTUAL_KEYBOARD,
+                /* scancode= */ 0, /* flags= */ 0, /* source= */ 0, /* characters= */ null);
     }
 
     /**
@@ -1342,12 +2377,9 @@ public class KeyEvent extends InputEvent implements Parcelable {
      */
     public KeyEvent(long downTime, long eventTime, int action,
                     int code, int repeat) {
-        mDownTime = downTime;
-        mEventTime = eventTime;
-        mAction = action;
-        mKeyCode = code;
-        mRepeatCount = repeat;
-        mDeviceId = KeyCharacterMap.VIRTUAL_KEYBOARD;
+        this(downTime, eventTime, action, code, repeat, /* metaState= */ 0,
+                KeyCharacterMap.VIRTUAL_KEYBOARD, /* scancode= */ 0, /* flags= */ 0,
+                /* source= */ 0, /* characters= */ null);
     }
 
     /**
@@ -1366,13 +2398,8 @@ public class KeyEvent extends InputEvent implements Parcelable {
      */
     public KeyEvent(long downTime, long eventTime, int action,
                     int code, int repeat, int metaState) {
-        mDownTime = downTime;
-        mEventTime = eventTime;
-        mAction = action;
-        mKeyCode = code;
-        mRepeatCount = repeat;
-        mMetaState = metaState;
-        mDeviceId = KeyCharacterMap.VIRTUAL_KEYBOARD;
+        this(downTime, eventTime, action, code, repeat, metaState, KeyCharacterMap.VIRTUAL_KEYBOARD,
+                /* scancode= */ 0, /* flags= */ 0, /* source= */ 0, /* characters= */ null);
     }
 
     /**
@@ -1394,14 +2421,8 @@ public class KeyEvent extends InputEvent implements Parcelable {
     public KeyEvent(long downTime, long eventTime, int action,
                     int code, int repeat, int metaState,
                     int deviceId, int scancode) {
-        mDownTime = downTime;
-        mEventTime = eventTime;
-        mAction = action;
-        mKeyCode = code;
-        mRepeatCount = repeat;
-        mMetaState = metaState;
-        mDeviceId = deviceId;
-        mScanCode = scancode;
+        this(downTime, eventTime, action, code, repeat, metaState, deviceId, scancode,
+                /* flags= */ 0, /* source= */ 0, /* characters= */ null);
     }
 
     /**
@@ -1424,15 +2445,8 @@ public class KeyEvent extends InputEvent implements Parcelable {
     public KeyEvent(long downTime, long eventTime, int action,
                     int code, int repeat, int metaState,
                     int deviceId, int scancode, int flags) {
-        mDownTime = downTime;
-        mEventTime = eventTime;
-        mAction = action;
-        mKeyCode = code;
-        mRepeatCount = repeat;
-        mMetaState = metaState;
-        mDeviceId = deviceId;
-        mScanCode = scancode;
-        mFlags = flags;
+        this(downTime, eventTime, action, code, repeat, metaState, deviceId, scancode, flags,
+                /* source= */ 0, /* characters= */ null);
     }
 
     /**
@@ -1456,8 +2470,17 @@ public class KeyEvent extends InputEvent implements Parcelable {
     public KeyEvent(long downTime, long eventTime, int action,
                     int code, int repeat, int metaState,
                     int deviceId, int scancode, int flags, int source) {
-        mDownTime = downTime;
-        mEventTime = eventTime;
+        this(downTime, eventTime, action, code, repeat, metaState, deviceId, scancode, flags,
+                source, /* characters= */ null);
+    }
+
+    private KeyEvent(long downTime, long eventTime, int action, int code, int repeat, int metaState,
+            int deviceId, int scancode, int flags, int source,  @Nullable String characters) {
+        // NOTE: this is the canonical constructor, other constructors that takes KeyEvent
+        // attributes should call it
+        mId = nativeNextId();
+        mDownTime = TimeUnit.NANOSECONDS.convert(downTime, TimeUnit.MILLISECONDS);
+        mEventTime = TimeUnit.NANOSECONDS.convert(eventTime, TimeUnit.MILLISECONDS);
         mAction = action;
         mKeyCode = code;
         mRepeatCount = repeat;
@@ -1466,6 +2489,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
         mScanCode = scancode;
         mFlags = flags;
         mSource = source;
+        mCharacters = characters;
     }
 
     /**
@@ -1481,32 +2505,18 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * @param flags The flags for this key event
      */
     public KeyEvent(long time, String characters, int deviceId, int flags) {
-        mDownTime = time;
-        mEventTime = time;
-        mCharacters = characters;
-        mAction = ACTION_MULTIPLE;
-        mKeyCode = KEYCODE_UNKNOWN;
-        mRepeatCount = 0;
-        mDeviceId = deviceId;
-        mFlags = flags;
-        mSource = InputDevice.SOURCE_KEYBOARD;
+        this(/* downTime= */ time, /* eventTime= */ time, ACTION_MULTIPLE, KEYCODE_UNKNOWN,
+                /* repeat= */ 0, /* metaState= */ 0, deviceId, /* scancode= */ 0, flags,
+                /* source= */ InputDevice.SOURCE_KEYBOARD, characters);
     }
 
     /**
      * Make an exact copy of an existing key event.
      */
     public KeyEvent(KeyEvent origEvent) {
-        mDownTime = origEvent.mDownTime;
-        mEventTime = origEvent.mEventTime;
-        mAction = origEvent.mAction;
-        mKeyCode = origEvent.mKeyCode;
-        mRepeatCount = origEvent.mRepeatCount;
-        mMetaState = origEvent.mMetaState;
-        mDeviceId = origEvent.mDeviceId;
-        mSource = origEvent.mSource;
-        mScanCode = origEvent.mScanCode;
-        mFlags = origEvent.mFlags;
-        mCharacters = origEvent.mCharacters;
+        this(origEvent, origEvent.mId, origEvent.mEventTime, origEvent.mAction,
+                origEvent.mRepeatCount, origEvent.mHmac == null ? null : origEvent.mHmac.clone(),
+                origEvent.mCharacters);
     }
 
     /**
@@ -1522,17 +2532,30 @@ public class KeyEvent extends InputEvent implements Parcelable {
      */
     @Deprecated
     public KeyEvent(KeyEvent origEvent, long eventTime, int newRepeat) {
+        // Not an exact copy so assign a new ID.
+        // Don't copy HMAC, it will be invalid because eventTime is changing
+        this(origEvent, nativeNextId(),
+                TimeUnit.NANOSECONDS.convert(eventTime, TimeUnit.MILLISECONDS), origEvent.mAction,
+                newRepeat, /* hmac= */ null, origEvent.mCharacters);
+    }
+
+    // This is the canonical constructor that should be called for constructors that take a KeyEvent
+    private KeyEvent(KeyEvent origEvent, int id, long eventTime, int action, int newRepeat,
+            @Nullable byte[] hmac, @Nullable String characters) {
+        mId = id;
         mDownTime = origEvent.mDownTime;
         mEventTime = eventTime;
-        mAction = origEvent.mAction;
+        mAction = action;
         mKeyCode = origEvent.mKeyCode;
         mRepeatCount = newRepeat;
         mMetaState = origEvent.mMetaState;
         mDeviceId = origEvent.mDeviceId;
         mSource = origEvent.mSource;
+        mDisplayId = origEvent.mDisplayId;
+        mHmac = hmac;
         mScanCode = origEvent.mScanCode;
         mFlags = origEvent.mFlags;
-        mCharacters = origEvent.mCharacters;
+        mCharacters = characters;
     }
 
     private static KeyEvent obtain() {
@@ -1551,16 +2574,18 @@ public class KeyEvent extends InputEvent implements Parcelable {
     }
 
     /**
-     * Obtains a (potentially recycled) key event.
+     * Obtains a (potentially recycled) key event. Used by native code to create a Java object.
      *
      * @hide
      */
-    public static KeyEvent obtain(long downTime, long eventTime, int action,
-                    int code, int repeat, int metaState,
-                    int deviceId, int scancode, int flags, int source, String characters) {
+    private static KeyEvent obtain(int id, long downTimeNanos, long eventTimeNanos, int action,
+            int code, int repeat, int metaState,
+            int deviceId, int scancode, int flags, int source, int displayId, @Nullable byte[] hmac,
+            String characters) {
         KeyEvent ev = obtain();
-        ev.mDownTime = downTime;
-        ev.mEventTime = eventTime;
+        ev.mId = id;
+        ev.mDownTime = downTimeNanos;
+        ev.mEventTime = eventTimeNanos;
         ev.mAction = action;
         ev.mKeyCode = code;
         ev.mRepeatCount = repeat;
@@ -1569,9 +2594,42 @@ public class KeyEvent extends InputEvent implements Parcelable {
         ev.mScanCode = scancode;
         ev.mFlags = flags;
         ev.mSource = source;
+        ev.mDisplayId = displayId;
+        ev.mHmac = hmac;
         ev.mCharacters = characters;
         return ev;
     }
+
+    /**
+     * Obtains a (potentially recycled) key event.
+     *
+     * @hide
+     */
+    public static KeyEvent obtain(long downTime, long eventTime, int action,
+            int code, int repeat, int metaState,
+            int deviceId, int scanCode, int flags, int source, int displayId, String characters) {
+        downTime = TimeUnit.NANOSECONDS.convert(downTime, TimeUnit.MILLISECONDS);
+        eventTime = TimeUnit.NANOSECONDS.convert(eventTime, TimeUnit.MILLISECONDS);
+        return obtain(nativeNextId(), downTime, eventTime, action, code, repeat, metaState,
+                deviceId, scanCode, flags, source, displayId, null /* hmac */, characters);
+    }
+
+    /**
+     * Obtains a (potentially recycled) key event.
+     *
+     * @hide
+     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public static KeyEvent obtain(long downTime, long eventTime, int action,
+            int code, int repeat, int metaState,
+            int deviceId, int scancode, int flags, int source, String characters) {
+        // Do not convert downTime and eventTime here. We are calling the obtain method above,
+        // which will do the conversion. Just specify INVALID_DISPLAY and forward the request.
+        return obtain(downTime, eventTime, action, code, repeat, metaState, deviceId, scancode,
+                flags, source, INVALID_DISPLAY, characters);
+    }
+
+    /**
 
     /**
      * Obtains a (potentially recycled) copy of another key event.
@@ -1580,6 +2638,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
      */
     public static KeyEvent obtain(KeyEvent other) {
         KeyEvent ev = obtain();
+        ev.mId = other.mId;
         ev.mDownTime = other.mDownTime;
         ev.mEventTime = other.mEventTime;
         ev.mAction = other.mAction;
@@ -1590,6 +2649,8 @@ public class KeyEvent extends InputEvent implements Parcelable {
         ev.mScanCode = other.mScanCode;
         ev.mFlags = other.mFlags;
         ev.mSource = other.mSource;
+        ev.mDisplayId = other.mDisplayId;
+        ev.mHmac = other.mHmac == null ? null : other.mHmac.clone();
         ev.mCharacters = other.mCharacters;
         return ev;
     }
@@ -1608,6 +2669,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * @hide
      */
     @Override
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public final void recycle() {
         super.recycle();
         mCharacters = null;
@@ -1625,6 +2687,12 @@ public class KeyEvent extends InputEvent implements Parcelable {
     @Override
     public final void recycleIfNeededAfterDispatch() {
         // Do nothing.
+    }
+
+    /** @hide */
+    @Override
+    public int getId() {
+        return mId;
     }
 
     /**
@@ -1655,7 +2723,8 @@ public class KeyEvent extends InputEvent implements Parcelable {
     public static KeyEvent changeTimeRepeat(KeyEvent event, long eventTime,
             int newRepeat, int newFlags) {
         KeyEvent ret = new KeyEvent(event);
-        ret.mEventTime = eventTime;
+        ret.mId = nativeNextId();  // Not an exact copy so assign a new ID.
+        ret.mEventTime = TimeUnit.NANOSECONDS.convert(eventTime, TimeUnit.MILLISECONDS);
         ret.mRepeatCount = newRepeat;
         ret.mFlags = newFlags;
         return ret;
@@ -1668,18 +2737,11 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * @param action The new action code of the event.
      */
     private KeyEvent(KeyEvent origEvent, int action) {
-        mDownTime = origEvent.mDownTime;
-        mEventTime = origEvent.mEventTime;
-        mAction = action;
-        mKeyCode = origEvent.mKeyCode;
-        mRepeatCount = origEvent.mRepeatCount;
-        mMetaState = origEvent.mMetaState;
-        mDeviceId = origEvent.mDeviceId;
-        mSource = origEvent.mSource;
-        mScanCode = origEvent.mScanCode;
-        mFlags = origEvent.mFlags;
-        // Don't copy mCharacters, since one way or the other we'll lose it
-        // when changing the action.
+        // Not an exact copy so assign a new ID
+        // Don't copy the hmac, it will be invalid since action is changing
+        // Don't copy mCharacters, since one way or the other we'll lose it when changing action.
+        this(origEvent, nativeNextId(), origEvent.mEventTime, action, origEvent.mRepeatCount,
+                /* hmac= */ null, /* characters= */ null);
     }
 
     /**
@@ -1702,6 +2764,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
      */
     public static KeyEvent changeFlags(KeyEvent event, int flags) {
         event = new KeyEvent(event);
+        event.mId = nativeNextId();  // Not an exact copy so assign a new ID.
         event.mFlags = flags;
         return event;
     }
@@ -1727,6 +2790,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * @deprecated
      * @hide
      */
+    @UnsupportedAppUsage
     @Deprecated public final boolean isDown() {
         return mAction == ACTION_DOWN;
     }
@@ -1788,6 +2852,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
     /** Whether key will, by default, trigger a click on the focused view.
      * @hide
      */
+    @UnsupportedAppUsage
     public static final boolean isConfirmKey(int keyCode) {
         switch (keyCode) {
             case KeyEvent.KEYCODE_DPAD_CENTER:
@@ -1801,17 +2866,29 @@ public class KeyEvent extends InputEvent implements Parcelable {
     }
 
     /**
-     * Whether this key is a media key, which can be send to apps that are
-     * interested in media key events.
+     * Returns whether this key will be sent to the {@link
+     * android.media.session.MediaSession.Callback} if not handled.
      *
-     * @hide
+     * <p>The following key codes are considered {@link android.media.session.MediaSession} keys:
+     *
+     * <ul>
+     *   <li>{@link #KEYCODE_MEDIA_PLAY}
+     *   <li>{@link #KEYCODE_MEDIA_PAUSE}
+     *   <li>{@link #KEYCODE_MEDIA_PLAY_PAUSE}
+     *   <li>{@link #KEYCODE_HEADSETHOOK}
+     *   <li>{@link #KEYCODE_MEDIA_STOP}
+     *   <li>{@link #KEYCODE_MEDIA_NEXT}
+     *   <li>{@link #KEYCODE_MEDIA_PREVIOUS}
+     *   <li>{@link #KEYCODE_MEDIA_REWIND}
+     *   <li>{@link #KEYCODE_MEDIA_RECORD}
+     *   <li>{@link #KEYCODE_MEDIA_FAST_FORWARD}
+     * </ul>
      */
-    public static final boolean isMediaKey(int keyCode) {
+    public static final boolean isMediaSessionKey(int keyCode) {
         switch (keyCode) {
             case KeyEvent.KEYCODE_MEDIA_PLAY:
             case KeyEvent.KEYCODE_MEDIA_PAUSE:
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
-            case KeyEvent.KEYCODE_MUTE:
             case KeyEvent.KEYCODE_HEADSETHOOK:
             case KeyEvent.KEYCODE_MEDIA_STOP:
             case KeyEvent.KEYCODE_MEDIA_NEXT:
@@ -1824,7 +2901,6 @@ public class KeyEvent extends InputEvent implements Parcelable {
         return false;
     }
 
-
     /** Is this a system key? System keys can not be used for menu shortcuts.
      * @hide
      */
@@ -1833,6 +2909,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
             case KeyEvent.KEYCODE_MENU:
             case KeyEvent.KEYCODE_SOFT_RIGHT:
             case KeyEvent.KEYCODE_HOME:
+            case KeyEvent.KEYCODE_RECENT_APPS:
             case KeyEvent.KEYCODE_BACK:
             case KeyEvent.KEYCODE_CALL:
             case KeyEvent.KEYCODE_ENDCALL:
@@ -1856,11 +2933,18 @@ public class KeyEvent extends InputEvent implements Parcelable {
             case KeyEvent.KEYCODE_SEARCH:
             case KeyEvent.KEYCODE_BRIGHTNESS_DOWN:
             case KeyEvent.KEYCODE_BRIGHTNESS_UP:
+            case KeyEvent.KEYCODE_KEYBOARD_BACKLIGHT_DOWN:
+            case KeyEvent.KEYCODE_KEYBOARD_BACKLIGHT_UP:
+            case KeyEvent.KEYCODE_KEYBOARD_BACKLIGHT_TOGGLE:
             case KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK:
             case KeyEvent.KEYCODE_SYSTEM_NAVIGATION_UP:
             case KeyEvent.KEYCODE_SYSTEM_NAVIGATION_DOWN:
             case KeyEvent.KEYCODE_SYSTEM_NAVIGATION_LEFT:
             case KeyEvent.KEYCODE_SYSTEM_NAVIGATION_RIGHT:
+            case KeyEvent.KEYCODE_STEM_PRIMARY:
+            case KeyEvent.KEYCODE_ACCESSIBILITY:
+            case KeyEvent.KEYCODE_CONTEXTUAL_SEARCH:
+            case KeyEvent.KEYCODE_CONTEXTUAL_INSERT:
                 return true;
         }
 
@@ -1870,13 +2954,14 @@ public class KeyEvent extends InputEvent implements Parcelable {
     /** @hide */
     public static final boolean isWakeKey(int keyCode) {
         switch (keyCode) {
-            case KeyEvent.KEYCODE_BACK:
+            case KeyEvent.KEYCODE_CAMERA:
             case KeyEvent.KEYCODE_MENU:
-            case KeyEvent.KEYCODE_WAKEUP:
             case KeyEvent.KEYCODE_PAIRING:
             case KeyEvent.KEYCODE_STEM_1:
             case KeyEvent.KEYCODE_STEM_2:
             case KeyEvent.KEYCODE_STEM_3:
+            case KeyEvent.KEYCODE_WAKEUP:
+            case KeyEvent.KEYCODE_STEM_PRIMARY:
                 return true;
         }
         return false;
@@ -1890,6 +2975,32 @@ public class KeyEvent extends InputEvent implements Parcelable {
     /** @hide */
     public static final boolean isAltKey(int keyCode) {
         return keyCode == KeyEvent.KEYCODE_ALT_LEFT || keyCode == KeyEvent.KEYCODE_ALT_RIGHT;
+    }
+
+    /**
+     * Returns whether the key code passed as argument is allowed for visible background users.
+     * Visible background users are expected to run on secondary displays with certain limitations
+     * on system keys.
+     *
+     * @hide
+     */
+    public static boolean isVisibleBackgroundUserAllowedKey(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_POWER:
+            case KeyEvent.KEYCODE_SLEEP:
+            case KeyEvent.KEYCODE_WAKEUP:
+            case KeyEvent.KEYCODE_CALL:
+            case KeyEvent.KEYCODE_ENDCALL:
+            case KeyEvent.KEYCODE_ASSIST:
+            case KeyEvent.KEYCODE_VOICE_ASSIST:
+            case KeyEvent.KEYCODE_MUTE:
+            case KeyEvent.KEYCODE_VOLUME_MUTE:
+            case KeyEvent.KEYCODE_RECENT_APPS:
+            case KeyEvent.KEYCODE_APP_SWITCH:
+            case KeyEvent.KEYCODE_NOTIFICATION:
+                return false;
+        }
+        return true;
     }
 
     /** {@inheritDoc} */
@@ -1908,6 +3019,20 @@ public class KeyEvent extends InputEvent implements Parcelable {
     @Override
     public final void setSource(int source) {
         mSource = source;
+    }
+
+    /** @hide */
+    @TestApi
+    @Override
+    public final int getDisplayId() {
+        return mDisplayId;
+    }
+
+    /** @hide */
+    @TestApi
+    @Override
+    public final void setDisplayId(int displayId) {
+        mDisplayId = displayId;
     }
 
     /**
@@ -1969,6 +3094,16 @@ public class KeyEvent extends InputEvent implements Parcelable {
     }
 
     /**
+     * Modifies the flags of the event.
+     *
+     * @param newFlags New flags for the event, replacing the entire value.
+     * @hide
+     */
+    public final void setFlags(int newFlags) {
+        mFlags = newFlags;
+    }
+
+    /**
      * Returns the flags for this key event.
      *
      * @see #FLAG_WOKE_HERE
@@ -1978,6 +3113,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
     }
 
     // Mask of all modifier key meta states.  Specifically excludes locked keys like caps lock.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int META_MODIFIER_MASK =
             META_SHIFT_ON | META_SHIFT_LEFT_ON | META_SHIFT_RIGHT_ON
             | META_ALT_ON | META_ALT_LEFT_ON | META_ALT_RIGHT_ON
@@ -1986,19 +3122,23 @@ public class KeyEvent extends InputEvent implements Parcelable {
             | META_SYM_ON | META_FUNCTION_ON;
 
     // Mask of all lock key meta states.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int META_LOCK_MASK =
             META_CAPS_LOCK_ON | META_NUM_LOCK_ON | META_SCROLL_LOCK_ON;
 
     // Mask of all valid meta states.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int META_ALL_MASK = META_MODIFIER_MASK | META_LOCK_MASK;
 
     // Mask of all synthetic meta states that are reserved for API compatibility with
     // historical uses in MetaKeyKeyListener.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int META_SYNTHETIC_MASK =
             META_CAP_LOCKED | META_ALT_LOCKED | META_SYM_LOCKED | META_SELECTING;
 
     // Mask of all meta states that are not valid use in specifying a modifier key.
     // These bits are known to be used for purposes other than specifying modifiers.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int META_INVALID_MODIFIER_MASK =
             META_LOCK_MASK | META_SYNTHETIC_MASK;
 
@@ -2431,7 +3571,10 @@ public class KeyEvent extends InputEvent implements Parcelable {
      *
      * @return Returns a String of 1 or more characters associated with
      * the event.
+     *
+     * @deprecated no longer used by the input system.
      */
+    @Deprecated
     public final String getCharacters() {
         return mCharacters;
     }
@@ -2448,15 +3591,30 @@ public class KeyEvent extends InputEvent implements Parcelable {
     }
 
     /**
-     * Retrieve the repeat count of the event.  For both key up and key down
-     * events, this is the number of times the key has repeated with the first
-     * down starting at 0 and counting up from there.  For multiple key
-     * events, this is the number of down/up pairs that have occurred.
+     * Retrieve the repeat count of the event.  For key down events,
+     * this is the number of times the key has repeated with the first
+     * down starting at 0 and counting up from there.  For key up events,
+     * this is always equal to zero. For multiple key events,
+     * this is the number of down/up pairs that have occurred.
      *
      * @return The number of times the key has repeated.
      */
     public final int getRepeatCount() {
         return mRepeatCount;
+    }
+
+    /**
+     * Modifies the down time and the event time of the event.
+     *
+     * @param downTime The new down time (in {@link android.os.SystemClock#uptimeMillis}) of the
+     *                 event.
+     * @param eventTime The new event time (in {@link android.os.SystemClock#uptimeMillis}) of the
+     *                  event.
+     * @hide
+     */
+    public final void setTime(long downTime, long eventTime) {
+        mDownTime = TimeUnit.NANOSECONDS.convert(downTime, TimeUnit.MILLISECONDS);
+        mEventTime = TimeUnit.NANOSECONDS.convert(eventTime, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -2471,7 +3629,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * {@link android.os.SystemClock#uptimeMillis} time base
      */
     public final long getDownTime() {
-        return mDownTime;
+        return TimeUnit.MILLISECONDS.convert(mDownTime, TimeUnit.NANOSECONDS);
     }
 
     /**
@@ -2483,7 +3641,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
      */
     @Override
     public final long getEventTime() {
-        return mEventTime;
+        return TimeUnit.MILLISECONDS.convert(mEventTime, TimeUnit.NANOSECONDS);
     }
 
     /**
@@ -2501,8 +3659,8 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * @hide
      */
     @Override
-    public final long getEventTimeNano() {
-        return mEventTime * 1000000L;
+    public final long getEventTimeNanos() {
+        return mEventTime;
     }
 
     /**
@@ -2520,7 +3678,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * Gets the {@link KeyCharacterMap} associated with the keyboard device.
      *
      * @return The associated key character map.
-     * @throws {@link KeyCharacterMap.UnavailableException} if the key character map
+     * @throws KeyCharacterMap.UnavailableException if the key character map
      * could not be loaded because it was malformed or the default key character map
      * is missing from the system.
      *
@@ -2845,6 +4003,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
         msg.append(", downTime=").append(mDownTime);
         msg.append(", deviceId=").append(mDeviceId);
         msg.append(", source=0x").append(Integer.toHexString(mSource));
+        msg.append(", displayId=").append(mDisplayId);
         msg.append(" }");
         return msg.toString();
     }
@@ -2857,6 +4016,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * @return The symbolic name of the specified action.
      * @hide
      */
+    @TestApi
     public static String actionToString(int action) {
         switch (action) {
             case ACTION_DOWN:
@@ -2875,6 +4035,9 @@ public class KeyEvent extends InputEvent implements Parcelable {
      * such as "KEYCODE_A", "KEYCODE_DPAD_UP", or an equivalent numeric constant
      * such as "1001" if unknown.
      *
+     * This function is intended to be used mostly for debugging, logging, and testing. It is not
+     * locale-specific and is not intended to be used in a user-facing manner.
+     *
      * @param keyCode The key code.
      * @return The symbolic name of the specified keycode.
      *
@@ -2887,25 +4050,34 @@ public class KeyEvent extends InputEvent implements Parcelable {
 
     /**
      * Gets a keycode by its symbolic name such as "KEYCODE_A" or an equivalent
-     * numeric constant such as "1001".
+     * numeric constant such as "29". For symbolic names,
+     * starting in {@link android.os.Build.VERSION_CODES#Q} the prefix "KEYCODE_" is optional.
      *
      * @param symbolicName The symbolic name of the keycode.
      * @return The keycode or {@link #KEYCODE_UNKNOWN} if not found.
-     * @see #keycodeToString(int)
+     * @see #keyCodeToString(int)
      */
-    public static int keyCodeFromString(String symbolicName) {
-        if (symbolicName.startsWith(LABEL_PREFIX)) {
-            symbolicName = symbolicName.substring(LABEL_PREFIX.length());
-            int keyCode = nativeKeyCodeFromString(symbolicName);
-            if (keyCode > 0) {
+    public static int keyCodeFromString(@NonNull String symbolicName) {
+        try {
+            int keyCode = Integer.parseInt(symbolicName);
+            if (keyCodeIsValid(keyCode)) {
                 return keyCode;
             }
-        }
-        try {
-            return Integer.parseInt(symbolicName, 10);
         } catch (NumberFormatException ex) {
-            return KEYCODE_UNKNOWN;
         }
+
+        if (symbolicName.startsWith(LABEL_PREFIX)) {
+            symbolicName = symbolicName.substring(LABEL_PREFIX.length());
+        }
+        int keyCode = nativeKeyCodeFromString(symbolicName);
+        if (keyCodeIsValid(keyCode)) {
+            return keyCode;
+        }
+        return KEYCODE_UNKNOWN;
+    }
+
+    private static boolean keyCodeIsValid(int keyCode) {
+        return keyCode >= KEYCODE_UNKNOWN && keyCode <= LAST_KEYCODE;
     }
 
     /**
@@ -2944,7 +4116,7 @@ public class KeyEvent extends InputEvent implements Parcelable {
         return result.toString();
     }
 
-    public static final Parcelable.Creator<KeyEvent> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<KeyEvent> CREATOR
             = new Parcelable.Creator<KeyEvent>() {
         @Override
         public KeyEvent createFromParcel(Parcel in) {
@@ -2964,8 +4136,13 @@ public class KeyEvent extends InputEvent implements Parcelable {
     }
 
     private KeyEvent(Parcel in) {
+        // NOTE: ideally this constructor should call the canonical one, but that would require
+        // changing the order the fields are written to the parcel, which could break native code
+        mId = in.readInt();
         mDeviceId = in.readInt();
         mSource = in.readInt();
+        mDisplayId = in.readInt();
+        mHmac = in.createByteArray();
         mAction = in.readInt();
         mKeyCode = in.readInt();
         mRepeatCount = in.readInt();
@@ -2974,14 +4151,18 @@ public class KeyEvent extends InputEvent implements Parcelable {
         mFlags = in.readInt();
         mDownTime = in.readLong();
         mEventTime = in.readLong();
+        mCharacters = in.readString();
     }
 
     @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeInt(PARCEL_TOKEN_KEY_EVENT);
 
+        out.writeInt(mId);
         out.writeInt(mDeviceId);
         out.writeInt(mSource);
+        out.writeInt(mDisplayId);
+        out.writeByteArray(mHmac);
         out.writeInt(mAction);
         out.writeInt(mKeyCode);
         out.writeInt(mRepeatCount);
@@ -2990,5 +4171,6 @@ public class KeyEvent extends InputEvent implements Parcelable {
         out.writeInt(mFlags);
         out.writeLong(mDownTime);
         out.writeLong(mEventTime);
+        out.writeString(mCharacters);
     }
 }

@@ -19,6 +19,7 @@ package android.view;
 /**
  * This exception is thrown by an inflater on error conditions.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class InflateException extends RuntimeException {
 
     public InflateException() {

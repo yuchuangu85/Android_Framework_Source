@@ -22,7 +22,7 @@ import android.util.Log;
 /**
  * Localized strings for the error codes defined in EventHandler.
  *
- * {@hide}
+ * @hide
  */
 class LegacyErrorStrings {
     private LegacyErrorStrings() { /* Utility class, don't instantiate. */ }

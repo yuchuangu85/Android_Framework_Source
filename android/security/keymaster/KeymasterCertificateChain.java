@@ -32,7 +32,7 @@ public class KeymasterCertificateChain implements Parcelable {
 
     private List<byte[]> mCertificates;
 
-    public static final Parcelable.Creator<KeymasterCertificateChain> CREATOR = new
+    public static final @android.annotation.NonNull Parcelable.Creator<KeymasterCertificateChain> CREATOR = new
             Parcelable.Creator<KeymasterCertificateChain>() {
                 public KeymasterCertificateChain createFromParcel(Parcel in) {
                     return new KeymasterCertificateChain(in);
@@ -52,6 +52,14 @@ public class KeymasterCertificateChain implements Parcelable {
 
     private KeymasterCertificateChain(Parcel in) {
         readFromParcel(in);
+    }
+
+    /**
+     * Makes a shallow copy of other by copying the reference to the certificate chain list.
+     * @param other
+     */
+    public void shallowCopyFrom(KeymasterCertificateChain other) {
+        this.mCertificates = other.mCertificates;
     }
 
     public List<byte[]> getCertificates() {

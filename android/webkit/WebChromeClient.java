@@ -16,14 +16,21 @@
 
 package android.webkit;
 
+import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledAfter;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Message;
 import android.view.View;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 public class WebChromeClient {
 
@@ -71,11 +78,24 @@ public class WebChromeClient {
     }
 
     /**
-     * Notify the host application that the current page has entered full
-     * screen mode. The host application must show the custom View which
-     * contains the web contents &mdash; video or other HTML content &mdash;
-     * in full screen mode. Also see "Full screen support" documentation on
-     * {@link WebView}.
+     * Notify the host application that the current page has entered full screen mode. After this
+     * call, web content will no longer be rendered in the WebView, but will instead be rendered
+     * in {@code view}. The host application should add this View to a Window which is configured
+     * with {@link android.view.WindowManager.LayoutParams#FLAG_FULLSCREEN} flag in order to
+     * actually display this web content full screen.
+     *
+     * <p>The application may explicitly exit fullscreen mode by invoking {@code callback} (ex. when
+     * the user presses the back button). However, this is generally not necessary as the web page
+     * will often show its own UI to close out of fullscreen. Regardless of how the WebView exits
+     * fullscreen mode, WebView will invoke {@link #onHideCustomView()}, signaling for the
+     * application to remove the custom View.
+     *
+     * <p>If this method is not overridden, WebView will report to the web page it does not support
+     * fullscreen mode and will not honor the web page's request to run in fullscreen mode.
+     *
+     * <p class="note"><b>Note:</b> if overriding this method, the application must also override
+     * {@link #onHideCustomView()}.
+     *
      * @param view is the View object to be shown.
      * @param callback invoke this callback to request the page to exit
      * full screen mode.
@@ -98,10 +118,13 @@ public class WebChromeClient {
             CustomViewCallback callback) {};
 
     /**
-     * Notify the host application that the current page has exited full
-     * screen mode. The host application must hide the custom View, ie. the
-     * View passed to {@link #onShowCustomView} when the content entered fullscreen.
-     * Also see "Full screen support" documentation on {@link WebView}.
+     * Notify the host application that the current page has exited full screen mode. The host
+     * application must hide the custom View (the View which was previously passed to {@link
+     * #onShowCustomView(View, CustomViewCallback) onShowCustomView()}). After this call, web
+     * content will render in the original WebView again.
+     *
+     * <p class="note"><b>Note:</b> if overriding this method, the application must also override
+     * {@link #onShowCustomView(View, CustomViewCallback) onShowCustomView()}.
      */
     public void onHideCustomView() {}
 
@@ -173,14 +196,31 @@ public class WebChromeClient {
     public void onCloseWindow(WebView window) {}
 
     /**
-     * Tell the client to display a javascript alert dialog.  If the client
-     * returns {@code true}, WebView will assume that the client will handle the
-     * dialog.  If the client returns {@code false}, it will continue execution.
+     * Notify the host application that the web page wants to display a
+     * JavaScript {@code alert()} dialog.
+     * <p>The default behavior if this method returns {@code false} or is not
+     * overridden is to show a dialog containing the alert message and suspend
+     * JavaScript execution until the dialog is dismissed.
+     * <p>To show a custom dialog, the app should return {@code true} from this
+     * method, in which case the default dialog will not be shown and JavaScript
+     * execution will be suspended. The app should call
+     * {@code JsResult.confirm()} when the custom dialog is dismissed such that
+     * JavaScript execution can be resumed.
+     * <p>To suppress the dialog and allow JavaScript execution to
+     * continue, call {@code JsResult.confirm()} immediately and then return
+     * {@code true}.
+     * <p>Note that if the {@link WebChromeClient} is set to be {@code null},
+     * or if {@link WebChromeClient} is not set at all, the default dialog will
+     * be suppressed and Javascript execution will continue immediately.
+     * <p>Note that the default dialog does not inherit the {@link
+     * android.view.Display#FLAG_SECURE} flag from the parent window.
+     *
      * @param view The WebView that initiated the callback.
      * @param url The url of the page requesting the dialog.
      * @param message Message to be displayed in the window.
-     * @param result A JsResult to confirm that the user hit enter.
-     * @return boolean Whether the client will handle the alert dialog.
+     * @param result A JsResult to confirm that the user closed the window.
+     * @return boolean {@code true} if the request is handled or ignored.
+     * {@code false} if WebView needs to show the default dialog.
      */
     public boolean onJsAlert(WebView view, String url, String message,
             JsResult result) {
@@ -188,17 +228,37 @@ public class WebChromeClient {
     }
 
     /**
-     * Tell the client to display a confirm dialog to the user. If the client
-     * returns {@code true}, WebView will assume that the client will handle the
-     * confirm dialog and call the appropriate JsResult method. If the
-     * client returns false, a default value of {@code false} will be returned to
-     * javascript. The default behavior is to return {@code false}.
+     * Notify the host application that the web page wants to display a
+     * JavaScript {@code confirm()} dialog.
+     * <p>The default behavior if this method returns {@code false} or is not
+     * overridden is to show a dialog containing the message and suspend
+     * JavaScript execution until the dialog is dismissed. The default dialog
+     * will return {@code true} to the JavaScript {@code confirm()} code when
+     * the user presses the 'confirm' button, and will return {@code false} to
+     * the JavaScript code when the user presses the 'cancel' button or
+     * dismisses the dialog.
+     * <p>To show a custom dialog, the app should return {@code true} from this
+     * method, in which case the default dialog will not be shown and JavaScript
+     * execution will be suspended. The app should call
+     * {@code JsResult.confirm()} or {@code JsResult.cancel()} when the custom
+     * dialog is dismissed.
+     * <p>To suppress the dialog and allow JavaScript execution to continue,
+     * call {@code JsResult.confirm()} or {@code JsResult.cancel()} immediately
+     * and then return {@code true}.
+     * <p>Note that if the {@link WebChromeClient} is set to be {@code null},
+     * or if {@link WebChromeClient} is not set at all, the default dialog will
+     * be suppressed and the default value of {@code false} will be returned to
+     * the JavaScript code immediately.
+     * <p>Note that the default dialog does not inherit the {@link
+     * android.view.Display#FLAG_SECURE} flag from the parent window.
+     *
      * @param view The WebView that initiated the callback.
      * @param url The url of the page requesting the dialog.
      * @param message Message to be displayed in the window.
      * @param result A JsResult used to send the user's response to
      *               javascript.
-     * @return boolean Whether the client will handle the confirm dialog.
+     * @return boolean {@code true} if the request is handled or ignored.
+     * {@code false} if WebView needs to show the default dialog.
      */
     public boolean onJsConfirm(WebView view, String url, String message,
             JsResult result) {
@@ -206,18 +266,36 @@ public class WebChromeClient {
     }
 
     /**
-     * Tell the client to display a prompt dialog to the user. If the client
-     * returns {@code true}, WebView will assume that the client will handle the
-     * prompt dialog and call the appropriate JsPromptResult method. If the
-     * client returns false, a default value of {@code false} will be returned to to
-     * javascript. The default behavior is to return {@code false}.
+     * Notify the host application that the web page wants to display a
+     * JavaScript {@code prompt()} dialog.
+     * <p>The default behavior if this method returns {@code false} or is not
+     * overridden is to show a dialog containing the message and suspend
+     * JavaScript execution until the dialog is dismissed. Once the dialog is
+     * dismissed, JavaScript {@code prompt()} will return the string that the
+     * user typed in, or null if the user presses the 'cancel' button.
+     * <p>To show a custom dialog, the app should return {@code true} from this
+     * method, in which case the default dialog will not be shown and JavaScript
+     * execution will be suspended. The app should call
+     * {@code JsPromptResult.confirm(result)} when the custom dialog is
+     * dismissed.
+     * <p>To suppress the dialog and allow JavaScript execution to continue,
+     * call {@code JsPromptResult.confirm(result)} immediately and then
+     * return {@code true}.
+     * <p>Note that if the {@link WebChromeClient} is set to be {@code null},
+     * or if {@link WebChromeClient} is not set at all, the default dialog will
+     * be suppressed and {@code null} will be returned to the JavaScript code
+     * immediately.
+     * <p>Note that the default dialog does not inherit the {@link
+     * android.view.Display#FLAG_SECURE} flag from the parent window.
+     *
      * @param view The WebView that initiated the callback.
      * @param url The url of the page requesting the dialog.
      * @param message Message to be displayed in the window.
      * @param defaultValue The default value displayed in the prompt dialog.
      * @param result A JsPromptResult used to send the user's reponse to
      *               javascript.
-     * @return boolean Whether the client will handle the prompt dialog.
+     * @return boolean {@code true} if the request is handled or ignored.
+     * {@code false} if WebView needs to show the default dialog.
      */
     public boolean onJsPrompt(WebView view, String url, String message,
             String defaultValue, JsPromptResult result) {
@@ -225,20 +303,34 @@ public class WebChromeClient {
     }
 
     /**
-     * Tell the client to display a dialog to confirm navigation away from the
-     * current page. This is the result of the onbeforeunload javascript event.
-     * If the client returns {@code true}, WebView will assume that the client will
-     * handle the confirm dialog and call the appropriate JsResult method. If
-     * the client returns {@code false}, a default value of {@code true} will be returned to
-     * javascript to accept navigation away from the current page. The default
-     * behavior is to return {@code false}. Setting the JsResult to {@code true} will navigate
-     * away from the current page, {@code false} will cancel the navigation.
+     * Notify the host application that the web page wants to confirm navigation
+     * from JavaScript {@code onbeforeunload}.
+     * <p>The default behavior if this method returns {@code false} or is not
+     * overridden is to show a dialog containing the message and suspend
+     * JavaScript execution until the dialog is dismissed. The default dialog
+     * will continue the navigation if the user confirms the navigation, and
+     * will stop the navigation if the user wants to stay on the current page.
+     * <p>To show a custom dialog, the app should return {@code true} from this
+     * method, in which case the default dialog will not be shown and JavaScript
+     * execution will be suspended. When the custom dialog is dismissed, the
+     * app should call {@code JsResult.confirm()} to continue the navigation or,
+     * {@code JsResult.cancel()} to stay on the current page.
+     * <p>To suppress the dialog and allow JavaScript execution to continue,
+     * call {@code JsResult.confirm()} or {@code JsResult.cancel()} immediately
+     * and then return {@code true}.
+     * <p>Note that if the {@link WebChromeClient} is set to be {@code null},
+     * or if {@link WebChromeClient} is not set at all, the default dialog will
+     * be suppressed and the navigation will be resumed immediately.
+     * <p>Note that the default dialog does not inherit the {@link
+     * android.view.Display#FLAG_SECURE} flag from the parent window.
+     *
      * @param view The WebView that initiated the callback.
      * @param url The url of the page requesting the dialog.
      * @param message Message to be displayed in the window.
      * @param result A JsResult used to send the user's response to
      *               javascript.
-     * @return boolean Whether the client will handle the confirm dialog.
+     * @return boolean {@code true} if the request is handled or ignored.
+     * {@code false} if WebView needs to show the default dialog.
      */
     public boolean onJsBeforeUnload(WebView view, String url, String message,
             JsResult result) {
@@ -291,6 +383,8 @@ public class WebChromeClient {
     *                     must be used to inform the WebView of the new quota.
     * @deprecated This method is no longer called; WebView now uses the HTML5 / JavaScript Quota
     *             Management API.
+    * @removed This method is no longer called; WebView now uses the HTML5 / JavaScript Quota
+    *          Management API.
     */
     @Deprecated
     public void onReachedMaxAppCacheSize(long requiredStorage, long quota,
@@ -426,12 +520,33 @@ public class WebChromeClient {
     }
 
     /**
-     * Tell the client to show a file chooser.
+     * Asks the client app to show a file chooser. The web page has requested to either upload or
+     * save a file, such as from a 'file' input in an HTML form or due to a JavaScript API call. The
+     * client app can decide whether to show the user a file chooser dialog or to programmatically
+     * handle the request. This can be invoked both for uploads and downloads, and it can also be
+     * invoked for single files, multiple files, or entire folders. Client apps should check {@code
+     * fileChooserParams} for details about what type of file is being requested.
      *
-     * This is called to handle HTML forms with 'file' input type, in response to the
-     * user pressing the "Select File" button.
-     * To cancel the request, call <code>filePathCallback.onReceiveValue(null)</code> and
-     * return {@code true}.
+     * <p>To show the user a file chooser dialog, override this callback to return {@code true} and
+     * store the {@code filePathCallback} in a variable. Present the dialog to the user and when
+     * they reply, invoke the callback with a URI which points to the file. Make sure to check the
+     * {@code fileChooserParams} in order to show appropriate options in the file chooser dialog,
+     * such as automatically filtering by relevant file type (see {@link
+     * FileChooserParams#getAcceptTypes}).
+     *
+     * <p>To handle each request programmatically, respond to this callback with {@code true}. You
+     * can invoke {@code filePathCallback} with {@code null} in order to cancel the request or you
+     * can invoke the callback with a URI to actual file or folder.
+     *
+     * <p>The default behavior is that WebView will cancel all file requests.
+     *
+     * <p class="note"><b>Note:</b> WebView does not enforce any restrictions on
+     * the chosen file(s). WebView can access all files that your app can access.
+     * In case the file(s) are chosen through an untrusted source such as a third-party
+     * app, it is your own app's responsibility to check what the returned Uris
+     * refer to before calling the {@code filePathCallback}. See
+     * {@link FileChooserParams#createIntent} and {@link FileChooserParams#parseResult} for more
+     * details.
      *
      * @param webView The WebView instance that is initiating the request.
      * @param filePathCallback Invoke this callback to supply the list of paths to files to upload,
@@ -453,21 +568,70 @@ public class WebChromeClient {
      * Parameters used in the {@link #onShowFileChooser} method.
      */
     public static abstract class FileChooserParams {
+        /**
+         * Enable File System Access for webview.
+         *
+         * File System Access JS APIs window.showOpenFileChooser(), showDirectoryChooser(), and
+         * showSaveFilePicker() will invoke #onFileChooser(). Additional MODE_OPEN_FOLDER will be
+         * returned by #getMode(), #getIntent() will return ACTION_OPEN_DOCUMENT,
+         * ACTION_OPEN_DOCUMENT_TREE, and ACTION_CREATE_DOCUMENT rather than the current
+         * ACTION_GET_CONTENT, and new function #getPermissionMode() will be available.
+         *
+         * @hide
+         */
+        @ChangeId
+        @EnabledAfter(targetSdkVersion = android.os.Build.VERSION_CODES.BAKLAVA)
+        @FlaggedApi(android.webkit.Flags.FLAG_FILE_SYSTEM_ACCESS)
+        @SystemApi
+        public static final long ENABLE_FILE_SYSTEM_ACCESS = 364980165L;
+
+        /** @hide */
+        @IntDef(prefix = { "MODE_" }, value = {
+            MODE_OPEN,
+            MODE_OPEN_MULTIPLE,
+            MODE_OPEN_FOLDER,
+            MODE_SAVE,
+        })
+        @Retention(RetentionPolicy.SOURCE)
+        public @interface Mode {}
+
         /** Open single file. Requires that the file exists before allowing the user to pick it. */
         public static final int MODE_OPEN = 0;
         /** Like Open but allows multiple files to be selected. */
         public static final int MODE_OPEN_MULTIPLE = 1;
-        /** Like Open but allows a folder to be selected. The implementation should enumerate
-            all files selected by this operation.
-            This feature is not supported at the moment.
-            @hide */
+        /** Like Open but allows a folder to be selected. */
+        @FlaggedApi(android.webkit.Flags.FLAG_FILE_SYSTEM_ACCESS)
         public static final int MODE_OPEN_FOLDER = 2;
         /**  Allows picking a nonexistent file and saving it. */
         public static final int MODE_SAVE = 3;
 
+        /** @hide */
+        @IntDef(prefix = { "PERMISSION_MODE_" }, value = {
+            PERMISSION_MODE_READ,
+            PERMISSION_MODE_READ_WRITE,
+        })
+        @Retention(RetentionPolicy.SOURCE)
+        public @interface PermissionMode {}
+
+        /** File or directory should be opened for reading only. */
+        @FlaggedApi(android.webkit.Flags.FLAG_FILE_SYSTEM_ACCESS)
+        public static final int PERMISSION_MODE_READ = 0;
+        /** File or directory should be opened for read and write. */
+        @FlaggedApi(android.webkit.Flags.FLAG_FILE_SYSTEM_ACCESS)
+        public static final int PERMISSION_MODE_READ_WRITE = 1;
+
         /**
          * Parse the result returned by the file picker activity. This method should be used with
          * {@link #createIntent}. Refer to {@link #createIntent} for how to use it.
+         *
+         * <p class="note"><b>Note:</b> The intent returned by the file picker activity
+         * should be treated as untrusted. A third-party app handling the implicit
+         * intent created by {@link #createIntent} might return Uris that the third-party
+         * app itself does not have access to, such as your own app's sensitive data files.
+         * WebView does not enforce any restrictions on the returned Uris. It is the
+         * app's responsibility to ensure that the untrusted source (such as a third-party
+         * app) has access the Uris it has returned and that the Uris are not pointing
+         * to any sensitive data files.</p>
          *
          * @param resultCode the integer result code returned by the file picker activity.
          * @param data the intent returned by the file picker activity.
@@ -482,6 +646,7 @@ public class WebChromeClient {
         /**
          * Returns file chooser mode.
          */
+        @Mode
         public abstract int getMode();
 
         /**
@@ -513,21 +678,44 @@ public class WebChromeClient {
         public abstract String getFilenameHint();
 
         /**
+         * Returns permission mode {@link #PERMISSION_MODE_READ} or
+         * {@link #PERMISSION_MODE_READ_WRITE} which indicates the intended mode for opening a file
+         * or directory.
+         *
+         * This can be used to determine whether an Intent such as
+         * {@link android.content.Intent#ACTION_OPEN_DOCUMENT} should be used rather than
+         * {@link android.content.Intent#ACTION_GET_CONTENT} to choose files.
+         */
+        @FlaggedApi(Flags.FLAG_FILE_SYSTEM_ACCESS)
+        @PermissionMode
+        public int getPermissionMode() {
+            return PERMISSION_MODE_READ;
+        }
+
+        /**
          * Creates an intent that would start a file picker for file selection.
          * The Intent supports choosing files from simple file sources available
          * on the device. Some advanced sources (for example, live media capture)
          * may not be supported and applications wishing to support these sources
          * or more advanced file operations should build their own Intent.
          *
-         * <pre>
-         * How to use:
-         * 1. Build an intent using {@link #createIntent}
-         * 2. Fire the intent using {@link android.app.Activity#startActivityForResult}.
-         * 3. Check for ActivityNotFoundException and take a user friendly action if thrown.
-         * 4. Listen the result using {@link android.app.Activity#onActivityResult}
-         * 5. Parse the result using {@link #parseResult} only if media capture was not requested.
-         * 6. Send the result using filePathCallback of {@link WebChromeClient#onShowFileChooser}
-         * </pre>
+         * <p>How to use:
+         * <ol>
+         *   <li>Build an intent using {@link #createIntent}</li>
+         *   <li>Fire the intent using {@link android.app.Activity#startActivityForResult}.</li>
+         *   <li>Check for ActivityNotFoundException and take a user friendly action if thrown.</li>
+         *   <li>Listen the result using {@link android.app.Activity#onActivityResult}</li>
+         *   <li>Parse the result using {@link #parseResult} only if media capture was not
+         *   requested.</li>
+         *   <li>Send the result using filePathCallback of {@link
+         *   WebChromeClient#onShowFileChooser}</li>
+         * </ol>
+         *
+         * <p class="note"><b>Note:</b> The created intent may be handled by
+         * third-party applications on device. The received result must be treated
+         * as untrusted as it can contain Uris pointing to your own app's sensitive
+         * data files. Your app should check the resultant Uris in {@link #parseResult}
+         * before calling the <code>filePathCallback</code>.</p>
          *
          * @return an Intent that supports basic file chooser sources.
          */

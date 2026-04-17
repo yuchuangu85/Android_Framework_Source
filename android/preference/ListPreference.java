@@ -18,6 +18,7 @@ package android.preference;
 
 import android.annotation.ArrayRes;
 import android.app.AlertDialog.Builder;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.res.TypedArray;
@@ -32,15 +33,23 @@ import android.util.AttributeSet;
  * <p>
  * This preference will store a string into the SharedPreferences. This string will be the value
  * from the {@link #setEntryValues(CharSequence[])} array.
- * 
+ *
  * @attr ref android.R.styleable#ListPreference_entries
  * @attr ref android.R.styleable#ListPreference_entryValues
+ *
+ * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+ *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+ *      Preference Library</a> for consistent behavior across all devices. For more information on
+ *      using the AndroidX Preference Library see
+ *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
  */
+@Deprecated
 public class ListPreference extends DialogPreference {
     private CharSequence[] mEntries;
     private CharSequence[] mEntryValues;
     private String mValue;
     private String mSummary;
+    @UnsupportedAppUsage
     private int mClickedDialogEntryIndex;
     private boolean mValueSet;
 
@@ -191,7 +200,7 @@ public class ListPreference extends DialogPreference {
 
     /**
      * Sets the value to the given index from the entry values.
-     * 
+     *
      * @param index The index of the value to set.
      */
     public void setValueIndex(int index) {
@@ -199,30 +208,30 @@ public class ListPreference extends DialogPreference {
             setValue(mEntryValues[index].toString());
         }
     }
-    
+
     /**
      * Returns the value of the key. This should be one of the entries in
      * {@link #getEntryValues()}.
-     * 
+     *
      * @return The value of the key.
      */
     public String getValue() {
-        return mValue; 
+        return mValue;
     }
-    
+
     /**
      * Returns the entry corresponding to the current value.
-     * 
+     *
      * @return The entry corresponding to the current value, or null.
      */
     public CharSequence getEntry() {
         int index = getValueIndex();
         return index >= 0 && mEntries != null ? mEntries[index] : null;
     }
-    
+
     /**
      * Returns the index of the given value (in the entry values array).
-     * 
+     *
      * @param value The value whose index should be returned.
      * @return The index of the value, or -1 if not found.
      */
@@ -236,22 +245,22 @@ public class ListPreference extends DialogPreference {
         }
         return -1;
     }
-    
+
     private int getValueIndex() {
         return findIndexOfValue(mValue);
     }
-    
+
     @Override
     protected void onPrepareDialogBuilder(Builder builder) {
         super.onPrepareDialogBuilder(builder);
-        
+
         if (mEntries == null || mEntryValues == null) {
             throw new IllegalStateException(
                     "ListPreference requires an entries array and an entryValues array.");
         }
 
         mClickedDialogEntryIndex = getValueIndex();
-        builder.setSingleChoiceItems(mEntries, mClickedDialogEntryIndex, 
+        builder.setSingleChoiceItems(mEntries, mClickedDialogEntryIndex,
                 new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface dialog, int which) {
                         mClickedDialogEntryIndex = which;
@@ -261,10 +270,10 @@ public class ListPreference extends DialogPreference {
                          * click, and dismisses the dialog.
                          */
                         ListPreference.this.onClick(dialog, DialogInterface.BUTTON_POSITIVE);
-                        dialog.dismiss();
+                        postDismiss();
                     }
         });
-        
+
         /*
          * The typical interaction for list-based dialogs is to have
          * click-on-an-item dismiss the dialog instead of the user having to
@@ -276,7 +285,7 @@ public class ListPreference extends DialogPreference {
     @Override
     protected void onDialogClosed(boolean positiveResult) {
         super.onDialogClosed(positiveResult);
-        
+
         if (positiveResult && mClickedDialogEntryIndex >= 0 && mEntryValues != null) {
             String value = mEntryValues[mClickedDialogEntryIndex].toString();
             if (callChangeListener(value)) {
@@ -294,7 +303,7 @@ public class ListPreference extends DialogPreference {
     protected void onSetInitialValue(boolean restoreValue, Object defaultValue) {
         setValue(restoreValue ? getPersistedString(mValue) : (String) defaultValue);
     }
-    
+
     @Override
     protected Parcelable onSaveInstanceState() {
         final Parcelable superState = super.onSaveInstanceState();
@@ -302,7 +311,7 @@ public class ListPreference extends DialogPreference {
             // No need to save instance state since it's persistent
             return superState;
         }
-        
+
         final SavedState myState = new SavedState(superState);
         myState.value = getValue();
         return myState;
@@ -315,15 +324,15 @@ public class ListPreference extends DialogPreference {
             super.onRestoreInstanceState(state);
             return;
         }
-         
+
         SavedState myState = (SavedState) state;
         super.onRestoreInstanceState(myState.getSuperState());
         setValue(myState.value);
     }
-    
+
     private static class SavedState extends BaseSavedState {
         String value;
-        
+
         public SavedState(Parcel source) {
             super(source);
             value = source.readString();
@@ -339,7 +348,7 @@ public class ListPreference extends DialogPreference {
             super(superState);
         }
 
-        public static final Parcelable.Creator<SavedState> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<SavedState> CREATOR =
                 new Parcelable.Creator<SavedState>() {
             public SavedState createFromParcel(Parcel in) {
                 return new SavedState(in);
@@ -350,5 +359,5 @@ public class ListPreference extends DialogPreference {
             }
         };
     }
-    
+
 }

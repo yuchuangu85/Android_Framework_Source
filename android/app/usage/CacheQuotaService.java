@@ -34,7 +34,7 @@ import java.util.List;
 /**
  * CacheQuoteService defines a service which accepts cache quota requests and processes them,
  * thereby filling out how much quota each request deserves.
- * {@hide}
+ * @hide
  */
 @SystemApi
 public abstract class CacheQuotaService extends Service {
@@ -46,7 +46,7 @@ public abstract class CacheQuotaService extends Service {
      */
     public static final String SERVICE_INTERFACE = "android.app.usage.CacheQuotaService";
 
-    /** {@hide} **/
+    /** @hide **/
     public static final String REQUEST_LIST_KEY = "requests";
 
     private CacheQuotaServiceWrapper mWrapper;

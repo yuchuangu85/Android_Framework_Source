@@ -16,10 +16,12 @@
 
 package com.android.ims.internal.uce.presence;
 
-import com.android.ims.internal.uce.common.StatusCode;
-
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import com.android.ims.internal.uce.common.StatusCode;
 
 
 /** @hide  */
@@ -42,6 +44,7 @@ public class PresCmdStatus implements Parcelable{
      * Sets the command ID.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setCmdId(PresCmdId cmdId) {
         this.mCmdId = cmdId;
     }
@@ -58,6 +61,7 @@ public class PresCmdStatus implements Parcelable{
      * Sets the user data.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setUserData(int userData) {
         this.mUserData = userData;
     }
@@ -73,6 +77,7 @@ public class PresCmdStatus implements Parcelable{
      * Sets the status code.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setStatus(StatusCode status) {
         this.mStatus = status;
     }
@@ -89,6 +94,7 @@ public class PresCmdStatus implements Parcelable{
      * Sets the request ID.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setRequestId(int requestId) {
         this.mRequestId = requestId;
     }
@@ -97,6 +103,7 @@ public class PresCmdStatus implements Parcelable{
      * Constructor for the PresCmdStatus class.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public PresCmdStatus() {
         mStatus = new StatusCode();
     };
@@ -139,8 +146,8 @@ public class PresCmdStatus implements Parcelable{
     public void readFromParcel(Parcel source) {
         mUserData = source.readInt();
         mRequestId = source.readInt();
-        mCmdId = source.readParcelable(PresCmdId.class.getClassLoader());
-        mStatus = source.readParcelable(StatusCode.class.getClassLoader());
+        mCmdId = source.readParcelable(PresCmdId.class.getClassLoader(), com.android.ims.internal.uce.presence.PresCmdId.class);
+        mStatus = source.readParcelable(StatusCode.class.getClassLoader(), com.android.ims.internal.uce.common.StatusCode.class);
     }
 
 }

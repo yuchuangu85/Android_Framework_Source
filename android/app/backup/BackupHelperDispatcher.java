@@ -16,6 +16,8 @@
 
 package android.app.backup;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
@@ -29,12 +31,14 @@ public class BackupHelperDispatcher {
     private static final String TAG = "BackupHelperDispatcher";
 
     private static class Header {
+        @UnsupportedAppUsage
         int chunkSize; // not including the header
+        @UnsupportedAppUsage
         String keyPrefix;
     }
 
     TreeMap<String,BackupHelper> mHelpers = new TreeMap<String,BackupHelper>();
-    
+
     public BackupHelperDispatcher() {
     }
 
@@ -77,7 +81,7 @@ public class BackupHelperDispatcher {
     }
 
     private void doOneBackup(ParcelFileDescriptor oldState, BackupDataOutput data,
-            ParcelFileDescriptor newState, Header header, BackupHelper helper) 
+            ParcelFileDescriptor newState, Header header, BackupHelper helper)
             throws IOException {
         int err;
         FileDescriptor newStateFD = newState.getFileDescriptor();
@@ -101,8 +105,19 @@ public class BackupHelperDispatcher {
         }
     }
 
-    public void performRestore(BackupDataInput input, int appVersionCode,
-            ParcelFileDescriptor newState)
+    public void performRestore(
+            BackupDataInput input, int appVersionCode, ParcelFileDescriptor newState)
+            throws IOException {
+        performRestore(input, appVersionCode, newState, /* request= */ null);
+    }
+
+    public void performDelayedRestore(BackupDataInput input, int appVersionCode,
+            ParcelFileDescriptor newState, DelayedRestoreRequest request) throws IOException {
+        performRestore(input, appVersionCode, newState, request);
+    }
+
+    private void performRestore(BackupDataInput input, int appVersionCode,
+            ParcelFileDescriptor newState, @Nullable DelayedRestoreRequest request)
             throws IOException {
         boolean alreadyComplained = false;
 
@@ -117,7 +132,11 @@ public class BackupHelperDispatcher {
                 if (helper != null) {
                     stream.dataSize = input.getDataSize();
                     stream.key = rawKey.substring(pos+1);
-                    helper.restoreEntity(stream);
+                    if (request != null) {
+                        helper.delayedRestoreEntity(request, stream);
+                    } else {
+                        helper.restoreEntity(stream);
+                    }
                 } else {
                     if (!alreadyComplained) {
                         Log.w(TAG, "Couldn't find helper for: '" + rawKey + "'");

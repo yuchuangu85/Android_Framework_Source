@@ -16,14 +16,15 @@
 
 // This file was generated from the C++ include file: SkRasterizer.h
 // Any changes made to this file will be discarded by the build.
-// To change this file, either edit the include, or device/tools/gluemaker/main.cpp, 
-// or one of the auxilary file specifications in device/tools/gluemaker.
+// To change this file, either edit the include, or device/tools/gluemaker/main.cpp,
+// or one of the auxiliary file specifications in device/tools/gluemaker.
 
 package android.graphics;
 
 /**
  * @removed feature is not supported by hw-accerlerated or PDF backends
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class Rasterizer {
 
     protected void finalize() throws Throwable { }

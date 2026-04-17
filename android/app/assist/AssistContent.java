@@ -1,8 +1,12 @@
 package android.app.assist;
 
+import android.annotation.FlaggedApi;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ClipData;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -13,12 +17,33 @@ import android.os.Parcelable;
  * {@link android.app.Activity#onProvideAssistContent Activity.onProvideAssistContent}.
  */
 public class AssistContent implements Parcelable {
+    /**
+     * Extra for a {@link Bundle} that provides contextual AppFunction's information about the
+     * content currently being viewed in the application.
+     * <p>
+     * This extra can be optionally supplied in the {@link AssistContent#getExtras()} bundle.
+     * <p>
+     * The schema of the {@link Bundle} in this extra is defined in the AppFunction SDK.
+     *
+     * @see android.app.appfunctions.AppFunctionManager
+     */
+    @FlaggedApi(android.app.appfunctions.flags.Flags.FLAG_ENABLE_APP_FUNCTION_MANAGER)
+    public static final String EXTRA_APP_FUNCTION_DATA =
+            "android.app.assist.extra.APP_FUNCTION_DATA";
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private boolean mIsAppProvidedIntent = false;
     private boolean mIsAppProvidedWebUri = false;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private Intent mIntent;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private String mStructuredData;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private ClipData mClipData;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private Uri mUri;
+    private Uri mSessionTransferUri;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final Bundle mExtras;
 
     public AssistContent() {
@@ -26,12 +51,22 @@ public class AssistContent implements Parcelable {
     }
 
     /**
+     * Create an AssistContent with extras initialized.
+     *
      * @hide
+     */
+    public AssistContent(@android.annotation.NonNull Bundle extras) {
+        mExtras = extras;
+    }
+
+    /**
      * Called by {@link android.app.ActivityThread} to set the default Intent based on
      * {@link android.app.Activity#getIntent Activity.getIntent}.
      *
      * <p>Automatically populates {@link #mUri} if that Intent is an {@link Intent#ACTION_VIEW}
      * of a web (http or https scheme) URI.</p>
+     *
+     * @hide
      */
     public void setDefaultIntent(Intent intent) {
         mIntent = intent;
@@ -142,12 +177,48 @@ public class AssistContent implements Parcelable {
     }
 
     /**
+     * This method can be used to provide a {@link Uri} which will be utilized when transitioning a
+     * user's session to another surface.
+     *
+     * <p>If provided, instead of using the URI provided in {@link #setWebUri}, the
+     * "Open in browser" feature will use this URI to transition the current session from one
+     * surface to the other. Apps may choose to encode session or user information into this
+     * URI in order to provide a better session transfer experience. However, while this URI will
+     * only be available to the system and not other applications, developers should not encode
+     * authentication credentials into this URI, because it will be surfaced in the browser URL bar
+     * and may be copied and shared from there.
+     *
+     * <p>When providing this URI, developers should still continue to provide
+     * {@link #setWebUri} for backwards compatibility with features such as
+     * <a href="https://developer.android.com/guide/components/activities/recents#url-sharing">
+     * recents URL sharing</a> which facilitate link sharing with other users and would not benefit
+     * from a session-transfer URI.
+     *
+     * @see android.app.Activity#requestOpenInBrowserEducation()
+     */
+    @FlaggedApi(com.android.window.flags.Flags.FLAG_ENABLE_DESKTOP_WINDOWING_APP_TO_WEB_EDUCATION)
+    public void setSessionTransferUri(@Nullable Uri uri) {
+        mSessionTransferUri = uri;
+    }
+
+    /**
+     * Return the content's session transfer web URI as per
+     * {@link #setSessionTransferUri(android.net.Uri)}, or null if there is none.
+     */
+    @FlaggedApi(com.android.window.flags.Flags.FLAG_ENABLE_DESKTOP_WINDOWING_APP_TO_WEB_EDUCATION)
+    @Nullable
+    public Uri getSessionTransferUri() {
+        return mSessionTransferUri;
+    }
+
+    /**
      * Return Bundle for extra vendor-specific data that can be modified and examined.
      */
     public Bundle getExtras() {
         return mExtras;
     }
 
+    @UnsupportedAppUsage
     AssistContent(Parcel in) {
         if (in.readInt() != 0) {
             mIntent = Intent.CREATOR.createFromParcel(in);
@@ -159,6 +230,9 @@ public class AssistContent implements Parcelable {
             mUri = Uri.CREATOR.createFromParcel(in);
         }
         if (in.readInt() != 0) {
+            mSessionTransferUri = Uri.CREATOR.createFromParcel(in);
+        }
+        if (in.readInt() != 0) {
             mStructuredData = in.readString();
         }
         mIsAppProvidedIntent = in.readInt() == 1;
@@ -166,6 +240,7 @@ public class AssistContent implements Parcelable {
         mIsAppProvidedWebUri = in.readInt() == 1;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     void writeToParcelInternal(Parcel dest, int flags) {
         if (mIntent != null) {
             dest.writeInt(1);
@@ -182,6 +257,12 @@ public class AssistContent implements Parcelable {
         if (mUri != null) {
             dest.writeInt(1);
             mUri.writeToParcel(dest, flags);
+        } else {
+            dest.writeInt(0);
+        }
+        if (mSessionTransferUri != null) {
+            dest.writeInt(1);
+            mSessionTransferUri.writeToParcel(dest, flags);
         } else {
             dest.writeInt(0);
         }
@@ -206,7 +287,7 @@ public class AssistContent implements Parcelable {
         writeToParcelInternal(dest, flags);
     }
 
-    public static final Parcelable.Creator<AssistContent> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<AssistContent> CREATOR
             = new Parcelable.Creator<AssistContent>() {
         public AssistContent createFromParcel(Parcel in) {
             return new AssistContent(in);

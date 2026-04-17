@@ -262,8 +262,9 @@ public class Level implements java.io.Serializable {
     }
 
     private String computeLocalizedLevelName(Locale newLocale) {
-        // Android-changed: Use Thread.currentThread().getContextClassLoader(),
-        // otherwise we might get a BootClassLoader.
+        // Android-changed: Use Thread.currentThread().getContextClassLoader().
+        // Otherwise, we might get a BootClassLoader.
+        // ResourceBundle rb = ResourceBundle.getBundle(resourceBundleName, newLocale);
         ResourceBundle rb = ResourceBundle.getBundle(resourceBundleName, newLocale,
                                                      Thread.currentThread().getContextClassLoader());
         final String localizedName = rb.getString(name);

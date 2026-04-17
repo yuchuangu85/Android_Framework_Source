@@ -19,6 +19,7 @@ package android.text.style;
 import android.annotation.DrawableRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -45,18 +46,20 @@ import java.io.InputStream;
  * <p>
  * For example, an <code>ImagedSpan</code> can be used like this:
  * <pre>
- * SpannableString string = SpannableString("Bottom: span.\nBaseline: span.");
+ * SpannableString string = new SpannableString("Bottom: span.\nBaseline: span.");
  * // using the default alignment: ALIGN_BOTTOM
- * string.setSpan(ImageSpan(this, R.mipmap.ic_launcher), 7, 8, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
- * string.setSpan(ImageSpan(this, R.mipmap.ic_launcher, DynamicDrawableSpan.ALIGN_BASELINE),
+ * string.setSpan(new ImageSpan(this, R.mipmap.ic_launcher), 7, 8, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+ * string.setSpan(new ImageSpan(this, R.mipmap.ic_launcher, DynamicDrawableSpan.ALIGN_BASELINE),
  * 22, 23, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
  * </pre>
  * <img src="{@docRoot}reference/android/images/text/style/imagespan.png" />
  * <figcaption>Text with <code>ImageSpan</code>s aligned bottom and baseline.</figcaption>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class ImageSpan extends DynamicDrawableSpan {
 
     @Nullable
+    @UnsupportedAppUsage
     private Drawable mDrawable;
     @Nullable
     private Uri mContentUri;
@@ -87,7 +90,7 @@ public class ImageSpan extends DynamicDrawableSpan {
      * Constructs an {@link ImageSpan} from a {@link Context} and a {@link Bitmap} with the default
      * alignment {@link DynamicDrawableSpan#ALIGN_BOTTOM}
      *
-     * @param context context used to create a drawable from {@param bitmap} based on the display
+     * @param context context used to create a drawable from {@code bitmap} based on the display
      *                metrics of the resources
      * @param bitmap  bitmap to be rendered
      */
@@ -99,7 +102,7 @@ public class ImageSpan extends DynamicDrawableSpan {
      * Constructs an {@link ImageSpan} from a {@link Context}, a {@link Bitmap} and a vertical
      * alignment.
      *
-     * @param context           context used to create a drawable from {@param bitmap} based on
+     * @param context           context used to create a drawable from {@code bitmap} based on
      *                          the display metrics of the resources
      * @param bitmap            bitmap to be rendered
      * @param verticalAlignment one of {@link DynamicDrawableSpan#ALIGN_BOTTOM} or
@@ -168,7 +171,7 @@ public class ImageSpan extends DynamicDrawableSpan {
      * alignment {@link DynamicDrawableSpan#ALIGN_BOTTOM}. The Uri source can be retrieved via
      * {@link #getSource()}
      *
-     * @param context context used to create a drawable from {@param bitmap} based on the display
+     * @param context context used to create a drawable from {@code bitmap} based on the display
      *                metrics of the resources
      * @param uri     {@link Uri} used to construct the drawable that will be rendered
      */
@@ -180,7 +183,7 @@ public class ImageSpan extends DynamicDrawableSpan {
      * Constructs an {@link ImageSpan} from a {@link Context}, a {@link Uri} and a vertical
      * alignment. The Uri source can be retrieved via {@link #getSource()}
      *
-     * @param context           context used to create a drawable from {@param bitmap} based on
+     * @param context           context used to create a drawable from {@code bitmap} based on
      *                          the display
      *                          metrics of the resources
      * @param uri               {@link Uri} used to construct the drawable that will be rendered.
@@ -257,10 +260,20 @@ public class ImageSpan extends DynamicDrawableSpan {
      * Returns the source string that was saved during construction.
      *
      * @return the source string that was saved during construction
-     * @see #ImageSpan(Drawable, String) and this{@link #ImageSpan(Context, Uri)}
+     * @see #ImageSpan(Drawable, String)
+     * @see #ImageSpan(Context, Uri)
      */
     @Nullable
     public String getSource() {
         return mSource;
+    }
+
+    @Override
+    public String toString() {
+        return "ImageSpan{"
+                + "drawable=" + getDrawable()
+                + ", source='" + getSource() + '\''
+                + ", verticalAlignment=" + getVerticalAlignment()
+                + '}';
     }
 }

@@ -34,6 +34,7 @@ import android.view.View;
  * targetting Jelly Bean or later, and will only deliver it for some
  * key presses to applications targetting Ice Cream Sandwich or earlier.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface KeyListener {
     /**
      * Return the type of text that this key listener is manipulating,

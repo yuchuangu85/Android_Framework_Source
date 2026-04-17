@@ -22,6 +22,7 @@ package android.text;
  * to immutable text like Strings).  If you make a {@link DynamicLayout}
  * of an Editable, the layout will be reflowed as the text is changed.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface Editable
 extends CharSequence, GetChars, Spannable, Appendable
 {
@@ -137,7 +138,7 @@ extends CharSequence, GetChars, Spannable, Appendable
         }
 
         /**
-         * Returns a new SpannedStringBuilder from the specified
+         * Returns a new SpannableStringBuilder from the specified
          * CharSequence.  You can override this to provide
          * a different kind of Spanned.
          */

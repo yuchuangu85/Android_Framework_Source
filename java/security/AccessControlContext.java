@@ -29,27 +29,98 @@ package java.security;
 import java.util.ArrayList;
 import java.util.List;
 
+import sun.security.util.Debug;
+import sun.security.util.SecurityConstants;
+
 
 // Android-changed: Stubbed the implementation.  Android doesn't support SecurityManager.
 // See comments in java.lang.SecurityManager for details.
 /**
- * Legacy security code; do not use.
+ * Android doesn't support {@link SecurityManager}. Do not use this class.
  */
 public final class AccessControlContext {
-    public AccessControlContext(ProtectionDomain context[]) {
+
+    public AccessControlContext(ProtectionDomain[] context) {
     }
 
     public AccessControlContext(AccessControlContext acc,
                                 DomainCombiner combiner) {
     }
 
+    /**
+     * package private to allow calls from ProtectionDomain without performing
+     * the security check for {@linkplain SecurityConstants#CREATE_ACC_PERMISSION}
+     * permission
+     */
+    AccessControlContext(AccessControlContext acc,
+                        DomainCombiner combiner,
+                        boolean preauthorized) {
+    }
+
+    /**
+     * package private for AccessController
+     *
+     * This "argument wrapper" context will be passed as the actual context
+     * parameter on an internal doPrivileged() call used in the implementation.
+     */
+    AccessControlContext(ProtectionDomain caller, DomainCombiner combiner,
+        AccessControlContext parent, AccessControlContext context,
+        Permission[] perms)
+    {
+    }
+
+
+    /**
+     * package private constructor for AccessController.getContext()
+     */
+
+    AccessControlContext(ProtectionDomain[] context,
+                         boolean isPrivileged)
+    {
+    }
+
+    /**
+     * Constructor for JavaSecurityAccess.doIntersectionPrivilege()
+     */
+    AccessControlContext(ProtectionDomain[] context,
+                         AccessControlContext privilegedContext)
+    {
+    }
+
+    ProtectionDomain[] getContext() {
+        return null;
+    }
+
+    boolean isPrivileged()
+    {
+        return false;
+    }
+
+    /**
+     * get the assigned combiner from the privileged or inherited context
+     */
+    DomainCombiner getAssignedCombiner() {
+        return null;
+    }
 
     public DomainCombiner getDomainCombiner() {
-      return null;
+        return null;
     }
 
     public void checkPermission(Permission perm)
         throws AccessControlException {
+    }
+
+    /**
+     * Take the stack-based context (this) and combine it with the
+     * privileged or inherited context, if need be. Any limited
+     * privilege scope is flagged regardless of whether the assigned
+     * context comes from an immediately enclosing limited doPrivileged().
+     * The limited privilege scope can indirectly flow from the inherited
+     * parent thread or an assigned context previously captured by getContext().
+     */
+    AccessControlContext optimize() {
+        return null;
     }
 
 }

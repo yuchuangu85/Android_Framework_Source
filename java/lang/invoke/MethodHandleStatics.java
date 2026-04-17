@@ -25,7 +25,7 @@
 
 package java.lang.invoke;
 
-import sun.misc.Unsafe;
+import jdk.internal.misc.Unsafe;
 
 /**
  * This class consists exclusively of static names internal to the

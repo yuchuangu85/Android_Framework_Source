@@ -16,12 +16,12 @@
 
 package android.net.wifi.hotspot2.omadm;
 
+import android.text.TextUtils;
+
 import org.xml.sax.Attributes;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 import org.xml.sax.helpers.DefaultHandler;
-
-import android.text.TextUtils;
 
 import java.io.IOException;
 import java.io.StringReader;

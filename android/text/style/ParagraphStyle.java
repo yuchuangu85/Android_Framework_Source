@@ -20,6 +20,7 @@ package android.text.style;
  * The classes that affect paragraph-level text formatting implement
  * this interface.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface ParagraphStyle
 {
 

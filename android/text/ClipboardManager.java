@@ -21,6 +21,7 @@ package android.text;
  * {@link android.content.ClipboardManager} for the modern API.
  */
 @Deprecated
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public abstract class ClipboardManager {
     /**
      * Returns the text on the clipboard.  It will eventually be possible

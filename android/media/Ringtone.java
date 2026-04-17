@@ -16,20 +16,35 @@
 
 package android.media;
 
+import static android.media.Utils.parseVibrationEffect;
+
+import android.annotation.FlaggedApi;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentProvider;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.Resources.NotFoundException;
 import android.database.Cursor;
-import android.media.MediaPlayer.OnCompletionListener;
+import android.media.audio.Flags;
+import android.media.audiofx.HapticGenerator;
 import android.net.Uri;
 import android.os.Binder;
+import android.os.Build;
 import android.os.RemoteException;
+import android.os.Trace;
+import android.os.VibrationAttributes;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.provider.MediaStore;
-import android.provider.Settings;
 import android.provider.MediaStore.MediaColumns;
+import android.provider.Settings;
 import android.util.Log;
+
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.VibrationStatsWriter;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -49,7 +64,6 @@ public class Ringtone {
 
     private static final String[] MEDIA_COLUMNS = new String[] {
         MediaStore.Audio.Media._ID,
-        MediaStore.Audio.Media.DATA,
         MediaStore.Audio.Media.TITLE
     };
     /** Selection that limits query results to just audio files */
@@ -59,8 +73,15 @@ public class Ringtone {
     // keep references on active Ringtones until stopped or completion listener called.
     private static final ArrayList<Ringtone> sActiveRingtones = new ArrayList<Ringtone>();
 
+    private static final VibrationAttributes VIBRATION_ATTRIBUTES =
+            new VibrationAttributes.Builder().setUsage(VibrationAttributes.USAGE_RINGTONE).build();
+
+    private static final int VIBRATION_LOOP_DELAY_MS = 200;
+
     private final Context mContext;
     private final AudioManager mAudioManager;
+    private VolumeShaper.Configuration mVolumeShaperConfig;
+    private VolumeShaper mVolumeShaper;
 
     /**
      * Flag indicating if we're allowed to fall back to remote playback using
@@ -71,9 +92,12 @@ public class Ringtone {
     private final IRingtonePlayer mRemotePlayer;
     private final Binder mRemoteToken;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private MediaPlayer mLocalPlayer;
     private final MyOnCompletionListener mCompletionListener = new MyOnCompletionListener();
+    private HapticGenerator mHapticGenerator;
 
+    @UnsupportedAppUsage
     private Uri mUri;
     private String mTitle;
 
@@ -81,18 +105,27 @@ public class Ringtone {
             .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build();
+    private boolean mPreferBuiltinDevice;
     // playback properties, use synchronized with mPlaybackSettingsLock
     private boolean mIsLooping = false;
     private float mVolume = 1.0f;
+    private boolean mHapticGeneratorEnabled = false;
     private final Object mPlaybackSettingsLock = new Object();
+    private final Vibrator mVibrator;
+    private final boolean mRingtoneVibrationSupported;
+    private VibrationEffect mVibrationEffect;
+    private boolean mIsVibrating;
 
-    /** {@hide} */
+    /** @hide */
+    @UnsupportedAppUsage
     public Ringtone(Context context, boolean allowRemote) {
         mContext = context;
         mAudioManager = (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE);
         mAllowRemote = allowRemote;
         mRemotePlayer = allowRemote ? mAudioManager.getRingtonePlayer() : null;
         mRemoteToken = allowRemote ? new Binder() : null;
+        mVibrator = mContext.getSystemService(Vibrator.class);
+        mRingtoneVibrationSupported = Utils.isRingtoneVibrationSettingsSupported(mContext);
     }
 
     /**
@@ -127,13 +160,134 @@ public class Ringtone {
      */
     public void setAudioAttributes(AudioAttributes attributes)
             throws IllegalArgumentException {
+        setAudioAttributesField(attributes);
+        // The audio attributes have to be set before the media player is prepared.
+        // Re-initialize it.
+        setUri(mUri, mVolumeShaperConfig);
+        createLocalMediaPlayer();
+    }
+
+    /**
+     * Same as {@link #setAudioAttributes(AudioAttributes)} except this one does not create
+     * the media player.
+     * @hide
+     */
+    public void setAudioAttributesField(@Nullable AudioAttributes attributes) {
         if (attributes == null) {
             throw new IllegalArgumentException("Invalid null AudioAttributes for Ringtone");
         }
         mAudioAttributes = attributes;
-        // The audio attributes have to be set before the media player is prepared.
-        // Re-initialize it.
-        setUri(mUri);
+    }
+
+    /**
+     * Finds the output device of type {@link AudioDeviceInfo#TYPE_BUILTIN_SPEAKER}. This device is
+     * the one on which outgoing audio for SIM calls is played.
+     *
+     * @param audioManager the audio manage.
+     * @return the {@link AudioDeviceInfo} corresponding to the builtin device, or {@code null} if
+     *     none can be found.
+     */
+    private AudioDeviceInfo getBuiltinDevice(AudioManager audioManager) {
+        AudioDeviceInfo[] deviceList = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+        for (AudioDeviceInfo device : deviceList) {
+            if (device.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
+                return device;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Sets the preferred device of the ringtong playback to the built-in device.
+     *
+     * @hide
+     */
+    public boolean preferBuiltinDevice(boolean enable) {
+        mPreferBuiltinDevice = enable;
+        if (mLocalPlayer == null) {
+            return true;
+        }
+        return mLocalPlayer.setPreferredDevice(getBuiltinDevice(mAudioManager));
+    }
+
+    /**
+     * Creates a local media player for the ringtone using currently set attributes.
+     * @return true if media player creation succeeded or is deferred,
+     * false if it did not succeed and can't be tried remotely.
+     * @hide
+     */
+    public boolean createLocalMediaPlayer() {
+        Trace.beginSection("createLocalMediaPlayer");
+        if (mUri == null) {
+            Log.e(TAG, "Could not create media player as no URI was provided.");
+            return mAllowRemote && mRemotePlayer != null;
+        }
+        destroyLocalPlayer();
+        // try opening uri locally before delegating to remote player
+        mLocalPlayer = new MediaPlayer();
+        try {
+            mLocalPlayer.setDataSource(mContext, mUri);
+            mLocalPlayer.setAudioAttributes(mAudioAttributes);
+            mLocalPlayer.setPreferredDevice(
+                    mPreferBuiltinDevice ? getBuiltinDevice(mAudioManager) : null);
+            synchronized (mPlaybackSettingsLock) {
+                applyPlaybackProperties_sync();
+            }
+            if (mVolumeShaperConfig != null) {
+                mVolumeShaper = mLocalPlayer.createVolumeShaper(mVolumeShaperConfig);
+            }
+            mLocalPlayer.prepare();
+
+        } catch (SecurityException | IOException e) {
+            destroyLocalPlayer();
+            if (!mAllowRemote) {
+                Log.w(TAG, "Remote playback not allowed: " + e);
+            }
+        }
+
+        if (LOGD) {
+            if (mLocalPlayer != null) {
+                Log.d(TAG, "Successfully created local player");
+            } else {
+                Log.d(TAG, "Problem opening; delegating to remote player");
+            }
+        }
+        Trace.endSection();
+        return mLocalPlayer != null || (mAllowRemote && mRemotePlayer != null);
+    }
+
+    /**
+     * Same as AudioManager.hasHapticChannels except it assumes an already created ringtone.
+     * If the ringtone has not been created, it will load based on URI provided
+     * and if not URI has been set, it will assume no haptic channels are present.
+     * @hide
+     */
+    @FlaggedApi(com.android.media.flags.Flags.FLAG_RELEASE_RINGTONE_AS_API)
+    @SystemApi
+    public boolean hasHapticChannels() {
+        // FIXME: support remote player, or internalize haptic channels support and remove entirely.
+        try {
+            android.os.Trace.beginSection("Ringtone.hasHapticChannels");
+            if (mLocalPlayer != null) {
+                for(MediaPlayer.TrackInfo trackInfo : mLocalPlayer.getTrackInfo()) {
+                    if (trackInfo.hasHapticChannels()) {
+                        return true;
+                    }
+                }
+            }
+        } finally {
+            android.os.Trace.endSection();
+        }
+        return false;
+    }
+
+    /**
+     * Returns whether a local player has been created for this ringtone.
+     * @hide
+     */
+    @VisibleForTesting
+    public boolean hasLocalPlayer() {
+        return mLocalPlayer != null;
     }
 
     /**
@@ -191,15 +345,50 @@ public class Ringtone {
     }
 
     /**
+     * Enable or disable the {@link android.media.audiofx.HapticGenerator} effect. The effect can
+     * only be enabled on devices that support the effect.
+     *
+     * @return true if the HapticGenerator effect is successfully enabled. Otherwise, return false.
+     * @see android.media.audiofx.HapticGenerator#isAvailable()
+     */
+    public boolean setHapticGeneratorEnabled(boolean enabled) {
+        if (!HapticGenerator.isAvailable()) {
+            return false;
+        }
+        synchronized (mPlaybackSettingsLock) {
+            mHapticGeneratorEnabled = enabled;
+            applyPlaybackProperties_sync();
+        }
+        return true;
+    }
+
+    /**
+     * Return whether the {@link android.media.audiofx.HapticGenerator} effect is enabled or not.
+     * @return true if the HapticGenerator is enabled.
+     */
+    public boolean isHapticGeneratorEnabled() {
+        synchronized (mPlaybackSettingsLock) {
+            return mHapticGeneratorEnabled;
+        }
+    }
+
+    /**
      * Must be called synchronized on mPlaybackSettingsLock
      */
     private void applyPlaybackProperties_sync() {
         if (mLocalPlayer != null) {
             mLocalPlayer.setVolume(mVolume);
             mLocalPlayer.setLooping(mIsLooping);
+            if (mHapticGenerator == null && mHapticGeneratorEnabled) {
+                mHapticGenerator = HapticGenerator.create(mLocalPlayer.getAudioSessionId());
+            }
+            if (mHapticGenerator != null) {
+                mHapticGenerator.setEnabled(mHapticGeneratorEnabled);
+            }
         } else if (mAllowRemote && (mRemotePlayer != null)) {
             try {
-                mRemotePlayer.setPlaybackProperties(mRemoteToken, mVolume, mIsLooping);
+                mRemotePlayer.setPlaybackProperties(
+                        mRemoteToken, mVolume, mIsLooping, mHapticGeneratorEnabled);
             } catch (RemoteException e) {
                 Log.w(TAG, "Problem setting playback properties: ", e);
             }
@@ -234,8 +423,7 @@ public class Ringtone {
 
             if (Settings.AUTHORITY.equals(authority)) {
                 if (followSettingsUri) {
-                    Uri actualUri = RingtoneManager.getActualDefaultRingtoneUri(context,
-                            RingtoneManager.getDefaultType(uri));
+                    Uri actualUri = RingtoneManager.getActualUriFromSettingsUri(context, uri);
                     String actualTitle = getTitle(
                             context, actualUri, false /*followSettingsUri*/, allowRemote);
                     title = context
@@ -250,7 +438,7 @@ public class Ringtone {
                         cursor = res.query(uri, MEDIA_COLUMNS, mediaSelection, null, null);
                         if (cursor != null && cursor.getCount() == 1) {
                             cursor.moveToFirst();
-                            return cursor.getString(2);
+                            return cursor.getString(1);
                         }
                         // missing cursor is handled below
                     }
@@ -292,49 +480,57 @@ public class Ringtone {
     }
 
     /**
-     * Set {@link Uri} to be used for ringtone playback. Attempts to open
-     * locally, otherwise will delegate playback to remote
+     * Set {@link Uri} to be used for ringtone playback.
      * {@link IRingtonePlayer}.
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void setUri(Uri uri) {
-        destroyLocalPlayer();
+        setUri(uri, null);
+    }
 
+    /**
+     * @hide
+     */
+    public void setVolumeShaperConfig(@Nullable VolumeShaper.Configuration volumeShaperConfig) {
+        mVolumeShaperConfig = volumeShaperConfig;
+    }
+
+    /**
+     * Set {@link Uri} to be used for ringtone playback. Attempts to open
+     * locally, otherwise will delegate playback to remote
+     * {@link IRingtonePlayer}. Add {@link VolumeShaper} if required.
+     *
+     * @hide
+     */
+    public void setUri(Uri uri, @Nullable VolumeShaper.Configuration volumeShaperConfig) {
+        mVolumeShaperConfig = volumeShaperConfig;
         mUri = uri;
         if (mUri == null) {
-            return;
-        }
-
-        // TODO: detect READ_EXTERNAL and specific content provider case, instead of relying on throwing
-
-        // try opening uri locally before delegating to remote player
-        mLocalPlayer = new MediaPlayer();
-        try {
-            mLocalPlayer.setDataSource(mContext, mUri);
-            mLocalPlayer.setAudioAttributes(mAudioAttributes);
-            synchronized (mPlaybackSettingsLock) {
-                applyPlaybackProperties_sync();
-            }
-            mLocalPlayer.prepare();
-
-        } catch (SecurityException | IOException e) {
             destroyLocalPlayer();
-            if (!mAllowRemote) {
-                Log.w(TAG, "Remote playback not allowed: " + e);
-            }
         }
-
-        if (LOGD) {
-            if (mLocalPlayer != null) {
-                Log.d(TAG, "Successfully created local player");
-            } else {
-                Log.d(TAG, "Problem opening; delegating to remote player");
+        if (Flags.enableRingtoneHapticsCustomization()
+                && mRingtoneVibrationSupported && mUri != null) {
+            mVibrationEffect = parseVibrationEffect(mVibrator, Utils.getVibrationUri(mUri));
+            if (mVibrationEffect != null) {
+                mVibrationEffect =
+                        mVibrationEffect.applyRepeatingIndefinitely(true, VIBRATION_LOOP_DELAY_MS);
             }
         }
     }
 
-    /** {@hide} */
+    /**
+     * Returns the {@link VibrationEffect} has been created for this ringtone.
+     * @hide
+     */
+    @VisibleForTesting
+    public VibrationEffect getVibrationEffect() {
+        return mVibrationEffect;
+    }
+
+    /** @hide */
+    @UnsupportedAppUsage
     public Uri getUri() {
         return mUri;
     }
@@ -344,13 +540,16 @@ public class Ringtone {
      */
     public void play() {
         if (mLocalPlayer != null) {
-            // do not play ringtones if stream volume is 0
-            // (typically because ringer mode is silent).
-            if (mAudioManager.getStreamVolume(
-                    AudioAttributes.toLegacyStreamType(mAudioAttributes)) != 0) {
+            // Play ringtones if stream volume is over 0 or if it is a haptic-only ringtone
+            // (typically because ringer mode is vibrate).
+            if (mAudioManager.getStreamVolume(AudioAttributes.toLegacyStreamType(mAudioAttributes))
+                    != 0) {
+                startLocalPlayer();
+            } else if (!mAudioAttributes.areHapticChannelsMuted() && hasHapticChannels()) {
+                // is haptic only ringtone
                 startLocalPlayer();
             }
-        } else if (mAllowRemote && (mRemotePlayer != null)) {
+        } else if (mAllowRemote && (mRemotePlayer != null) && (mUri != null)) {
             final Uri canonicalUri = mUri.getCanonicalUri();
             final boolean looping;
             final float volume;
@@ -359,7 +558,8 @@ public class Ringtone {
                 volume = mVolume;
             }
             try {
-                mRemotePlayer.play(mRemoteToken, canonicalUri, mAudioAttributes, volume, looping);
+                mRemotePlayer.playWithVolumeShaping(mRemoteToken, canonicalUri, mAudioAttributes,
+                        volume, looping, mVolumeShaperConfig);
             } catch (RemoteException e) {
                 if (!playFallbackRingtone()) {
                     Log.w(TAG, "Problem playing ringtone: " + e);
@@ -370,6 +570,30 @@ public class Ringtone {
                 Log.w(TAG, "Neither local nor remote playback available");
             }
         }
+        if (Flags.enableRingtoneHapticsCustomization() && mRingtoneVibrationSupported) {
+            playVibration();
+            // Note that statsd only allows to log metrics for UIDs in [SYSTEM_UID, SHELL_UID)
+            // and apps in allowed list (e.g. SystemUI). For ringtone haptics customization, statsd
+            // will log only when the ringtone vibration triggered by Telecom (shared SYSTEM_UID)
+            // or SystemUI.
+            getVibrationStatsWriter().logCustomVibrationPatternEventIfNeeded(
+                    VibrationStatsWriter.VIBRATION_PATTERN_PLAYED,
+                    RingtoneManager.TYPE_RINGTONE, mUri);
+        }
+    }
+
+    /** @hide */
+    @VisibleForTesting
+    public VibrationStatsWriter getVibrationStatsWriter() {
+        return VibrationStatsWriter.getInstance(mContext);
+    }
+
+    private void playVibration() {
+        if (mVibrationEffect == null) {
+            return;
+        }
+        mIsVibrating = true;
+        mVibrator.vibrate(mVibrationEffect, VIBRATION_ATTRIBUTES);
     }
 
     /**
@@ -385,14 +609,24 @@ public class Ringtone {
                 Log.w(TAG, "Problem stopping ringtone: " + e);
             }
         }
+        if (Flags.enableRingtoneHapticsCustomization()
+                && mRingtoneVibrationSupported && mIsVibrating) {
+            mVibrator.cancel();
+            mIsVibrating = false;
+        }
     }
 
     private void destroyLocalPlayer() {
         if (mLocalPlayer != null) {
+            if (mHapticGenerator != null) {
+                mHapticGenerator.release();
+                mHapticGenerator = null;
+            }
             mLocalPlayer.setOnCompletionListener(null);
             mLocalPlayer.reset();
             mLocalPlayer.release();
             mLocalPlayer = null;
+            mVolumeShaper = null;
             synchronized (sActiveRingtones) {
                 sActiveRingtones.remove(this);
             }
@@ -408,6 +642,9 @@ public class Ringtone {
         }
         mLocalPlayer.setOnCompletionListener(mCompletionListener);
         mLocalPlayer.start();
+        if (mVolumeShaper != null) {
+            mVolumeShaper.apply(VolumeShaper.Operation.PLAY);
+        }
     }
 
     /**
@@ -432,46 +669,51 @@ public class Ringtone {
     }
 
     private boolean playFallbackRingtone() {
-        if (mAudioManager.getStreamVolume(AudioAttributes.toLegacyStreamType(mAudioAttributes))
-                != 0) {
-            int ringtoneType = RingtoneManager.getDefaultType(mUri);
-            if (ringtoneType == -1 ||
-                    RingtoneManager.getActualDefaultRingtoneUri(mContext, ringtoneType) != null) {
-                // Default ringtone, try fallback ringtone.
-                try {
-                    AssetFileDescriptor afd = mContext.getResources().openRawResourceFd(
-                            com.android.internal.R.raw.fallbackring);
-                    if (afd != null) {
-                        mLocalPlayer = new MediaPlayer();
-                        if (afd.getDeclaredLength() < 0) {
-                            mLocalPlayer.setDataSource(afd.getFileDescriptor());
-                        } else {
-                            mLocalPlayer.setDataSource(afd.getFileDescriptor(),
-                                    afd.getStartOffset(),
-                                    afd.getDeclaredLength());
-                        }
-                        mLocalPlayer.setAudioAttributes(mAudioAttributes);
-                        synchronized (mPlaybackSettingsLock) {
-                            applyPlaybackProperties_sync();
-                        }
-                        mLocalPlayer.prepare();
-                        startLocalPlayer();
-                        afd.close();
-                        return true;
-                    } else {
-                        Log.e(TAG, "Could not load fallback ringtone");
-                    }
-                } catch (IOException ioe) {
-                    destroyLocalPlayer();
-                    Log.e(TAG, "Failed to open fallback ringtone");
-                } catch (NotFoundException nfe) {
-                    Log.e(TAG, "Fallback ringtone does not exist");
-                }
-            } else {
-                Log.w(TAG, "not playing fallback for " + mUri);
-            }
+        int streamType = AudioAttributes.toLegacyStreamType(mAudioAttributes);
+        if (mAudioManager.getStreamVolume(streamType) == 0) {
+            return false;
         }
-        return false;
+        int ringtoneType = RingtoneManager.getDefaultType(mUri);
+        if (ringtoneType != -1 &&
+                RingtoneManager.getActualDefaultRingtoneUri(mContext, ringtoneType) == null) {
+            Log.w(TAG, "not playing fallback for " + mUri);
+            return false;
+        }
+        // Default ringtone, try fallback ringtone.
+        try {
+            AssetFileDescriptor afd = mContext.getResources().openRawResourceFd(
+                    com.android.internal.R.raw.fallbackring);
+            if (afd == null) {
+                Log.e(TAG, "Could not load fallback ringtone");
+                return false;
+            }
+            mLocalPlayer = new MediaPlayer();
+            if (afd.getDeclaredLength() < 0) {
+                mLocalPlayer.setDataSource(afd.getFileDescriptor());
+            } else {
+                mLocalPlayer.setDataSource(afd.getFileDescriptor(),
+                        afd.getStartOffset(),
+                        afd.getDeclaredLength());
+            }
+            mLocalPlayer.setAudioAttributes(mAudioAttributes);
+            synchronized (mPlaybackSettingsLock) {
+                applyPlaybackProperties_sync();
+            }
+            if (mVolumeShaperConfig != null) {
+                mVolumeShaper = mLocalPlayer.createVolumeShaper(mVolumeShaperConfig);
+            }
+            mLocalPlayer.prepare();
+            startLocalPlayer();
+            afd.close();
+        } catch (IOException ioe) {
+            destroyLocalPlayer();
+            Log.e(TAG, "Failed to open fallback ringtone");
+            return false;
+        } catch (NotFoundException nfe) {
+            Log.e(TAG, "Fallback ringtone does not exist");
+            return false;
+        }
+        return true;
     }
 
     void setTitle(String title) {

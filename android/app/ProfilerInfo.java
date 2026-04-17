@@ -16,6 +16,7 @@
 
 package android.app;
 
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.os.Parcelable;
@@ -28,9 +29,35 @@ import java.util.Objects;
 /**
  * System private API for passing profiler settings.
  *
- * {@hide}
+ * @hide
  */
 public class ProfilerInfo implements Parcelable {
+    // Regular profiling which provides different modes of profiling at some performance cost.
+    public static final int PROFILE_TYPE_REGULAR = 0;
+
+    // Low overhead profiling that captures a simple sliding window of past events.
+    public static final int PROFILE_TYPE_LOW_OVERHEAD = 1;
+
+    // Version of the profiler output
+    public static final int OUTPUT_VERSION_DEFAULT = 1;
+    // Default for flags if they aren't specified. We just set it to 0 and fallback to defaults used
+    // by ART.
+    public static final int DEFAULT_FLAGS = 0;
+    // CLOCK_TYPE_DEFAULT chooses the default used by ART. ART uses CLOCK_TYPE_DUAL by default (see
+    // kDefaultTraceClockSource in art/runtime/runtime_globals.h).
+    public static final int CLOCK_TYPE_DEFAULT = 0x000;
+    // The values of these constants are chosen such that they correspond to the flags passed to
+    // VMDebug.startMethodTracing to choose the corresponding clock type (see
+    // core/java/android/app/ActivityThread.java).
+    // The flag values are defined in ART (see TraceFlag in art/runtime/trace.h).
+    public static final int CLOCK_TYPE_WALL = 0x010;
+    public static final int CLOCK_TYPE_THREAD_CPU = 0x100;
+    public static final int CLOCK_TYPE_DUAL = 0x110;
+    public static final int CLOCK_TYPE_MASK = ~(0x110);
+    // The second and third bits of the flags field specify the trace format version. This should
+    // match with kTraceFormatVersionShift defined in art/runtime/trace.h.
+    public static final int OUTPUT_VERSION_MASK = ~(0b0110);
+    public static final int TRACE_FORMAT_VERSION_SHIFT = 1;
 
     private static final String TAG = "ProfilerInfo";
 
@@ -65,8 +92,27 @@ public class ProfilerInfo implements Parcelable {
      */
     public final boolean attachAgentDuringBind;
 
+    /**
+     * Flags to pass to the profiler. They determine various options including:
+     *   clock type for timestamps - this can be wallclock, thread cpu or both
+     *   version of the generated trace file
+     *   tracing type - low-overhead but imprecise tracing / precise tracing
+     */
+    public final int profilerFlags;
+
+    /**
+     * Indicates if we should trace long running methods for lowoverhead tracing
+     */
+    public final boolean profileLongRunningMethods;
+
+    /**
+     * The duration in microseconds for which the lowoverhed tracing has to be run
+     */
+    public final long durationMicros;
+
     public ProfilerInfo(String filename, ParcelFileDescriptor fd, int interval, boolean autoStop,
-            boolean streaming, String agent, boolean attachAgentDuringBind) {
+            boolean streaming, String agent, boolean attachAgentDuringBind, int profilerFlags,
+            boolean profileLongRunningMethods, long durationMicros) {
         profileFile = filename;
         profileFd = fd;
         samplingInterval = interval;
@@ -74,6 +120,9 @@ public class ProfilerInfo implements Parcelable {
         streamingOutput = streaming;
         this.agent = agent;
         this.attachAgentDuringBind = attachAgentDuringBind;
+        this.profilerFlags = profilerFlags;
+        this.profileLongRunningMethods = profileLongRunningMethods;
+        this.durationMicros = durationMicros;
     }
 
     public ProfilerInfo(ProfilerInfo in) {
@@ -84,6 +133,70 @@ public class ProfilerInfo implements Parcelable {
         streamingOutput = in.streamingOutput;
         agent = in.agent;
         attachAgentDuringBind = in.attachAgentDuringBind;
+        profilerFlags = in.profilerFlags;
+        profileLongRunningMethods = in.profileLongRunningMethods;
+        durationMicros = in.durationMicros;
+    }
+
+    /**
+     * Get the value for the clock type corresponding to the option string passed to the activity
+     * manager. am profile start / am start-activity start-profiler commands accept clock-type
+     * option to choose the source of timestamps when profiling. This function maps the option
+     * string to the value of flags that is used when calling VMDebug.startMethodTracing
+     */
+    public static int getClockTypeFromString(String type) {
+        if ("thread-cpu".equals(type)) {
+            return CLOCK_TYPE_THREAD_CPU;
+        } else if ("wall".equals(type)) {
+            return CLOCK_TYPE_WALL;
+        } else if ("dual".equals(type)) {
+            return CLOCK_TYPE_DUAL;
+        } else {
+            return CLOCK_TYPE_DEFAULT;
+        }
+    }
+
+    /**
+     * Get the flags that need to be passed to VMDebug.startMethodTracing to specify the desired
+     * output format.
+     */
+    public static int getFlagsForOutputVersion(int version) {
+        // Only two version 1 and version 2 are supported. Just use the default if we see an unknown
+        // version.
+        if (version != 1 && version != 2) {
+            version = OUTPUT_VERSION_DEFAULT;
+        }
+
+        // The encoded version in the flags starts from 0, where as the version that we read from
+        // user starts from 1. So, subtract one before encoding it in the flags.
+        return (version - 1) << TRACE_FORMAT_VERSION_SHIFT;
+    }
+
+    /**
+     * Update the flags with the specified output version and the clock type. Flags include clock
+     * type and output version but we allow users to specify them in text format. If user specifies
+     * flags along with --clock-type / --profiler-output-version we give priority to the one
+     * specified by --clock-type / --profiler-output-version.
+     */
+    public static int updateFlags(int clockType, int outputVersion, int flags) {
+        // If clock type was specified explicitly using --clock-type use the clock type instead of
+        // the one specified in flags.
+        if (clockType != 0) {
+            // Reset the bits specifying the flag and use the one specified by --clock-type.
+            flags = flags & CLOCK_TYPE_MASK;
+            flags = flags | clockType;
+        }
+
+        // If output version was specified using --profiler-output-version use that version instead
+        // of the one specified in flags.
+        if (outputVersion != 0) {
+            // Reset the bits specifying the flag and use the one specified by
+            // --profiler-output-version.
+            flags = flags & OUTPUT_VERSION_MASK;
+            flags = flags | getFlagsForOutputVersion(outputVersion);
+        }
+
+        return flags;
     }
 
     /**
@@ -92,7 +205,8 @@ public class ProfilerInfo implements Parcelable {
      */
     public ProfilerInfo setAgent(String agent, boolean attachAgentDuringBind) {
         return new ProfilerInfo(this.profileFile, this.profileFd, this.samplingInterval,
-                this.autoStopProfiler, this.streamingOutput, agent, attachAgentDuringBind);
+                this.autoStopProfiler, this.streamingOutput, agent, attachAgentDuringBind,
+                this.profilerFlags, this.profileLongRunningMethods, this.durationMicros);
     }
 
     /**
@@ -132,10 +246,13 @@ public class ProfilerInfo implements Parcelable {
         out.writeInt(streamingOutput ? 1 : 0);
         out.writeString(agent);
         out.writeBoolean(attachAgentDuringBind);
+        out.writeInt(this.profilerFlags);
+        out.writeBoolean(profileLongRunningMethods);
+        out.writeLong(durationMicros);
     }
 
     /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+    public void dumpDebug(ProtoOutputStream proto, long fieldId) {
         final long token = proto.start(fieldId);
         proto.write(ProfilerInfoProto.PROFILE_FILE, profileFile);
         if (profileFd != null) {
@@ -145,10 +262,13 @@ public class ProfilerInfo implements Parcelable {
         proto.write(ProfilerInfoProto.AUTO_STOP_PROFILER, autoStopProfiler);
         proto.write(ProfilerInfoProto.STREAMING_OUTPUT, streamingOutput);
         proto.write(ProfilerInfoProto.AGENT, agent);
+        proto.write(ProfilerInfoProto.PROFILER_FLAGS, profilerFlags);
+        proto.write(ProfilerInfoProto.PROFILE_LONG_RUNNING_METHODS, profileLongRunningMethods);
+        proto.write(ProfilerInfoProto.DURATION_MICROS, durationMicros);
         proto.end(token);
     }
 
-    public static final Parcelable.Creator<ProfilerInfo> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<ProfilerInfo> CREATOR =
             new Parcelable.Creator<ProfilerInfo>() {
                 @Override
                 public ProfilerInfo createFromParcel(Parcel in) {
@@ -169,10 +289,13 @@ public class ProfilerInfo implements Parcelable {
         streamingOutput = in.readInt() != 0;
         agent = in.readString();
         attachAgentDuringBind = in.readBoolean();
+        profilerFlags = in.readInt();
+        profileLongRunningMethods = in.readBoolean();
+        durationMicros = in.readLong();
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) {
             return true;
         }
@@ -184,8 +307,10 @@ public class ProfilerInfo implements Parcelable {
         return Objects.equals(profileFile, other.profileFile)
                 && autoStopProfiler == other.autoStopProfiler
                 && samplingInterval == other.samplingInterval
-                && streamingOutput == other.streamingOutput
-                && Objects.equals(agent, other.agent);
+                && streamingOutput == other.streamingOutput && Objects.equals(agent, other.agent)
+                && profilerFlags == other.profilerFlags
+                && profileLongRunningMethods == other.profileLongRunningMethods
+                && durationMicros == other.durationMicros;
     }
 
     @Override
@@ -196,6 +321,9 @@ public class ProfilerInfo implements Parcelable {
         result = 31 * result + (autoStopProfiler ? 1 : 0);
         result = 31 * result + (streamingOutput ? 1 : 0);
         result = 31 * result + Objects.hashCode(agent);
+        result = 31 * result + profilerFlags;
+        result = 31 * result + (profileLongRunningMethods ? 1 : 0);
+        result = 31 * result + Long.hashCode(durationMicros);
         return result;
     }
 }

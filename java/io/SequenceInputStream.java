@@ -40,7 +40,7 @@ import java.util.Vector;
  * on the last of the contained input streams.
  *
  * @author  Author van Hoff
- * @since   JDK1.0
+ * @since   1.0
  */
 public
 class SequenceInputStream extends InputStream {
@@ -65,12 +65,7 @@ class SequenceInputStream extends InputStream {
      */
     public SequenceInputStream(Enumeration<? extends InputStream> e) {
         this.e = e;
-        try {
-            nextStream();
-        } catch (IOException ex) {
-            // This should never happen
-            throw new Error("panic");
-        }
+        peekNextStream();
     }
 
     /**
@@ -86,16 +81,10 @@ class SequenceInputStream extends InputStream {
      */
     public SequenceInputStream(InputStream s1, InputStream s2) {
         Vector<InputStream> v = new Vector<>(2);
-
         v.addElement(s1);
         v.addElement(s2);
         e = v.elements();
-        try {
-            nextStream();
-        } catch (IOException ex) {
-            // This should never happen
-            throw new Error("panic");
-        }
+        peekNextStream();
     }
 
     /**
@@ -105,14 +94,17 @@ class SequenceInputStream extends InputStream {
         if (in != null) {
             in.close();
         }
+        peekNextStream();
+    }
 
+    private void peekNextStream() {
         if (e.hasMoreElements()) {
             in = (InputStream) e.nextElement();
             if (in == null)
                 throw new NullPointerException();
+        } else {
+            in = null;
         }
-        else in = null;
-
     }
 
     /**
@@ -132,7 +124,7 @@ class SequenceInputStream extends InputStream {
      *         has been closed by invoking its {@link #close()} method
      * @exception  IOException  if an I/O error occurs.
      *
-     * @since   JDK1.1
+     * @since   1.1
      */
     public int available() throws IOException {
         if (in == null) {

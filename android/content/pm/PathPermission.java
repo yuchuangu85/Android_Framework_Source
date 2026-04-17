@@ -24,6 +24,7 @@ import android.os.PatternMatcher;
  * Description of permissions needed to access a particular path
  * in a {@link ProviderInfo}.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class PathPermission extends PatternMatcher {
     private final String mReadPermission;
     private final String mWritePermission;
@@ -55,7 +56,7 @@ public class PathPermission extends PatternMatcher {
         mWritePermission = src.readString();
     }
     
-    public static final Parcelable.Creator<PathPermission> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<PathPermission> CREATOR
             = new Parcelable.Creator<PathPermission>() {
         public PathPermission createFromParcel(Parcel source) {
             return new PathPermission(source);

@@ -16,13 +16,15 @@
 
 package android.util;
 
+import com.android.internal.util.StringPool;
+
 import java.io.Closeable;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.Reader;
 import java.util.ArrayList;
 import java.util.List;
-import libcore.internal.StringPool;
+
 
 /**
  * Reads a JSON (<a href="http://www.ietf.org/rfc/rfc4627.txt">RFC 4627</a>)
@@ -173,6 +175,7 @@ import libcore.internal.StringPool;
  * <p>Each {@code JsonReader} may be used to read a single JSON stream. Instances
  * of this class are not thread safe.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public final class JsonReader implements Closeable {
 
     private static final String TRUE = "true";
@@ -295,7 +298,7 @@ public final class JsonReader implements Closeable {
 
     /**
      * Consumes the next token from the JSON stream and asserts that it is the
-     * end of the current array.
+     * end of the current object.
      */
     public void endObject() throws IOException {
         expect(JsonToken.END_OBJECT);

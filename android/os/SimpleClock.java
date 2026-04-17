@@ -20,7 +20,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 
-/** {@hide} */
+/** @hide */
 public abstract class SimpleClock extends Clock {
     private final ZoneId zone;
 

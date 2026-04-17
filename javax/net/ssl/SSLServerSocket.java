@@ -229,6 +229,7 @@ public abstract class SSLServerSocket extends ServerSocket {
     public abstract void setEnabledCipherSuites(String suites []);
 
 
+    // Android-changed: Added warnings about misuse
     /**
      * Returns the names of the cipher suites which could be enabled for use
      * on an SSL connection.
@@ -237,6 +238,15 @@ public abstract class SSLServerSocket extends ServerSocket {
      * be enabled by default, since this list may include cipher suites which
      * do not meet quality of service requirements for those defaults.  Such
      * cipher suites are useful in specialized applications.
+     *
+     * <p class="caution">Applications should not blindly enable all supported
+     * cipher suites.  The supported cipher suites can include signaling cipher suite
+     * values that can cause connection problems if enabled inappropriately.
+     *
+     * <p>The proper way to use this method is to either check if a specific cipher
+     * suite is supported via {@code Arrays.asList(getSupportedCipherSuites()).contains(...)}
+     * or to filter a desired list of cipher suites to only the supported ones via
+     * {@code desiredSuiteSet.retainAll(Arrays.asList(getSupportedCipherSuites()))}.
      *
      * @return an array of cipher suite names
      * @see #getEnabledCipherSuites()

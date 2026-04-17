@@ -17,11 +17,7 @@
 
 package android.filterfw.core;
 
-import android.filterfw.core.Frame;
-import android.filterfw.core.NativeAllocatorTag;
-import android.filterfw.core.Program;
-import android.filterfw.core.StopWatchMap;
-import android.filterfw.core.VertexFrame;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.filterfw.geometry.Quad;
 import android.opengl.GLES20;
 
@@ -51,6 +47,7 @@ public class ShaderProgram extends Program {
     private ShaderProgram(NativeAllocatorTag tag) {
     }
 
+    @UnsupportedAppUsage
     public ShaderProgram(FilterContext context, String fragmentShader) {
         mGLEnvironment = getGLEnvironment(context);
         allocate(mGLEnvironment, null, fragmentShader);
@@ -69,6 +66,7 @@ public class ShaderProgram extends Program {
         this.setTimer();
     }
 
+    @UnsupportedAppUsage
     public static ShaderProgram createIdentity(FilterContext context) {
         ShaderProgram program = nativeCreateIdentity(getGLEnvironment(context));
         program.setTimer();
@@ -85,6 +83,7 @@ public class ShaderProgram extends Program {
     }
 
     @Override
+    @UnsupportedAppUsage
     public void process(Frame[] inputs, Frame output) {
         if (mTimer.LOG_MFF_RUNNING_TIMES) {
           mTimer.start("glFinish");
@@ -129,6 +128,7 @@ public class ShaderProgram extends Program {
     }
 
     @Override
+    @UnsupportedAppUsage
     public void setHostValue(String variableName, Object value) {
         if (!setUniformValue(variableName, value)) {
             throw new RuntimeException("Error setting uniform value for variable '" +
@@ -167,6 +167,7 @@ public class ShaderProgram extends Program {
         }
     }
 
+    @UnsupportedAppUsage
     public void setSourceRegion(Quad region) {
         setSourceRegion(region.p0.x, region.p0.y,
                         region.p1.x, region.p1.y,
@@ -181,6 +182,7 @@ public class ShaderProgram extends Program {
                         region.p3.x, region.p3.y);
     }
 
+    @UnsupportedAppUsage
     public void setSourceRect(float x, float y, float width, float height) {
         setSourceRegion(x, y, x + width, y, x, y + height, x + width, y + height);
     }
@@ -225,6 +227,7 @@ public class ShaderProgram extends Program {
         }
     }
 
+    @UnsupportedAppUsage
     public void setMaximumTileSize(int size) {
         mMaxTileSize = size;
     }

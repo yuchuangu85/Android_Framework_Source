@@ -17,19 +17,20 @@
 package com.android.internal.telephony.imsphone;
 
 import android.content.Context;
-import android.net.LinkProperties;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
 import android.os.RegistrantList;
-import android.os.SystemProperties;
-import android.os.WorkSource;
-import android.telephony.CellInfo;
-import android.telephony.CellLocation;
+import android.sysprop.TelephonyProperties;
+import android.telephony.Annotation.DataActivityType;
+import android.telephony.CallQuality;
+import android.telephony.CallState;
 import android.telephony.NetworkScanRequest;
-import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
+import android.telephony.TelephonyManager;
+import android.telephony.ims.ImsReasonInfo;
+import android.telephony.ims.MediaQualityStatus;
 import android.util.Pair;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -42,9 +43,9 @@ import com.android.internal.telephony.OperatorInfo;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneNotifier;
-import com.android.internal.telephony.TelephonyProperties;
-import com.android.internal.telephony.dataconnection.DataConnection;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.uicc.IccFileHandler;
+import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -58,8 +59,9 @@ abstract class ImsPhoneBase extends Phone {
     private PhoneConstants.State mState = PhoneConstants.State.IDLE;
 
     public ImsPhoneBase(String name, Context context, PhoneNotifier notifier,
-                        boolean unitTestMode) {
-        super(name, notifier, context, new ImsPhoneCommandInterface(context), unitTestMode);
+                        boolean unitTestMode, FeatureFlags featureFlags) {
+        super(name, notifier, context, new ImsPhoneCommandInterface(context), unitTestMode,
+                featureFlags);
     }
 
     @Override
@@ -136,6 +138,14 @@ abstract class ImsPhoneBase extends Phone {
         mTtyModeReceivedRegistrants.notifyRegistrants(result);
     }
 
+    public void onCallQualityChanged(CallQuality callQuality, int callNetworkType) {
+        mNotifier.notifyCallQualityChanged(this, callQuality, callNetworkType);
+    }
+
+    public void onMediaQualityStatusChanged(MediaQualityStatus status) {
+        mNotifier.notifyMediaQualityStatusChanged(this, status);
+    }
+
     @Override
     public ServiceState getServiceState() {
         // FIXME: we may need to provide this when data connectivity is lost
@@ -143,19 +153,6 @@ abstract class ImsPhoneBase extends Phone {
         ServiceState s = new ServiceState();
         s.setVoiceRegState(ServiceState.STATE_IN_SERVICE);
         return s;
-    }
-
-    /**
-     * @return all available cell information or null if none.
-     */
-    @Override
-    public List<CellInfo> getAllCellInfo(WorkSource workSource) {
-        return getServiceStateTracker().getAllCellInfo(workSource);
-    }
-
-    @Override
-    public CellLocation getCellLocation(WorkSource workSource) {
-        return null;
     }
 
     @Override
@@ -179,28 +176,13 @@ abstract class ImsPhoneBase extends Phone {
     }
 
     @Override
-    public boolean getCallForwardingIndicator() {
-        return false;
-    }
-
-    @Override
     public List<? extends MmiCode> getPendingMmiCodes() {
         return new ArrayList<MmiCode>(0);
     }
 
     @Override
-    public PhoneConstants.DataState getDataConnectionState() {
-        return PhoneConstants.DataState.DISCONNECTED;
-    }
-
-    @Override
-    public PhoneConstants.DataState getDataConnectionState(String apnType) {
-        return PhoneConstants.DataState.DISCONNECTED;
-    }
-
-    @Override
-    public DataActivityState getDataActivityState() {
-        return DataActivityState.NONE;
+    public @DataActivityType int getDataActivityState() {
+        return TelephonyManager.DATA_ACTIVITY_NONE;
     }
 
     /**
@@ -218,13 +200,52 @@ abstract class ImsPhoneBase extends Phone {
      */
     public void notifyPreciseCallStateChanged() {
         /* we'd love it if this was package-scoped*/
-        super.notifyPreciseCallStateChangedP();
+        AsyncResult ar = new AsyncResult(null, this, null);
+        mPreciseCallStateRegistrants.notifyRegistrants(ar);
+
+        notifyPreciseCallStateToNotifier();
+    }
+
+    public void notifyPreciseCallStateToNotifier() {
+        ImsPhoneCall ringingCall = (ImsPhoneCall) getRingingCall();
+        ImsPhoneCall foregroundCall = (ImsPhoneCall) getForegroundCall();
+        ImsPhoneCall backgroundCall = (ImsPhoneCall) getBackgroundCall();
+
+        if (ringingCall != null && foregroundCall != null && backgroundCall != null) {
+            //Array for IMS call session ID of RINGING/FOREGROUND/BACKGROUND call
+            String[] imsCallIds = new String[CallState.CALL_CLASSIFICATION_MAX];
+            //Array for IMS call service type of RINGING/FOREGROUND/BACKGROUND call
+            int[] imsCallServiceTypes = new int[CallState.CALL_CLASSIFICATION_MAX];
+            //Array for IMS call type of RINGING/FOREGROUND/BACKGROUND call
+            int[] imsCallTypes = new int[CallState.CALL_CLASSIFICATION_MAX];
+            imsCallIds[CallState.CALL_CLASSIFICATION_RINGING] =
+                    ringingCall.getCallSessionId();
+            imsCallIds[CallState.CALL_CLASSIFICATION_FOREGROUND] =
+                    foregroundCall.getCallSessionId();
+            imsCallIds[CallState.CALL_CLASSIFICATION_BACKGROUND] =
+                    backgroundCall.getCallSessionId();
+            imsCallServiceTypes[CallState.CALL_CLASSIFICATION_RINGING] =
+                    ringingCall.getServiceType();
+            imsCallServiceTypes[CallState.CALL_CLASSIFICATION_FOREGROUND] =
+                    foregroundCall.getServiceType();
+            imsCallServiceTypes[CallState.CALL_CLASSIFICATION_BACKGROUND] =
+                    backgroundCall.getServiceType();
+            imsCallTypes[CallState.CALL_CLASSIFICATION_RINGING] = ringingCall.getCallType();
+            imsCallTypes[CallState.CALL_CLASSIFICATION_FOREGROUND] =
+                    foregroundCall.getCallType();
+            imsCallTypes[CallState.CALL_CLASSIFICATION_BACKGROUND] =
+                    backgroundCall.getCallType();
+            mNotifier.notifyPreciseCallState(this, imsCallIds, imsCallServiceTypes, imsCallTypes);
+        }
     }
 
     public void notifyDisconnect(Connection cn) {
         mDisconnectRegistrants.notifyResult(cn);
 
-        mNotifier.notifyDisconnectCause(cn.getDisconnectCause(), cn.getPreciseDisconnectCause());
+    }
+
+    public void notifyImsReason(ImsReasonInfo imsReasonInfo) {
+        mNotifier.notifyImsDisconnectCause(this, imsReasonInfo);
     }
 
     void notifyUnknownConnection() {
@@ -249,10 +270,9 @@ abstract class ImsPhoneBase extends Phone {
         Rlog.v(LOG_TAG, "canDial(): serviceState = " + serviceState);
         if (serviceState == ServiceState.STATE_POWER_OFF) return false;
 
-        String disableCall = SystemProperties.get(
-                TelephonyProperties.PROPERTY_DISABLE_CALL, "false");
+        boolean disableCall = TelephonyProperties.disable_call().orElse(false);
         Rlog.v(LOG_TAG, "canDial(): disableCall = " + disableCall);
-        if (disableCall.equals("true")) return false;
+        if (disableCall) return false;
 
         Rlog.v(LOG_TAG, "canDial(): ringingCall: " + getRingingCall().getState());
         Rlog.v(LOG_TAG, "canDial(): foregndCall: " + getForegroundCall().getState());
@@ -324,15 +344,8 @@ abstract class ImsPhoneBase extends Phone {
     }
 
     @Override
-    public String getEsn() {
-        Rlog.e(LOG_TAG, "[VoltePhone] getEsn() is a CDMA method");
-        return "0";
-    }
-
-    @Override
-    public String getMeid() {
-        Rlog.e(LOG_TAG, "[VoltePhone] getMeid() is a CDMA method");
-        return "0";
+    public int getImeiType() {
+        return Phone.IMEI_TYPE_UNKNOWN;
     }
 
     @Override
@@ -352,11 +365,6 @@ abstract class ImsPhoneBase extends Phone {
 
     @Override
     public String getIccSerialNumber() {
-        return null;
-    }
-
-    @Override
-    public String getLine1Number() {
         return null;
     }
 
@@ -384,8 +392,19 @@ abstract class ImsPhoneBase extends Phone {
     }
 
     @Override
+    public void getCallForwardingOption(int commandInterfaceCFReason, int serviceClass,
+            Message onComplete) {
+    }
+
+    @Override
     public void setCallForwardingOption(int commandInterfaceCFAction,
             int commandInterfaceCFReason, String dialingNumber,
+            int timerSeconds, Message onComplete) {
+    }
+
+    @Override
+    public void setCallForwardingOption(int commandInterfaceCFAction,
+            int commandInterfaceCFReason, String dialingNumber, int serviceClass,
             int timerSeconds, Message onComplete) {
     }
 
@@ -446,10 +465,6 @@ abstract class ImsPhoneBase extends Phone {
             Message response) {
     }
 
-    public List<DataConnection> getCurrentDataConnectionList () {
-        return null;
-    }
-
     @Override
     public void updateServiceLocation() {
     }
@@ -475,16 +490,6 @@ abstract class ImsPhoneBase extends Phone {
     public boolean isUserDataEnabled() {
         return false;
     }
-
-    @Override
-    public boolean isDataEnabled() {
-        return false;
-    }
-
-    @Override
-    public void setUserDataEnabled(boolean enable) {
-    }
-
 
     public boolean enableDataConnectivity() {
         return false;
@@ -531,13 +536,6 @@ abstract class ImsPhoneBase extends Phone {
         return false;
     }
 
-    //@Override
-    @Override
-    public LinkProperties getLinkProperties(String apnType) {
-        // FIXME: what's this for Volte?
-        return null;
-    }
-
     @Override
     public void getCallBarring(String facility, String password, Message onComplete,
             int serviceClass) {
@@ -568,5 +566,15 @@ abstract class ImsPhoneBase extends Phone {
             Rlog.d(LOG_TAG, " ^^^ new phone state: " + mState);
             notifyPhoneStateChanged();
         }
+    }
+
+    @Override
+    public int getTerminalBasedCallWaitingState(boolean forCsOnly) {
+        return getDefaultPhone().getTerminalBasedCallWaitingState(forCsOnly);
+    }
+
+    @Override
+    public void setTerminalBasedCallWaitingSupported(boolean supported) {
+        getDefaultPhone().setTerminalBasedCallWaitingSupported(supported);
     }
 }

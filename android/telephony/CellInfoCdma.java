@@ -16,13 +16,20 @@
 
 package android.telephony;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.telephony.Rlog;
+
+import com.android.telephony.Rlog;
 
 /**
- * Immutable cell information from a point in time.
+ * A {@link CellInfo} representing a CDMA cell that provides identity and measurement info.
+ *
+ * @deprecated Legacy CDMA is unsupported.
  */
+@Deprecated
 public final class CellInfoCdma extends CellInfo implements Parcelable {
 
     private static final String LOG_TAG = "CellInfoCdma";
@@ -32,6 +39,7 @@ public final class CellInfoCdma extends CellInfo implements Parcelable {
     private CellSignalStrengthCdma mCellSignalStrengthCdma;
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public CellInfoCdma() {
         super();
         mCellIdentityCdma = new CellIdentityCdma();
@@ -39,23 +47,55 @@ public final class CellInfoCdma extends CellInfo implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public CellInfoCdma(CellInfoCdma ci) {
         super(ci);
         this.mCellIdentityCdma = ci.mCellIdentityCdma.copy();
         this.mCellSignalStrengthCdma = ci.mCellSignalStrengthCdma.copy();
     }
 
-    public CellIdentityCdma getCellIdentity() {
+    /** @hide */
+    public CellInfoCdma(int connectionStatus, boolean registered, long timeStamp,
+            CellIdentityCdma cellIdentityCdma, CellSignalStrengthCdma cellSignalStrengthCdma) {
+        super(connectionStatus, registered, timeStamp);
+        mCellIdentityCdma = cellIdentityCdma;
+        mCellSignalStrengthCdma = cellSignalStrengthCdma;
+    }
+
+    /**
+     * @return a {@link CellIdentityCdma} instance.
+     * @deprecated Legacy CDMA is unsupported.
+     */
+    @Deprecated
+    @Override
+    public @NonNull CellIdentityCdma getCellIdentity() {
         return mCellIdentityCdma;
     }
+
     /** @hide */
+    @UnsupportedAppUsage
     public void setCellIdentity(CellIdentityCdma cid) {
         mCellIdentityCdma = cid;
     }
 
-    public CellSignalStrengthCdma getCellSignalStrength() {
+    /**
+     * @return a {@link CellSignalStrengthCdma} instance.
+     * @deprecated Legacy CDMA is unsupported.
+     */
+    @Deprecated
+    @Override
+    public @NonNull CellSignalStrengthCdma getCellSignalStrength() {
         return mCellSignalStrengthCdma;
     }
+
+    /** @hide */
+    @Override
+    public CellInfo sanitizeLocationInfo() {
+        CellInfoCdma result = new CellInfoCdma(this);
+        result.mCellIdentityCdma = mCellIdentityCdma.sanitizeLocationInfo();
+        return result;
+    }
+
     /** @hide */
     public void setCellSignalStrength(CellSignalStrengthCdma css) {
         mCellSignalStrengthCdma = css;
@@ -102,7 +142,11 @@ public final class CellInfoCdma extends CellInfo implements Parcelable {
         return 0;
     }
 
-    /** Implement the Parcelable interface */
+    /**
+     * Implement the Parcelable interface
+     * @deprecated Legacy CDMA is unsupported.
+     */
+    @Deprecated
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         super.writeToParcel(dest, flags, TYPE_CDMA);
@@ -121,8 +165,12 @@ public final class CellInfoCdma extends CellInfo implements Parcelable {
         if (DBG) log("CellInfoCdma(Parcel): " + toString());
     }
 
-    /** Implement the Parcelable interface */
-    public static final Creator<CellInfoCdma> CREATOR = new Creator<CellInfoCdma>() {
+    /**
+     * Implement the Parcelable interface
+     * @deprecated Legacy CDMA is unsupported.
+     */
+    @Deprecated
+    public static final @android.annotation.NonNull Creator<CellInfoCdma> CREATOR = new Creator<CellInfoCdma>() {
         @Override
         public CellInfoCdma createFromParcel(Parcel in) {
             in.readInt(); // Skip past token, we know what it is

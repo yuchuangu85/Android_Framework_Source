@@ -16,19 +16,33 @@
 
 package android.app;
 
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
 import java.io.PrintWriter;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * Display properties to be used by VR mode when creating a virtual display.
  *
  * @hide
  */
+@SystemApi
 public final class Vr2dDisplayProperties implements Parcelable {
 
     public static final int FLAG_VIRTUAL_DISPLAY_ENABLED = 1;
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef({
+        FLAG_VIRTUAL_DISPLAY_ENABLED
+    })
+    public @interface Vr2dDisplayFlag {}
 
     /**
      * The actual width, height and dpi.
@@ -61,6 +75,7 @@ public final class Vr2dDisplayProperties implements Parcelable {
         return result;
     }
 
+    @NonNull
     @Override
     public String toString() {
         return "Vr2dDisplayProperties{"
@@ -73,13 +88,13 @@ public final class Vr2dDisplayProperties implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 
         Vr2dDisplayProperties that = (Vr2dDisplayProperties) o;
 
-        if (getFlags() != that.getFlags()) return false;
+        if (getAddedFlags() != that.getAddedFlags()) return false;
         if (getRemovedFlags() != that.getRemovedFlags()) return false;
         if (getWidth() != that.getWidth()) return false;
         if (getHeight() != that.getHeight()) return false;
@@ -100,7 +115,7 @@ public final class Vr2dDisplayProperties implements Parcelable {
         dest.writeInt(mRemovedFlags);
     }
 
-    public static final Parcelable.Creator<Vr2dDisplayProperties> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<Vr2dDisplayProperties> CREATOR
             = new Parcelable.Creator<Vr2dDisplayProperties>() {
         @Override
         public Vr2dDisplayProperties createFromParcel(Parcel source) {
@@ -121,26 +136,46 @@ public final class Vr2dDisplayProperties implements Parcelable {
         mRemovedFlags = source.readInt();
     }
 
-    public void dump(PrintWriter pw, String prefix) {
+    /**
+     * Prints out dump info.
+     */
+    public void dump(@NonNull PrintWriter pw, @NonNull String prefix) {
         pw.println(prefix + toString());
     }
 
+    /**
+     * Returns the width of VR 2d display.
+     */
     public int getWidth() {
         return mWidth;
     }
 
+    /**
+     * Returns the height of VR 2d display.
+     */
     public int getHeight() {
         return mHeight;
     }
 
+    /**
+     * Returns the dpi of VR 2d display.
+     */
     public int getDpi() {
         return mDpi;
     }
 
-    public int getFlags() {
+    /**
+     * Returns the added flags of VR 2d display. Flags are combined by logic or.
+     */
+    @Vr2dDisplayFlag
+    public int getAddedFlags() {
         return mAddedFlags;
     }
 
+    /**
+     * Returns the removed flags of VR 2d display. Flags are combined by logic or.
+     */
+    @Vr2dDisplayFlag
     public int getRemovedFlags() {
         return mRemovedFlags;
     }
@@ -156,7 +191,7 @@ public final class Vr2dDisplayProperties implements Parcelable {
     /**
      * Convenience class for creating Vr2dDisplayProperties.
      */
-    public static class Builder {
+    public static final class Builder {
         private int mAddedFlags = 0;
         private int mRemovedFlags = 0;
 
@@ -171,6 +206,7 @@ public final class Vr2dDisplayProperties implements Parcelable {
         /**
          * Sets the dimensions to use for the virtual display.
          */
+        @NonNull
         public Builder setDimensions(int width, int height, int dpi) {
             mWidth = width;
             mHeight = height;
@@ -181,6 +217,7 @@ public final class Vr2dDisplayProperties implements Parcelable {
         /**
          * Toggles the virtual display functionality for 2D activities in VR.
          */
+        @NonNull
         public Builder setEnabled(boolean enabled) {
             if (enabled) {
                 addFlags(FLAG_VIRTUAL_DISPLAY_ENABLED);
@@ -193,7 +230,8 @@ public final class Vr2dDisplayProperties implements Parcelable {
         /**
          * Adds property flags.
          */
-        public Builder addFlags(int flags) {
+        @NonNull
+        public Builder addFlags(@Vr2dDisplayFlag int flags) {
             mAddedFlags |= flags;
             mRemovedFlags &= ~flags;
             return this;
@@ -202,7 +240,8 @@ public final class Vr2dDisplayProperties implements Parcelable {
         /**
          * Removes property flags.
          */
-        public Builder removeFlags(int flags) {
+        @NonNull
+        public Builder removeFlags(@Vr2dDisplayFlag int flags) {
             mRemovedFlags |= flags;
             mAddedFlags &= ~flags;
             return this;
@@ -211,6 +250,7 @@ public final class Vr2dDisplayProperties implements Parcelable {
         /**
          * Builds the Vr2dDisplayProperty instance.
          */
+        @NonNull
         public Vr2dDisplayProperties build() {
             return new Vr2dDisplayProperties(mWidth, mHeight, mDpi, mAddedFlags, mRemovedFlags);
         }

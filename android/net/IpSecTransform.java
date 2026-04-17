@@ -17,22 +17,24 @@ package android.net;
 
 import static android.net.IpSecManager.INVALID_RESOURCE_ID;
 
-import static com.android.internal.util.Preconditions.checkNotNull;
-
+import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.RequiresFeature;
 import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.os.Binder;
-import android.os.Handler;
-import android.os.IBinder;
+import android.os.OutcomeReceiver;
 import android.os.RemoteException;
-import android.os.ServiceManager;
 import android.os.ServiceSpecificException;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.util.Preconditions;
+import com.android.net.flags.Flags;
 
 import dalvik.system.CloseGuard;
 
@@ -40,6 +42,8 @@ import java.io.IOException;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.net.InetAddress;
+import java.util.Objects;
+import java.util.concurrent.Executor;
 
 /**
  * This class represents a transform, which roughly corresponds to an IPsec Security Association.
@@ -92,16 +96,9 @@ public final class IpSecTransform implements AutoCloseable {
         mResourceId = INVALID_RESOURCE_ID;
     }
 
-    private IIpSecService getIpSecService() {
-        IBinder b = ServiceManager.getService(android.content.Context.IPSEC_SERVICE);
-        if (b == null) {
-            throw new RemoteException("Failed to connect to IpSecService")
-                    .rethrowAsRuntimeException();
-        }
-
-        return IIpSecService.Stub.asInterface(b);
+    private IpSecManager getIpSecManager(Context context) {
+        return context.getSystemService(IpSecManager.class);
     }
-
     /**
      * Checks the result status and throws an appropriate exception if the status is not Status.OK.
      */
@@ -127,20 +124,17 @@ public final class IpSecTransform implements AutoCloseable {
     private IpSecTransform activate()
             throws IOException, IpSecManager.ResourceUnavailableException,
                     IpSecManager.SpiUnavailableException {
-        synchronized (this) {
+        synchronized (mLock) {
             try {
-                IIpSecService svc = getIpSecService();
-                IpSecTransformResponse result = svc.createTransform(
+                IpSecTransformResponse result = getIpSecManager(mContext).createTransform(
                         mConfig, new Binder(), mContext.getOpPackageName());
                 int status = result.status;
                 checkResultStatus(status);
                 mResourceId = result.resourceId;
                 Log.d(TAG, "Added Transform with Id " + mResourceId);
-                mCloseGuard.open("build");
+                mCloseGuard.open("close");
             } catch (ServiceSpecificException e) {
                 throw IpSecManager.rethrowUncheckedExceptionFromServiceSpecificException(e);
-            } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
             }
         }
 
@@ -148,15 +142,13 @@ public final class IpSecTransform implements AutoCloseable {
     }
 
     /**
-     * Equals method used for testing
-     *
-     * @hide
+     * Standard equals.
      */
-    @VisibleForTesting
-    public static boolean equals(IpSecTransform lhs, IpSecTransform rhs) {
-        if (lhs == null || rhs == null) return (lhs == rhs);
-        return IpSecConfig.equals(lhs.getConfig(), rhs.getConfig())
-                && lhs.mResourceId == rhs.mResourceId;
+    public boolean equals(@Nullable Object other) {
+        if (this == other) return true;
+        if (!(other instanceof IpSecTransform)) return false;
+        final IpSecTransform rhs = (IpSecTransform) other;
+        return getConfig().equals(rhs.getConfig()) && mResourceId == rhs.mResourceId;
     }
 
     /**
@@ -172,24 +164,23 @@ public final class IpSecTransform implements AutoCloseable {
     public void close() {
         Log.d(TAG, "Removing Transform with Id " + mResourceId);
 
-        // Always safe to attempt cleanup
-        if (mResourceId == INVALID_RESOURCE_ID) {
-            mCloseGuard.close();
-            return;
-        }
-        try {
-            IIpSecService svc = getIpSecService();
-            svc.deleteTransform(mResourceId);
-            stopNattKeepalive();
-        } catch (RemoteException e) {
-            throw e.rethrowAsRuntimeException();
-        } catch (Exception e) {
-            // On close we swallow all random exceptions since failure to close is not
-            // actionable by the user.
-            Log.e(TAG, "Failed to close " + this + ", Exception=" + e);
-        } finally {
-            mResourceId = INVALID_RESOURCE_ID;
-            mCloseGuard.close();
+        synchronized(mLock) {
+            // Always safe to attempt cleanup
+            if (mResourceId == INVALID_RESOURCE_ID) {
+                mCloseGuard.close();
+                return;
+            }
+
+            try {
+                    getIpSecManager(mContext).deleteTransform(mResourceId);
+            } catch (Exception e) {
+                // On close we swallow all random exceptions since failure to close is not
+                // actionable by the user.
+                Log.e(TAG, "Failed to close " + this + ", Exception=" + e);
+            } finally {
+                mResourceId = INVALID_RESOURCE_ID;
+                mCloseGuard.close();
+            }
         }
     }
 
@@ -208,44 +199,56 @@ public final class IpSecTransform implements AutoCloseable {
     }
 
     private final IpSecConfig mConfig;
-    private int mResourceId;
+    private final Object mLock = new Object();
+    private int mResourceId; // Partly guarded by mLock to ensure basic safety, not correctness
     private final Context mContext;
     private final CloseGuard mCloseGuard = CloseGuard.get();
-    private ConnectivityManager.PacketKeepalive mKeepalive;
-    private Handler mCallbackHandler;
-    private final ConnectivityManager.PacketKeepaliveCallback mKeepaliveCallback =
-            new ConnectivityManager.PacketKeepaliveCallback() {
-
-                @Override
-                public void onStarted() {
-                    synchronized (this) {
-                        mCallbackHandler.post(() -> mUserKeepaliveCallback.onStarted());
-                    }
-                }
-
-                @Override
-                public void onStopped() {
-                    synchronized (this) {
-                        mKeepalive = null;
-                        mCallbackHandler.post(() -> mUserKeepaliveCallback.onStopped());
-                    }
-                }
-
-                @Override
-                public void onError(int error) {
-                    synchronized (this) {
-                        mKeepalive = null;
-                        mCallbackHandler.post(() -> mUserKeepaliveCallback.onError(error));
-                    }
-                }
-            };
-
-    private NattKeepaliveCallback mUserKeepaliveCallback;
 
     /** @hide */
     @VisibleForTesting
     public int getResourceId() {
-        return mResourceId;
+        synchronized(mLock) {
+            return mResourceId;
+        }
+    }
+
+    /**
+     * Retrieve the current state of this IpSecTransform.
+     *
+     * @param executor The {@link Executor} on which to call the supplied callback.
+     * @param callback Callback that's called after the transform state is ready or when an error
+     *     occurs.
+     * @see IpSecTransformState
+     */
+    @FlaggedApi(Flags.FLAG_IPSEC_TRANSFORM_STATE)
+    public void requestIpSecTransformState(
+            @CallbackExecutor @NonNull Executor executor,
+            @NonNull OutcomeReceiver<IpSecTransformState, RuntimeException> callback) {
+        Objects.requireNonNull(executor);
+        Objects.requireNonNull(callback);
+
+        // TODO: Consider adding check to prevent DDoS attack.
+
+        try {
+            IpSecTransformState ipSecTransformState;
+            synchronized(mLock) {
+                ipSecTransformState = getIpSecManager(mContext).getTransformState(mResourceId);
+            }
+            executor.execute(
+                    () -> {
+                        callback.onResult(ipSecTransformState);
+                    });
+        } catch (IllegalStateException e) {
+            executor.execute(
+                    () -> {
+                        callback.onError(e);
+                    });
+        } catch (RemoteException e) {
+            executor.execute(
+                    () -> {
+                        callback.onError(e.rethrowFromSystemServer());
+                    });
+        }
     }
 
     /**
@@ -272,76 +275,6 @@ public final class IpSecTransform implements AutoCloseable {
         public void onError(int error) {}
     }
 
-    /**
-     * Start a NAT-T keepalive session for the current transform.
-     *
-     * For a transform that is using UDP encapsulated IPv4, NAT-T offloading provides
-     * a power efficient mechanism of sending NAT-T packets at a specified interval.
-     *
-     * @param userCallback a {@link #NattKeepaliveCallback} to receive asynchronous status
-     *      information about the requested NAT-T keepalive session.
-     * @param intervalSeconds the interval between NAT-T keepalives being sent. The
-     *      the allowed range is between 20 and 3600 seconds.
-     * @param handler a handler on which to post callbacks when received.
-     *
-     * @hide
-     */
-    @RequiresPermission(anyOf = {
-            android.Manifest.permission.MANAGE_IPSEC_TUNNELS,
-            android.Manifest.permission.PACKET_KEEPALIVE_OFFLOAD
-    })
-    public void startNattKeepalive(@NonNull NattKeepaliveCallback userCallback,
-            int intervalSeconds, @NonNull Handler handler) throws IOException {
-        checkNotNull(userCallback);
-        if (intervalSeconds < 20 || intervalSeconds > 3600) {
-            throw new IllegalArgumentException("Invalid NAT-T keepalive interval");
-        }
-        checkNotNull(handler);
-        if (mResourceId == INVALID_RESOURCE_ID) {
-            throw new IllegalStateException(
-                    "Packet keepalive cannot be started for an inactive transform");
-        }
-
-        synchronized (mKeepaliveCallback) {
-            if (mKeepaliveCallback != null) {
-                throw new IllegalStateException("Keepalive already active");
-            }
-
-            mUserKeepaliveCallback = userCallback;
-            ConnectivityManager cm = (ConnectivityManager) mContext.getSystemService(
-                    Context.CONNECTIVITY_SERVICE);
-            mKeepalive = cm.startNattKeepalive(
-                    mConfig.getNetwork(), intervalSeconds, mKeepaliveCallback,
-                    NetworkUtils.numericToInetAddress(mConfig.getSourceAddress()),
-                    4500, // FIXME urgently, we need to get the port number from the Encap socket
-                    NetworkUtils.numericToInetAddress(mConfig.getDestinationAddress()));
-            mCallbackHandler = handler;
-        }
-    }
-
-    /**
-     * Stop an ongoing NAT-T keepalive session.
-     *
-     * Calling this API will request that an ongoing NAT-T keepalive session be terminated.
-     * If this API is not called when a Transform is closed, the underlying NAT-T session will
-     * be terminated automatically.
-     *
-     * @hide
-     */
-    @RequiresPermission(anyOf = {
-            android.Manifest.permission.MANAGE_IPSEC_TUNNELS,
-            android.Manifest.permission.PACKET_KEEPALIVE_OFFLOAD
-    })
-    public void stopNattKeepalive() {
-        synchronized (mKeepaliveCallback) {
-            if (mKeepalive == null) {
-                Log.e(TAG, "No active keepalive to stop");
-                return;
-            }
-            mKeepalive.stop();
-        }
-    }
-
     /** This class is used to build {@link IpSecTransform} objects. */
     public static class Builder {
         private Context mContext;
@@ -357,7 +290,7 @@ public final class IpSecTransform implements AutoCloseable {
         @NonNull
         public IpSecTransform.Builder setEncryption(@NonNull IpSecAlgorithm algo) {
             // TODO: throw IllegalArgumentException if algo is not an encryption algorithm.
-            Preconditions.checkNotNull(algo);
+            Objects.requireNonNull(algo);
             mConfig.setEncryption(algo);
             return this;
         }
@@ -372,7 +305,7 @@ public final class IpSecTransform implements AutoCloseable {
         @NonNull
         public IpSecTransform.Builder setAuthentication(@NonNull IpSecAlgorithm algo) {
             // TODO: throw IllegalArgumentException if algo is not an authentication algorithm.
-            Preconditions.checkNotNull(algo);
+            Objects.requireNonNull(algo);
             mConfig.setAuthentication(algo);
             return this;
         }
@@ -392,7 +325,7 @@ public final class IpSecTransform implements AutoCloseable {
          */
         @NonNull
         public IpSecTransform.Builder setAuthenticatedEncryption(@NonNull IpSecAlgorithm algo) {
-            Preconditions.checkNotNull(algo);
+            Objects.requireNonNull(algo);
             mConfig.setAuthenticatedEncryption(algo);
             return this;
         }
@@ -413,7 +346,7 @@ public final class IpSecTransform implements AutoCloseable {
         @NonNull
         public IpSecTransform.Builder setIpv4Encapsulation(
                 @NonNull IpSecManager.UdpEncapsulationSocket localSocket, int remotePort) {
-            Preconditions.checkNotNull(localSocket);
+            Objects.requireNonNull(localSocket);
             mConfig.setEncapType(ENCAP_ESPINUDP);
             if (localSocket.getResourceId() == INVALID_RESOURCE_ID) {
                 throw new IllegalArgumentException("Invalid UdpEncapsulationSocket");
@@ -450,8 +383,8 @@ public final class IpSecTransform implements AutoCloseable {
                 @NonNull IpSecManager.SecurityParameterIndex spi)
                 throws IpSecManager.ResourceUnavailableException,
                         IpSecManager.SpiUnavailableException, IOException {
-            Preconditions.checkNotNull(sourceAddress);
-            Preconditions.checkNotNull(spi);
+            Objects.requireNonNull(sourceAddress);
+            Objects.requireNonNull(spi);
             if (spi.getResourceId() == INVALID_RESOURCE_ID) {
                 throw new IllegalArgumentException("Invalid SecurityParameterIndex");
             }
@@ -480,15 +413,17 @@ public final class IpSecTransform implements AutoCloseable {
          * @throws IOException indicating other errors
          * @hide
          */
+        @SystemApi
         @NonNull
+        @RequiresFeature(PackageManager.FEATURE_IPSEC_TUNNELS)
         @RequiresPermission(android.Manifest.permission.MANAGE_IPSEC_TUNNELS)
         public IpSecTransform buildTunnelModeTransform(
                 @NonNull InetAddress sourceAddress,
                 @NonNull IpSecManager.SecurityParameterIndex spi)
                 throws IpSecManager.ResourceUnavailableException,
                         IpSecManager.SpiUnavailableException, IOException {
-            Preconditions.checkNotNull(sourceAddress);
-            Preconditions.checkNotNull(spi);
+            Objects.requireNonNull(sourceAddress);
+            Objects.requireNonNull(spi);
             if (spi.getResourceId() == INVALID_RESOURCE_ID) {
                 throw new IllegalArgumentException("Invalid SecurityParameterIndex");
             }
@@ -504,7 +439,7 @@ public final class IpSecTransform implements AutoCloseable {
          * @param context current context
          */
         public Builder(@NonNull Context context) {
-            Preconditions.checkNotNull(context);
+            Objects.requireNonNull(context);
             mContext = context;
             mConfig = new IpSecConfig();
         }

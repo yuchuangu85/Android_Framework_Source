@@ -16,15 +16,15 @@
 
 package com.android.internal.widget;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
-import android.media.AudioAttributes;
-import android.os.UserHandle;
+import android.os.VibrationAttributes;
+import android.os.VibrationEffect;
 import android.os.Vibrator;
-import android.provider.Settings;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Gravity;
@@ -33,12 +33,12 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
+import android.view.animation.Animation.AnimationListener;
 import android.view.animation.LinearInterpolator;
 import android.view.animation.TranslateAnimation;
-import android.view.animation.Animation.AnimationListener;
 import android.widget.ImageView;
-import android.widget.TextView;
 import android.widget.ImageView.ScaleType;
+import android.widget.TextView;
 
 import com.android.internal.R;
 
@@ -67,10 +67,8 @@ public class SlidingTab extends ViewGroup {
     private boolean mHoldLeftOnTransition = true;
     private boolean mHoldRightOnTransition = true;
 
-    private static final AudioAttributes VIBRATION_ATTRIBUTES = new AudioAttributes.Builder()
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-            .build();
+    private static final VibrationAttributes TOUCH_VIBRATION_ATTRIBUTES =
+            VibrationAttributes.createForUsage(VibrationAttributes.USAGE_TOUCH);
 
     private OnTriggerListener mOnTriggerListener;
     private int mGrabbedState = OnTriggerListener.NO_HANDLE;
@@ -83,7 +81,9 @@ public class SlidingTab extends ViewGroup {
      */
     private final int mOrientation;
 
+    @UnsupportedAppUsage
     private final Slider mLeftSlider;
+    @UnsupportedAppUsage
     private final Slider mRightSlider;
     private Slider mCurrentSlider;
     private boolean mTracking;
@@ -95,6 +95,7 @@ public class SlidingTab extends ViewGroup {
     /**
      * Listener used to reset the view when the current animation completes.
      */
+    @UnsupportedAppUsage
     private final AnimationListener mAnimationDoneListener = new AnimationListener() {
         public void onAnimationStart(Animation animation) {
 
@@ -178,7 +179,9 @@ public class SlidingTab extends ViewGroup {
         private static final int STATE_PRESSED = 1;
         private static final int STATE_ACTIVE = 2;
 
+        @UnsupportedAppUsage
         private final ImageView tab;
+        @UnsupportedAppUsage
         private final TextView text;
         private final ImageView target;
         private int currentState = STATE_NORMAL;
@@ -708,6 +711,7 @@ public class SlidingTab extends ViewGroup {
         slider.startAnimation(trans1, trans2);
     }
 
+    @UnsupportedAppUsage
     private void onAnimationDone() {
         resetView();
         mAnimating = false;
@@ -722,6 +726,7 @@ public class SlidingTab extends ViewGroup {
         return mOrientation == HORIZONTAL;
     }
 
+    @UnsupportedAppUsage
     private void resetView() {
         mLeftSlider.reset(false);
         mRightSlider.reset(false);
@@ -763,6 +768,7 @@ public class SlidingTab extends ViewGroup {
      * @param barId the resource of the bar drawable (stateful)
      * @param tabId the resource of the
      */
+    @UnsupportedAppUsage
     public void setLeftTabResources(int iconId, int targetId, int barId, int tabId) {
         mLeftSlider.setIcon(iconId);
         mLeftSlider.setTarget(targetId);
@@ -776,6 +782,7 @@ public class SlidingTab extends ViewGroup {
      *
      * @param resId
      */
+    @UnsupportedAppUsage
     public void setLeftHintText(int resId) {
         if (isHorizontal()) {
             mLeftSlider.setHintText(resId);
@@ -793,6 +800,7 @@ public class SlidingTab extends ViewGroup {
      * @param barId the resource of the bar drawable (stateful)
      * @param tabId the resource of the
      */
+    @UnsupportedAppUsage
     public void setRightTabResources(int iconId, int targetId, int barId, int tabId) {
         mRightSlider.setIcon(iconId);
         mRightSlider.setTarget(targetId);
@@ -806,12 +814,14 @@ public class SlidingTab extends ViewGroup {
      *
      * @param resId
      */
+    @UnsupportedAppUsage
     public void setRightHintText(int resId) {
         if (isHorizontal()) {
             mRightSlider.setHintText(resId);
         }
     }
 
+    @UnsupportedAppUsage
     public void setHoldAfterTrigger(boolean holdLeft, boolean holdRight) {
         mHoldLeftOnTransition = holdLeft;
         mHoldRightOnTransition = holdRight;
@@ -821,16 +831,12 @@ public class SlidingTab extends ViewGroup {
      * Triggers haptic feedback.
      */
     private synchronized void vibrate(long duration) {
-        final boolean hapticEnabled = Settings.System.getIntForUser(
-                mContext.getContentResolver(), Settings.System.HAPTIC_FEEDBACK_ENABLED, 1,
-                UserHandle.USER_CURRENT) != 0;
-        if (hapticEnabled) {
-            if (mVibrator == null) {
-                mVibrator = (android.os.Vibrator) getContext()
-                        .getSystemService(Context.VIBRATOR_SERVICE);
-            }
-            mVibrator.vibrate(duration, VIBRATION_ATTRIBUTES);
+        if (mVibrator == null) {
+            mVibrator = getContext().getSystemService(Vibrator.class);
         }
+        mVibrator.vibrate(
+                VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE),
+                TOUCH_VIBRATION_ATTRIBUTES);
     }
 
     /**
@@ -838,6 +844,7 @@ public class SlidingTab extends ViewGroup {
      *
      * @param listener the OnDialTriggerListener to attach to this view
      */
+    @UnsupportedAppUsage
     public void setOnTriggerListener(OnTriggerListener listener) {
         mOnTriggerListener = listener;
     }

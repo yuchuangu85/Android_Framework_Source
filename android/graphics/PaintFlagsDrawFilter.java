@@ -16,6 +16,7 @@
 
 package android.graphics;
 
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class PaintFlagsDrawFilter extends DrawFilter {
     /**
      * Subclass of DrawFilter that affects every paint by first clearing

@@ -25,10 +25,10 @@
 
 package javax.security.auth.login;
 
+// Android-changed: Removed @see tag (target does not exist on Android):
+// @see javax.security.auth.login.LoginContext
 /**
  * This is the basic login exception.
- *
- * @see javax.security.auth.login.LoginContext
  */
 
 public class LoginException extends java.security.GeneralSecurityException {

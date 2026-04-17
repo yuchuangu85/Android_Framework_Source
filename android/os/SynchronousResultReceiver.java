@@ -29,7 +29,7 @@ import java.util.concurrent.TimeoutException;
  * timeout and discard late results.
  *
  * NOTE: Can only be used for one response. Subsequent responses on the same instance are ignored.
- * {@hide}
+ * @hide
  */
 public class SynchronousResultReceiver extends ResultReceiver {
     public static class Result {

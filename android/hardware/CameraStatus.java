@@ -16,6 +16,7 @@
 
 package android.hardware;
 
+import android.annotation.NonNull;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -23,13 +24,16 @@ import android.os.Parcelable;
  * Status information about a camera.
  *
  * Contains the name of the camera device, and its current status, one of the
- * ICameraServiceListener.STATUS_ values.
+ * ICameraServiceListener.STATUS_* values.
  *
  * @hide
  */
 public class CameraStatus implements Parcelable {
     public String cameraId;
     public int status;
+    public String[] unavailablePhysicalCameras;
+    public String clientPackage;
+    public int deviceId;
 
     @Override
     public int describeContents() {
@@ -40,26 +44,32 @@ public class CameraStatus implements Parcelable {
     public void writeToParcel(Parcel out, int flags) {
         out.writeString(cameraId);
         out.writeInt(status);
+        out.writeStringArray(unavailablePhysicalCameras);
+        out.writeString(clientPackage);
+        out.writeInt(deviceId);
     }
 
     public void readFromParcel(Parcel in) {
         cameraId = in.readString();
         status = in.readInt();
+        unavailablePhysicalCameras = in.readStringArray();
+        clientPackage = in.readString();
+        deviceId = in.readInt();
     }
 
+    @NonNull
     public static final Parcelable.Creator<CameraStatus> CREATOR =
-            new Parcelable.Creator<CameraStatus>() {
-        @Override
-        public CameraStatus createFromParcel(Parcel in) {
-            CameraStatus status = new CameraStatus();
-            status.readFromParcel(in);
+            new Parcelable.Creator<>() {
+                @Override
+                public CameraStatus createFromParcel(Parcel in) {
+                    CameraStatus status = new CameraStatus();
+                    status.readFromParcel(in);
+                    return status;
+                }
 
-            return status;
-        }
-
-        @Override
-        public CameraStatus[] newArray(int size) {
-            return new CameraStatus[size];
-        }
-    };
-};
+                @Override
+                public CameraStatus[] newArray(int size) {
+                    return new CameraStatus[size];
+                }
+            };
+}

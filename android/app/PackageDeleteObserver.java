@@ -16,11 +16,18 @@
 
 package android.app;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Intent;
 import android.content.pm.IPackageDeleteObserver2;
+import android.os.Build;
 
-/** {@hide} */
+/** @hide */
 public class PackageDeleteObserver {
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public PackageDeleteObserver() {
+    }
+
     private final IPackageDeleteObserver2.Stub mBinder = new IPackageDeleteObserver2.Stub() {
         @Override
         public void onUserActionRequired(Intent intent) {
@@ -33,7 +40,7 @@ public class PackageDeleteObserver {
         }
     };
 
-    /** {@hide} */
+    /** @hide */
     public IPackageDeleteObserver2 getBinder() {
         return mBinder;
     }

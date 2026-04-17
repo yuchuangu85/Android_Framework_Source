@@ -35,6 +35,11 @@
 
 package java.util.concurrent.atomic;
 
+import jdk.internal.invoke.MhUtil;
+
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+
 /**
  * An {@code AtomicStampedReference} maintains an object reference
  * along with an integer "stamp", that can be updated atomically.
@@ -107,14 +112,12 @@ public class AtomicStampedReference<V> {
     }
 
     /**
-     * Atomically sets the value of both the reference and stamp
-     * to the given update values if the
-     * current reference is {@code ==} to the expected reference
-     * and the current stamp is equal to the expected stamp.
-     *
-     * <p><a href="package-summary.html#weakCompareAndSet">May fail
-     * spuriously and does not provide ordering guarantees</a>, so is
-     * only rarely an appropriate alternative to {@code compareAndSet}.
+     * Atomically sets the value of both the reference and stamp to
+     * the given update values if the current reference is {@code ==}
+     * to the expected reference and the current stamp is equal to the
+     * expected stamp. This operation may fail spuriously and does not
+     * provide ordering guarantees, so is only rarely an
+     * appropriate alternative to {@code compareAndSet}.
      *
      * @param expectedReference the expected value of the reference
      * @param newReference the new value for the reference
@@ -188,20 +191,11 @@ public class AtomicStampedReference<V> {
              casPair(current, Pair.of(expectedReference, newStamp)));
     }
 
-    // Unsafe mechanics
-
-    private static final sun.misc.Unsafe U = sun.misc.Unsafe.getUnsafe();
-    private static final long PAIR;
-    static {
-        try {
-            PAIR = U.objectFieldOffset
-                (AtomicStampedReference.class.getDeclaredField("pair"));
-        } catch (ReflectiveOperationException e) {
-            throw new Error(e);
-        }
-    }
+    // VarHandle mechanics
+    private static final VarHandle PAIR = MhUtil.findVarHandle(
+            MethodHandles.lookup(), "pair", Pair.class);
 
     private boolean casPair(Pair<V> cmp, Pair<V> val) {
-        return U.compareAndSwapObject(this, PAIR, cmp, val);
+        return PAIR.compareAndSet(this, cmp, val);
     }
 }

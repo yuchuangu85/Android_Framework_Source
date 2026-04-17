@@ -16,9 +16,12 @@
 
 package android.graphics;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
  * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class TableMaskFilter extends MaskFilter {
 
     public TableMaskFilter(byte[] table) {
@@ -32,6 +35,7 @@ public class TableMaskFilter extends MaskFilter {
         native_instance = ni;
     }
     
+    @UnsupportedAppUsage
     public static TableMaskFilter CreateClipTable(int min, int max) {
         return new TableMaskFilter(nativeNewClip(min, max));
     }

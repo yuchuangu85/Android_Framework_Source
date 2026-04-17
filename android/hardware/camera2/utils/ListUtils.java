@@ -17,6 +17,7 @@
 package android.hardware.camera2.utils;
 
 import java.util.List;
+import java.util.ArrayList;
 
 /**
  * Various assortment of list utilities.
@@ -33,6 +34,28 @@ public class ListUtils {
         } else {
             return list.contains(needle);
         }
+    }
+
+    public static int[] convertIntegerListToIntArray(List<Integer> integerList) {
+        if (integerList == null) {
+            return new int[0];
+        }
+        int[] integerArray = new int[integerList.size()];
+        for (int i = 0; i < integerList.size(); i++) {
+            integerArray[i] = integerList.get(i);
+        }
+        return integerArray;
+    }
+
+    public static ArrayList<Integer> convertIntArrayToIntegerList(int[] intArray) {
+        ArrayList<Integer> integerList = new ArrayList<Integer>();
+        if (intArray == null) {
+            return integerList;
+        }
+        for (int i = 0; i < intArray.length; i++) {
+            integerList.add(intArray[i]);
+        }
+        return integerList;
     }
 
     /**

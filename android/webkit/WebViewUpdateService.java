@@ -16,44 +16,71 @@
 
 package android.webkit;
 
+import android.annotation.FlaggedApi;
+import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.RemoteException;
 
 /**
+ * @deprecated Use the {@link WebViewUpdateManager} class instead.
  * @hide
  */
+@FlaggedApi(Flags.FLAG_UPDATE_SERVICE_IPC_WRAPPER)
+@Deprecated
 @SystemApi
 public final class WebViewUpdateService {
 
+    @UnsupportedAppUsage
     private WebViewUpdateService () {}
 
     /**
      * Fetch all packages that could potentially implement WebView.
      */
     public static WebViewProviderInfo[] getAllWebViewPackages() {
-        IWebViewUpdateService service = getUpdateService();
-        if (service == null) {
-            return new WebViewProviderInfo[0];
-        }
-        try {
-            return service.getAllWebViewPackages();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+        if (Flags.updateServiceIpcWrapper()) {
+            if (WebViewFactory.isWebViewSupported()) {
+                return WebViewUpdateManager.getInstance().getAllWebViewPackages();
+            } else {
+                return new WebViewProviderInfo[0];
+            }
+        } else {
+            IWebViewUpdateService service = getUpdateService();
+            if (service == null) {
+                return new WebViewProviderInfo[0];
+            }
+            try {
+                return service.getAllWebViewPackages();
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            }
         }
     }
 
     /**
      * Fetch all packages that could potentially implement WebView and are currently valid.
+     *
+     * <p>Note that this will be filtered by the caller's package visibility; callers should
+     * have QUERY_ALL_PACKAGES permission to ensure that the list is complete.
      */
+    @RequiresPermission(android.Manifest.permission.INTERACT_ACROSS_USERS)
     public static WebViewProviderInfo[] getValidWebViewPackages() {
-        IWebViewUpdateService service = getUpdateService();
-        if (service == null) {
-            return new WebViewProviderInfo[0];
-        }
-        try {
-            return service.getValidWebViewPackages();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+        if (Flags.updateServiceIpcWrapper()) {
+            if (WebViewFactory.isWebViewSupported()) {
+                return WebViewUpdateManager.getInstance().getValidWebViewPackages();
+            } else {
+                return new WebViewProviderInfo[0];
+            }
+        } else {
+            IWebViewUpdateService service = getUpdateService();
+            if (service == null) {
+                return new WebViewProviderInfo[0];
+            }
+            try {
+                return service.getValidWebViewPackages();
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            }
         }
     }
 
@@ -61,14 +88,22 @@ public final class WebViewUpdateService {
      * Used by DevelopmentSetting to get the name of the WebView provider currently in use.
      */
     public static String getCurrentWebViewPackageName() {
-        IWebViewUpdateService service = getUpdateService();
-        if (service == null) {
-            return null;
-        }
-        try {
-            return service.getCurrentWebViewPackageName();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+        if (Flags.updateServiceIpcWrapper()) {
+            if (WebViewFactory.isWebViewSupported()) {
+                return WebViewUpdateManager.getInstance().getCurrentWebViewPackageName();
+            } else {
+                return null;
+            }
+        } else {
+            IWebViewUpdateService service = getUpdateService();
+            if (service == null) {
+                return null;
+            }
+            try {
+                return service.getCurrentWebViewPackageName();
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            }
         }
     }
 

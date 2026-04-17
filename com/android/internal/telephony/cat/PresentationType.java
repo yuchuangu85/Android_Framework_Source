@@ -20,7 +20,7 @@ package com.android.internal.telephony.cat;
 /**
  * Presentation types for SELECT TYPE proactive command.
  *
- * {@hide}
+ * @hide
  */
 public enum PresentationType {
     /** Presentation type is not specified */

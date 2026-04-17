@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,28 +16,44 @@
 
 package android.security.net.config;
 
-import android.os.Environment;
+import android.annotation.FlaggedApi;
+import android.annotation.NonNull;
+import android.annotation.SystemApi;
 import android.os.UserHandle;
+
 import java.io.File;
 
 /**
  * {@link CertificateSource} based on the user-installed trusted CA store.
  * @hide
  */
+@FlaggedApi(com.android.org.conscrypt.net.flags.Flags.FLAG_NETWORK_SECURITY_CONFIG)
+@SystemApi(client = SystemApi.Client.MODULE_LIBRARIES)
 public final class UserCertificateSource extends DirectoryCertificateSource {
     private static class NoPreloadHolder {
         private static final UserCertificateSource INSTANCE = new UserCertificateSource();
     }
 
     private UserCertificateSource() {
+        // TODO(b/424086802): migrate to CE or DE directories.
         super(new File(
-                Environment.getUserConfigDirectory(UserHandle.myUserId()), "cacerts-added"));
+                new File(System.getenv("ANDROID_DATA") + "/misc/user/" + UserHandle.myUserId()),
+                "cacerts-added"));
     }
 
+    /**
+     * Returns the {@code UserCertificateSource} for this user.
+     *
+     * @return The instance.
+     */
+    @NonNull
     public static UserCertificateSource getInstance() {
         return NoPreloadHolder.INSTANCE;
     }
 
+    /**
+     * @hide
+     */
     @Override
     protected boolean isCertMarkedAsRemoved(String caFile) {
         return false;

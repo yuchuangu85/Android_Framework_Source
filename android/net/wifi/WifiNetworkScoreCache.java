@@ -29,15 +29,16 @@ import android.util.Log;
 import android.util.LruCache;
 
 import com.android.internal.annotations.GuardedBy;
-import com.android.internal.util.Preconditions;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * {@link INetworkScoreCache} implementation for Wifi Networks.
  *
+ * TODO: This should not be part of wifi mainline module.
  * @hide
  */
 public class WifiNetworkScoreCache extends INetworkScoreCache.Stub {
@@ -88,7 +89,7 @@ public class WifiNetworkScoreCache extends INetworkScoreCache.Stub {
 
     @Override public final void updateScores(List<ScoredNetwork> networks) {
         if (networks == null || networks.isEmpty()) {
-           return;
+            return;
         }
         if (DBG) {
             Log.d(TAG, "updateScores list size=" + networks.size());
@@ -96,7 +97,7 @@ public class WifiNetworkScoreCache extends INetworkScoreCache.Stub {
 
         boolean changed = false;
 
-        synchronized(mLock) {
+        synchronized (mLock) {
             for (ScoredNetwork network : networks) {
                 String networkKey = buildNetworkKey(network);
                 if (networkKey == null) {
@@ -188,7 +189,7 @@ public class WifiNetworkScoreCache extends INetworkScoreCache.Stub {
         String key = buildNetworkKey(result);
         if (key == null) return null;
 
-        synchronized(mLock) {
+        synchronized (mLock) {
             ScoredNetwork network = mCache.get(key);
             return network;
         }
@@ -289,7 +290,7 @@ public class WifiNetworkScoreCache extends INetworkScoreCache.Stub {
          *          This cannot be null.
          */
         public CacheListener(@NonNull Handler handler) {
-            Preconditions.checkNotNull(handler);
+            Objects.requireNonNull(handler);
             mHandler = handler;
         }
 

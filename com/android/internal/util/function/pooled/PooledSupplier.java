@@ -36,24 +36,24 @@ public interface PooledSupplier<T> extends PooledLambda, Supplier<T>, ThrowingSu
      */
     PooledRunnable asRunnable();
 
-    /** @inheritDoc */
+    /** {@inheritDoc} */
     PooledSupplier<T> recycleOnUse();
 
     /** {@link PooledLambda} + {@link IntSupplier} */
     interface OfInt extends IntSupplier, PooledLambda {
-        /** @inheritDoc */
+        /** {@inheritDoc} */
         PooledSupplier.OfInt recycleOnUse();
     }
 
     /** {@link PooledLambda} + {@link LongSupplier} */
     interface OfLong extends LongSupplier, PooledLambda {
-        /** @inheritDoc */
+        /** {@inheritDoc} */
         PooledSupplier.OfLong recycleOnUse();
     }
 
     /** {@link PooledLambda} + {@link DoubleSupplier} */
     interface OfDouble extends DoubleSupplier, PooledLambda {
-        /** @inheritDoc */
+        /** {@inheritDoc} */
         PooledSupplier.OfDouble recycleOnUse();
     }
 }

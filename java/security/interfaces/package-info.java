@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,17 +42,15 @@
  * {@code Key} classes for hardware devices, please refer
  * to these cryptographic provider developer guides:
  * <ul>
- *   <li><a href=
- *     "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/HowToImplAProvider.html">
- *     <b>How to Implement a Provider for the
- *     Java&trade; Cryptography Architecture
- *     </b></a></li>
+ *   <li>
+ *     <a href="{@docRoot}/../technotes/guides/security/crypto/HowToImplAProvider.html">How to Implement a Provider in the Java Cryptography Architecture</a>
+ *   </li>
  * </ul>
  *
  * <h2>Package Specification</h2>
  *
  * <ul>
- *   <li>PKCS #1: RSA Encryption Standard, Version 1.5, November 1993 </li>
+ *   <li>PKCS #1: RSA Cryptography Specifications, Version 2.2 (RFC 8017)</li>
  *   <li>Federal Information Processing Standards Publication (FIPS PUB) 186:
  *     Digital Signature Standard (DSS) </li>
  * </ul>
@@ -62,13 +60,9 @@
  * For further documentation, please see:
  * <ul>
  *   <li>
- *     <a href=
- *       "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/crypto/CryptoSpec.html">
- *       <b>Java&trade;
- *       Cryptography Architecture API Specification and Reference
- *       </b></a></li>
+ *     <a href="{@docRoot}/../technotes/guides/security/crypto/CryptoSpec.html">Java Cryptography Architecture Reference Guide}</a></li>
  * </ul>
  *
- * @since JDK1.1
+ * @since 1.1
  */
 package java.security.interfaces;

@@ -91,7 +91,12 @@ import java.util.Set;
  * </pre>
  *
  * @see Slice
+ * @deprecated Slice framework has been deprecated, it will not receive any updates from
+ *          {@link android.os.Build.VANILLA_ICE_CREAM} and forward. If you are looking for a
+ *          framework that sends displayable data from one app to another, consider using
+ *          {@link android.app.appsearch.AppSearchManager}.
  */
+@Deprecated
 public abstract class SliceProvider extends ContentProvider {
     /**
      * This is the Android platform's MIME type for a URI
@@ -155,18 +160,12 @@ public abstract class SliceProvider extends ContentProvider {
     /**
      * @hide
      */
-    public static final String EXTRA_PROVIDER_PKG = "provider_pkg";
-    /**
-     * @hide
-     */
     public static final String EXTRA_RESULT = "result";
 
     private static final boolean DEBUG = false;
 
-    private static final long SLICE_BIND_ANR = 2000;
     private final String[] mAutoGrantPermissions;
 
-    private String mCallback;
     private SliceManager mSliceManager;
 
     /**
@@ -209,19 +208,10 @@ public abstract class SliceProvider extends ContentProvider {
      *
      * @param sliceUri Uri to bind.
      * @param supportedSpecs List of supported specs.
-     * @see {@link Slice}.
-     * @see {@link Slice#HINT_PARTIAL}
+     * @see Slice
+     * @see Slice#HINT_PARTIAL
      */
     public Slice onBindSlice(Uri sliceUri, Set<SliceSpec> supportedSpecs) {
-        return onBindSlice(sliceUri, new ArrayList<>(supportedSpecs));
-    }
-
-    /**
-     * @deprecated TO BE REMOVED
-     * @removed
-     */
-    @Deprecated
-    public Slice onBindSlice(Uri sliceUri, List<SliceSpec> supportedSpecs) {
         return null;
     }
 
@@ -303,7 +293,7 @@ public abstract class SliceProvider extends ContentProvider {
      * @see #getCallingPackage()
      */
     public @NonNull PendingIntent onCreatePermissionRequest(Uri sliceUri) {
-        return createPermissionIntent(getContext(), sliceUri, getCallingPackage());
+        return createPermissionPendingIntent(getContext(), sliceUri, getCallingPackage());
     }
 
     @Override
@@ -355,8 +345,9 @@ public abstract class SliceProvider extends ContentProvider {
     @Override
     public Bundle call(String method, String arg, Bundle extras) {
         if (method.equals(METHOD_SLICE)) {
-            Uri uri = getUriWithoutUserId(extras.getParcelable(EXTRA_BIND_URI));
-            List<SliceSpec> supportedSpecs = extras.getParcelableArrayList(EXTRA_SUPPORTED_SPECS);
+            Uri uri = getUriWithoutUserId(validateIncomingUriOrNull(
+                    extras.getParcelable(EXTRA_BIND_URI, android.net.Uri.class)));
+            List<SliceSpec> supportedSpecs = extras.getParcelableArrayList(EXTRA_SUPPORTED_SPECS, android.app.slice.SliceSpec.class);
 
             String callingPackage = getCallingPackage();
             int callingUid = Binder.getCallingUid();
@@ -367,10 +358,10 @@ public abstract class SliceProvider extends ContentProvider {
             b.putParcelable(EXTRA_SLICE, s);
             return b;
         } else if (method.equals(METHOD_MAP_INTENT)) {
-            Intent intent = extras.getParcelable(EXTRA_INTENT);
+            Intent intent = extras.getParcelable(EXTRA_INTENT, android.content.Intent.class);
             if (intent == null) return null;
-            Uri uri = onMapIntentToUri(intent);
-            List<SliceSpec> supportedSpecs = extras.getParcelableArrayList(EXTRA_SUPPORTED_SPECS);
+            Uri uri = validateIncomingUriOrNull(onMapIntentToUri(intent));
+            List<SliceSpec> supportedSpecs = extras.getParcelableArrayList(EXTRA_SUPPORTED_SPECS, android.app.slice.SliceSpec.class);
             Bundle b = new Bundle();
             if (uri != null) {
                 Slice s = handleBindSlice(uri, supportedSpecs, getCallingPackage(),
@@ -381,29 +372,32 @@ public abstract class SliceProvider extends ContentProvider {
             }
             return b;
         } else if (method.equals(METHOD_MAP_ONLY_INTENT)) {
-            Intent intent = extras.getParcelable(EXTRA_INTENT);
+            Intent intent = extras.getParcelable(EXTRA_INTENT, android.content.Intent.class);
             if (intent == null) return null;
-            Uri uri = onMapIntentToUri(intent);
+            Uri uri = validateIncomingUriOrNull(onMapIntentToUri(intent));
             Bundle b = new Bundle();
             b.putParcelable(EXTRA_SLICE, uri);
             return b;
         } else if (method.equals(METHOD_PIN)) {
-            Uri uri = getUriWithoutUserId(extras.getParcelable(EXTRA_BIND_URI));
+            Uri uri = getUriWithoutUserId(validateIncomingUriOrNull(
+                    extras.getParcelable(EXTRA_BIND_URI, android.net.Uri.class)));
             if (Binder.getCallingUid() != Process.SYSTEM_UID) {
                 throw new SecurityException("Only the system can pin/unpin slices");
             }
-            handlePinSlice(uri);
+            onSlicePinned(uri);
         } else if (method.equals(METHOD_UNPIN)) {
-            Uri uri = getUriWithoutUserId(extras.getParcelable(EXTRA_BIND_URI));
+            Uri uri = getUriWithoutUserId(validateIncomingUriOrNull(
+                    extras.getParcelable(EXTRA_BIND_URI, android.net.Uri.class)));
             if (Binder.getCallingUid() != Process.SYSTEM_UID) {
                 throw new SecurityException("Only the system can pin/unpin slices");
             }
-            handleUnpinSlice(uri);
+            onSliceUnpinned(uri);
         } else if (method.equals(METHOD_GET_DESCENDANTS)) {
-            Uri uri = getUriWithoutUserId(extras.getParcelable(EXTRA_BIND_URI));
+            Uri uri = getUriWithoutUserId(
+                    validateIncomingUriOrNull(extras.getParcelable(EXTRA_BIND_URI, android.net.Uri.class)));
             Bundle b = new Bundle();
             b.putParcelableArrayList(EXTRA_SLICE_DESCENDANTS,
-                    new ArrayList<>(handleGetDescendants(uri)));
+                    new ArrayList<>(onGetSliceDescendants(uri)));
             return b;
         } else if (method.equals(METHOD_GET_PERMISSIONS)) {
             if (Binder.getCallingUid() != Process.SYSTEM_UID) {
@@ -416,29 +410,8 @@ public abstract class SliceProvider extends ContentProvider {
         return super.call(method, arg, extras);
     }
 
-    private Collection<Uri> handleGetDescendants(Uri uri) {
-        mCallback = "onGetSliceDescendants";
-        return onGetSliceDescendants(uri);
-    }
-
-    private void handlePinSlice(Uri sliceUri) {
-        mCallback = "onSlicePinned";
-        Handler.getMain().postDelayed(mAnr, SLICE_BIND_ANR);
-        try {
-            onSlicePinned(sliceUri);
-        } finally {
-            Handler.getMain().removeCallbacks(mAnr);
-        }
-    }
-
-    private void handleUnpinSlice(Uri sliceUri) {
-        mCallback = "onSliceUnpinned";
-        Handler.getMain().postDelayed(mAnr, SLICE_BIND_ANR);
-        try {
-            onSliceUnpinned(sliceUri);
-        } finally {
-            Handler.getMain().removeCallbacks(mAnr);
-        }
+    private Uri validateIncomingUriOrNull(Uri uri) {
+        return uri == null ? null : validateIncomingUri(uri);
     }
 
     private Slice handleBindSlice(Uri sliceUri, List<SliceSpec> supportedSpecs,
@@ -448,18 +421,12 @@ public abstract class SliceProvider extends ContentProvider {
         String pkg = callingPkg != null ? callingPkg
                 : getContext().getPackageManager().getNameForUid(callingUid);
         try {
-            mSliceManager.enforceSlicePermission(sliceUri, pkg,
-                    callingPid, callingUid, mAutoGrantPermissions);
+            mSliceManager.enforceSlicePermission(sliceUri, callingPid, callingUid,
+                    mAutoGrantPermissions);
         } catch (SecurityException e) {
             return createPermissionSlice(getContext(), sliceUri, pkg);
         }
-        mCallback = "onBindSlice";
-        Handler.getMain().postDelayed(mAnr, SLICE_BIND_ANR);
-        try {
-            return onBindSliceStrict(sliceUri, supportedSpecs);
-        } finally {
-            Handler.getMain().removeCallbacks(mAnr);
-        }
+        return onBindSliceStrict(sliceUri, supportedSpecs);
     }
 
     /**
@@ -467,15 +434,8 @@ public abstract class SliceProvider extends ContentProvider {
      */
     public Slice createPermissionSlice(Context context, Uri sliceUri,
             String callingPackage) {
-        PendingIntent action;
-        mCallback = "onCreatePermissionRequest";
-        Handler.getMain().postDelayed(mAnr, SLICE_BIND_ANR);
-        try {
-            action = onCreatePermissionRequest(sliceUri);
-        } finally {
-            Handler.getMain().removeCallbacks(mAnr);
-        }
-        Slice.Builder parent = new Slice.Builder(sliceUri);
+        PendingIntent action = onCreatePermissionRequest(sliceUri);
+        Slice.Builder parent = new Slice.Builder(sliceUri, null);
         Slice.Builder childAction = new Slice.Builder(parent)
                 .addIcon(Icon.createWithResource(context,
                         com.android.internal.R.drawable.ic_permission), null,
@@ -488,7 +448,8 @@ public abstract class SliceProvider extends ContentProvider {
                 .getTheme().resolveAttribute(android.R.attr.colorAccent, tv, true);
         int deviceDefaultAccent = tv.data;
 
-        parent.addSubSlice(new Slice.Builder(sliceUri.buildUpon().appendPath("permission").build())
+        Uri subSliceUri = sliceUri.buildUpon().appendPath("permission").build();
+        Slice.Builder subSlice = new Slice.Builder(subSliceUri, null)
                 .addIcon(Icon.createWithResource(context,
                         com.android.internal.R.drawable.ic_arrow_forward), null,
                         Collections.emptyList())
@@ -496,27 +457,35 @@ public abstract class SliceProvider extends ContentProvider {
                         Collections.emptyList())
                 .addInt(deviceDefaultAccent, SUBTYPE_COLOR,
                         Collections.emptyList())
-                .addSubSlice(childAction.build(), null)
-                .build(), null);
+                .addSubSlice(childAction.build(), null);
+        parent.addSubSlice(subSlice.build(), null);
         return parent.addHints(Arrays.asList(Slice.HINT_PERMISSION_REQUEST)).build();
     }
 
     /**
      * @hide
      */
-    public static PendingIntent createPermissionIntent(Context context, Uri sliceUri,
+    public static PendingIntent createPermissionPendingIntent(Context context, Uri sliceUri,
+            String callingPackage) {
+        return PendingIntent.getActivity(context, 0,
+                createPermissionIntent(context, sliceUri, callingPackage),
+                PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    /**
+     * @hide
+     */
+    public static Intent createPermissionIntent(Context context, Uri sliceUri,
             String callingPackage) {
         Intent intent = new Intent(SliceManager.ACTION_REQUEST_SLICE_PERMISSION);
-        intent.setComponent(new ComponentName("com.android.systemui",
-                "com.android.systemui.SlicePermissionActivity"));
+        intent.setComponent(ComponentName.unflattenFromString(context.getResources().getString(
+                com.android.internal.R.string.config_slicePermissionComponent)));
         intent.putExtra(EXTRA_BIND_URI, sliceUri);
         intent.putExtra(EXTRA_PKG, callingPackage);
-        intent.putExtra(EXTRA_PROVIDER_PKG, context.getPackageName());
         // Unique pending intent.
         intent.setData(sliceUri.buildUpon().appendQueryParameter("package", callingPackage)
                 .build());
-
-        return PendingIntent.getActivity(context, 0, intent, 0);
+        return intent;
     }
 
     /**
@@ -540,6 +509,7 @@ public abstract class SliceProvider extends ContentProvider {
         try {
             StrictMode.setThreadPolicy(new StrictMode.ThreadPolicy.Builder()
                     .detectAll()
+                    .permitDiskWrites()
                     .penaltyDeath()
                     .build());
             return onBindSlice(sliceUri, new ArraySet<>(supportedSpecs));
@@ -547,9 +517,4 @@ public abstract class SliceProvider extends ContentProvider {
             StrictMode.setThreadPolicy(oldPolicy);
         }
     }
-
-    private final Runnable mAnr = () -> {
-        Process.sendSignal(Process.myPid(), Process.SIGNAL_QUIT);
-        Log.wtf(TAG, "Timed out while handling slice callback " + mCallback);
-    };
 }

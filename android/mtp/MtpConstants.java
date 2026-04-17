@@ -211,7 +211,10 @@ public final class MtpConstants {
     public static final int FORMAT_JPX = 0x3810;
     /** Format code for DNG files */
     public static final int FORMAT_DNG = 0x3811;
-    /** Format code for HEIF files {@hide} */
+    /**
+     * Format code for HEIF files
+     * @hide
+     */
     public static final int FORMAT_HEIF = 0x3812;
     /** Format code for firmware files */
     public static final int FORMAT_UNDEFINED_FIRMWARE = 0xB802;

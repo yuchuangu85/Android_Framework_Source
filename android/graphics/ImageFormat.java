@@ -16,7 +16,66 @@
 
 package android.graphics;
 
+import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
+
+import com.android.internal.camera.flags.Flags;
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class ImageFormat {
+     /** @hide */
+     @Target(ElementType.TYPE_USE)
+     @Retention(RetentionPolicy.SOURCE)
+     @IntDef(value = {
+             UNKNOWN,
+             /*
+              * Since some APIs accept either ImageFormat or PixelFormat (and the two
+              * enums do not overlap since they're both partial versions of the
+              * internal format enum), add PixelFormat values here so linting
+              * tools won't complain when method arguments annotated with
+              * ImageFormat are provided with PixelFormat values.
+              */
+             PixelFormat.RGBA_8888,
+             PixelFormat.RGBX_8888,
+             PixelFormat.RGB_888,
+             RGB_565,
+             YV12,
+             Y8,
+             Y16,
+             YCBCR_P010,
+             YCBCR_P210,
+             NV16,
+             NV21,
+             YUY2,
+             JPEG,
+             DEPTH_JPEG,
+             YUV_420_888,
+             YUV_422_888,
+             YUV_444_888,
+             FLEX_RGB_888,
+             FLEX_RGBA_8888,
+             RAW_SENSOR,
+             RAW_PRIVATE,
+             RAW10,
+             RAW12,
+             RAW14,
+             DEPTH16,
+             DEPTH_POINT_CLOUD,
+             RAW_DEPTH,
+             RAW_DEPTH10,
+             PRIVATE,
+             HEIC,
+             HEIC_ULTRAHDR,
+             JPEG_R
+     })
+     public @interface Format {
+     }
+
     /*
      * these constants are chosen to be binary compatible with their previous
      * location in PixelFormat.java
@@ -90,18 +149,20 @@ public class ImageFormat {
      * </ul>
      * </p>
      *
-     * <pre> y_size = stride * height </pre>
+     * <pre> size = stride * height </pre>
      *
      * <p>For example, the {@link android.media.Image} object can provide data
-     * in this format from a {@link android.hardware.camera2.CameraDevice}
-     * through a {@link android.media.ImageReader} object if this format is
-     * supported by {@link android.hardware.camera2.CameraDevice}.</p>
+     * in this format from a {@link android.hardware.camera2.CameraDevice} (if
+     * supported) through a {@link android.media.ImageReader} object. The
+     * {@link android.media.Image#getPlanes() Image#getPlanes()} will return a
+     * single plane containing the pixel data. The pixel stride is always 1 in
+     * {@link android.media.Image.Plane#getPixelStride()}, and the
+     * {@link android.media.Image.Plane#getRowStride()} describes the vertical
+     * neighboring pixel distance (in bytes) between adjacent rows.</p>
      *
      * @see android.media.Image
      * @see android.media.ImageReader
      * @see android.hardware.camera2.CameraDevice
-     *
-     * @hide
      */
     public static final int Y8 = 0x20203859;
 
@@ -134,6 +195,45 @@ public class ImageFormat {
      * @hide
      */
     public static final int Y16 = 0x20363159;
+
+    /**
+     * <p>Android YUV P010 format.</p>
+     *
+     * P010 is a 10-bit 4:2:0 YCbCr semiplanar format comprised of a WxH Y plane
+     * followed by a Wx(H/2) CbCr plane. Each sample is represented by a 16-bit
+     * little-endian value, with the lower 6 bits set to zero.
+     *
+     * <p>For example, the {@link android.media.Image} object can provide data
+     * in this format from a {@link android.hardware.camera2.CameraDevice}
+     * through a {@link android.media.ImageReader} object if this format is
+     * supported by {@link android.hardware.camera2.CameraDevice}.</p>
+     *
+     * @see android.media.Image
+     * @see android.media.ImageReader
+     * @see android.hardware.camera2.CameraDevice
+     *
+     */
+    public static final int YCBCR_P010 = 0x36;
+
+    /**
+     * <p>Android YUV P210 format.</p>
+     *
+     * P210 is a 10-bit 4:2:2 YCbCr semiplanar format comprised of a WxH Y plane
+     * followed by a WxH CbCr plane. Each sample is represented by a 16-bit
+     * little-endian value, with the lower 6 bits set to zero.
+     *
+     * <p>For example, the {@link android.media.Image} object can provide data
+     * in this format from a {@link android.hardware.camera2.CameraDevice}
+     * through a {@link android.media.ImageReader} object if this format is
+     * supported by {@link android.hardware.camera2.CameraDevice}.</p>
+     *
+     * @see android.media.Image
+     * @see android.media.ImageReader
+     * @see android.hardware.camera2.CameraDevice
+     *
+     */
+    @FlaggedApi(android.media.codec.Flags.FLAG_P210_FORMAT_SUPPORT)
+    public static final int YCBCR_P210 = 0x3c;
 
     /**
      * YCbCr format, used for video.
@@ -179,6 +279,23 @@ public class ImageFormat {
      * {@link android.hardware.Camera} API</p>
      */
     public static final int JPEG = 0x100;
+
+    /**
+     * Depth augmented compressed JPEG format.
+     *
+     * <p>JPEG compressed main image along with XMP embedded depth metadata
+     * following ISO 16684-1:2011(E).</p>
+     */
+    public static final int DEPTH_JPEG = 0x69656963;
+
+    /**
+     * Compressed JPEG format that includes an embedded recovery map.
+     *
+     * <p>JPEG compressed main image along with embedded recovery map following the
+     * <a href="https://developer.android.com/guide/topics/media/hdr-image-format">Ultra HDR
+     * Image format specification</a>.</p>
+     */
+    public static final int JPEG_R = 0x1005;
 
     /**
      * <p>Multi-plane Android YUV 420 format</p>
@@ -362,7 +479,7 @@ public class ImageFormat {
 
     /**
      * <p>Private raw camera sensor image format, a single channel image with
-     * implementation depedent pixel layout.</p>
+     * implementation dependent pixel layout.</p>
      *
      * <p>RAW_PRIVATE is a format for unprocessed raw image buffers coming from an
      * image sensor. The actual structure of buffers of this format is
@@ -598,6 +715,153 @@ public class ImageFormat {
     public static final int RAW12 = 0x26;
 
     /**
+     * <p>
+     * Android 14-bit raw format
+     * </p>
+     * <p>
+     * This is a single-plane, 14-bit per pixel, densely packed (in each row),
+     * unprocessed format, usually representing raw Bayer-pattern images coming
+     * from an image sensor.
+     * </p>
+     * <p>
+     * In an image buffer with this format, starting from the first pixel of each
+     * row, each four consecutive pixels are packed into 7 bytes (56 bits). The first
+     * four bytes contain the most significant 8 bits of the first 4 pixels. The last three bytes
+     * contain the 6 least significant bits of the four pixels, packed one after the other, the
+     * exact layout data for each four consecutive pixels is illustrated below (Pi[j] stands for
+     * the jth bit of the ith pixel):
+     * </p>
+     * <table>
+     * <thead>
+     * <tr>
+     * <th align="center"></th>
+     * <th align="center">bit 7</th>
+     * <th align="center">bit 6</th>
+     * <th align="center">bit 5</th>
+     * <th align="center">bit 4</th>
+     * <th align="center">bit 3</th>
+     * <th align="center">bit 2</th>
+     * <th align="center">bit 1</th>
+     * <th align="center">bit 0</th>
+     * </tr>
+     * </thead> <tbody>
+     * <tr>
+     * <td align="center">Byte 0:</td>
+     * <td align="center">P0[13]</td>
+     * <td align="center">P0[12]</td>
+     * <td align="center">P0[11]</td>
+     * <td align="center">P0[10]</td>
+     * <td align="center">P0[ 9]</td>
+     * <td align="center">P0[ 8]</td>
+     * <td align="center">P0[ 7]</td>
+     * <td align="center">P0[ 6]</td>
+     * </tr>
+     * <tr>
+     * <td align="center">Byte 1:</td>
+     * <td align="center">P1[13]</td>
+     * <td align="center">P1[12]</td>
+     * <td align="center">P1[11]</td>
+     * <td align="center">P1[10]</td>
+     * <td align="center">P1[ 9]</td>
+     * <td align="center">P1[ 8]</td>
+     * <td align="center">P1[ 7]</td>
+     * <td align="center">P1[ 6]</td>
+     * </tr>
+     * <tr>
+     * <td align="center">Byte 2:</td>
+     * <td align="center">P2[13]</td>
+     * <td align="center">P2[12]</td>
+     * <td align="center">P2[11]</td>
+     * <td align="center">P2[10]</td>
+     * <td align="center">P2[ 9]</td>
+     * <td align="center">P2[ 8]</td>
+     * <td align="center">P2[ 7]</td>
+     * <td align="center">P2[ 6]</td>
+     * </tr>
+     * <tr>
+     * <td align="center">Byte 3:</td>
+     * <td align="center">P3[13]</td>
+     * <td align="center">P3[12]</td>
+     * <td align="center">P3[11]</td>
+     * <td align="center">P3[10]</td>
+     * <td align="center">P3[ 9]</td>
+     * <td align="center">P3[ 8]</td>
+     * <td align="center">P3[ 7]</td>
+     * <td align="center">P3[ 6]</td>
+     * </tr>
+     * <tr>
+     * <td align="center">Byte 4:</td>
+     * <td align="center">P1[ 1]</td>
+     * <td align="center">P1[ 0]</td>
+     * <td align="center">P0[ 5]</td>
+     * <td align="center">P0[ 4]</td>
+     * <td align="center">P0[ 3]</td>
+     * <td align="center">P0[ 2]</td>
+     * <td align="center">P0[ 1]</td>
+     * <td align="center">P0[ 0]</td>
+     * </tr>
+     * <tr>
+     * <td align="center">Byte 5:</td>
+     * <td align="center">P2[ 3]</td>
+     * <td align="center">P2[ 2]</td>
+     * <td align="center">P2[ 1]</td>
+     * <td align="center">P2[ 0]</td>
+     * <td align="center">P1[ 5]</td>
+     * <td align="center">P1[ 4]</td>
+     * <td align="center">P1[ 3]</td>
+     * <td align="center">P1[ 2]</td>
+     * </tr>
+     * <tr>
+     * <td align="center">Byte 6:</td>
+     * <td align="center">P3[ 5]</td>
+     * <td align="center">P3[ 4]</td>
+     * <td align="center">P3[ 3]</td>
+     * <td align="center">P3[ 2]</td>
+     * <td align="center">P3[ 1]</td>
+     * <td align="center">P3[ 0]</td>
+     * <td align="center">P2[ 5]</td>
+     * <td align="center">P2[ 4]</td>
+     * </tr>
+     * </tbody>
+     * </table>
+     * <p>
+     * This format assumes
+     * <ul>
+     * <li>a width multiple of 4 pixels</li>
+     * <li>an even height</li>
+     * </ul>
+     * </p>
+     *
+     * <pre>size = row stride * height</pre> where the row stride is in <em>bytes</em>,
+     * not pixels.
+     *
+     * <p>
+     * Since this is a densely packed format, the pixel stride is always 0. The
+     * application must use the pixel data layout defined in above table to
+     * access each row data. When row stride is equal to {@code width * (14 / 8)}, there
+     * will be no padding bytes at the end of each row, the entire image data is
+     * densely packed. When stride is larger than {@code width * (14 / 8)}, padding
+     * bytes will be present at the end of each row.
+     * </p>
+     * <p>
+     * For example, the {@link android.media.Image} object can provide data in
+     * this format from a {@link android.hardware.camera2.CameraDevice} (if
+     * supported) through a {@link android.media.ImageReader} object. The
+     * {@link android.media.Image#getPlanes() Image#getPlanes()} will return a
+     * single plane containing the pixel data. The pixel stride is always 0 in
+     * {@link android.media.Image.Plane#getPixelStride()}, and the
+     * {@link android.media.Image.Plane#getRowStride()} describes the vertical
+     * neighboring pixel distance (in bytes) between adjacent rows.
+     * </p>
+     *
+     * @see android.media.Image
+     * @see android.media.ImageReader
+     * @see android.hardware.camera2.CameraDevice
+     */
+    @FlaggedApi(Flags.FLAG_CAMERA_RAW14_FORMAT)
+    public static final int RAW14 = 0x2C;
+
+    /**
      * <p>Android dense depth image format.</p>
      *
      * <p>Each pixel is 16 bits, representing a depth ranging measurement from a depth camera or
@@ -679,6 +943,15 @@ public class ImageFormat {
     public static final int RAW_DEPTH = 0x1002;
 
     /**
+     * Unprocessed implementation-dependent raw
+     * depth measurements, opaque with 10 bit
+     * samples and device specific bit layout.
+     *
+     * @hide
+     */
+    public static final int RAW_DEPTH10 = 0x1003;
+
+    /**
      * Android private opaque image format.
      * <p>
      * The choices of the actual format and pixel data layout are entirely up to
@@ -706,6 +979,24 @@ public class ImageFormat {
     public static final int PRIVATE = 0x22;
 
     /**
+     * Compressed HEIC format.
+     *
+     * <p>This format defines the HEIC brand of High Efficiency Image File
+     * Format as described in ISO/IEC 23008-12.</p>
+     */
+    public static final int HEIC = 0x48454946;
+
+    /**
+     * High Efficiency Image File Format (HEIF) with embedded HDR gain map
+     *
+     * <p>This format defines the HEIC brand of High Efficiency Image File
+     * Format as described in ISO/IEC 23008-12:2024 with HDR gain map according
+     * to ISO/CD 21496‐1.</p>
+     */
+    @FlaggedApi(Flags.FLAG_CAMERA_HEIF_GAINMAP)
+    public static final int HEIC_ULTRAHDR = 0x1006;
+
+    /**
      * Use this function to retrieve the number of bits per pixel of an
      * ImageFormat.
      *
@@ -713,7 +1004,7 @@ public class ImageFormat {
      * @return the number of bits per pixel of the given format or -1 if the
      *         format doesn't exist or is not supported.
      */
-    public static int getBitsPerPixel(int format) {
+    public static int getBitsPerPixel(@Format int format) {
         switch (format) {
             case RGB_565:
                 return 16;
@@ -743,10 +1034,17 @@ public class ImageFormat {
             case RAW_DEPTH:
             case RAW_SENSOR:
                 return 16;
+            case YCBCR_P010:
+                return 24;
+            case YCBCR_P210:
+                return 32;
+            case RAW_DEPTH10:
             case RAW10:
                 return 10;
             case RAW12:
                 return 12;
+            case RAW14:
+                return 14;
         }
         return -1;
     }
@@ -763,7 +1061,7 @@ public class ImageFormat {
      *
      * @hide
      */
-    public static boolean isPublicFormat(int format) {
+    public static boolean isPublicFormat(@Format int format) {
         switch (format) {
             case RGB_565:
             case NV16:
@@ -774,6 +1072,7 @@ public class ImageFormat {
             case YUV_420_888:
             case YUV_422_888:
             case YUV_444_888:
+            case YCBCR_P010:
             case FLEX_RGB_888:
             case FLEX_RGBA_8888:
             case RAW_SENSOR:
@@ -784,9 +1083,24 @@ public class ImageFormat {
             case DEPTH_POINT_CLOUD:
             case PRIVATE:
             case RAW_DEPTH:
+            case RAW_DEPTH10:
+            case Y8:
+            case DEPTH_JPEG:
+            case HEIC:
+            case JPEG_R:
                 return true;
         }
-
+        if (android.media.codec.Flags.p210FormatSupport() && format == YCBCR_P210) {
+            return true;
+        }
+        if (Flags.cameraHeifGainmap()){
+            if (format == HEIC_ULTRAHDR) {
+                return true;
+            }
+        }
+        if (Flags.cameraRaw14Format() && format == RAW14) {
+            return true;
+        }
         return false;
     }
 }

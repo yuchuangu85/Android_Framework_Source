@@ -16,6 +16,15 @@
 
 package android.net;
 
+import static android.annotation.SystemApi.Client.MODULE_LIBRARIES;
+
+import android.annotation.NonNull;
+import android.annotation.SuppressLint;
+import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.system.ErrnoException;
+import android.system.Os;
+
 import java.io.Closeable;
 import java.io.FileDescriptor;
 import java.io.IOException;
@@ -30,6 +39,7 @@ import java.net.SocketOptions;
  */
 public class LocalSocket implements Closeable {
 
+    @UnsupportedAppUsage
     private final LocalSocketImpl impl;
     /** false if impl.create() needs to be called */
     private volatile boolean implCreated;
@@ -55,7 +65,7 @@ public class LocalSocket implements Closeable {
     }
 
     /**
-     * Creates a AF_LOCAL/UNIX domain stream socket with given socket type
+     * Creates a AF_LOCAL/UNIX domain socket with the given socket type.
      *
      * @param sockType either {@link #SOCKET_DGRAM}, {@link #SOCKET_STREAM}
      * or {@link #SOCKET_SEQPACKET}
@@ -71,32 +81,39 @@ public class LocalSocket implements Closeable {
         this.isBound = false;
     }
 
+    private void checkConnected() {
+        try {
+            Os.getpeername(impl.getFileDescriptor());
+        } catch (ErrnoException e) {
+            throw new IllegalArgumentException("Not a connected socket", e);
+        }
+        isConnected = true;
+        isBound = true;
+        implCreated = true;
+    }
+
     /**
-     * Creates a LocalSocket instances using the FileDescriptor for an already-connected
-     * AF_LOCAL/UNIX domain stream socket. Note: the FileDescriptor must be closed by the caller:
-     * closing the LocalSocket will not close it.
+     * Creates a LocalSocket instance using the {@link FileDescriptor} for an already-connected
+     * AF_LOCAL/UNIX domain stream socket. The passed-in FileDescriptor is not managed by this class
+     * and must be closed by the caller. Calling {@link #close()} on a socket created by this
+     * method has no effect.
      *
-     * @hide - used by BluetoothSocket.
+     * @param fd the filedescriptor to adopt
+     *
+     * @hide
      */
-    public static LocalSocket createConnectedLocalSocket(FileDescriptor fd) {
-        return createConnectedLocalSocket(new LocalSocketImpl(fd), SOCKET_UNKNOWN);
+    @SystemApi(client = MODULE_LIBRARIES)
+    public LocalSocket(@NonNull @SuppressLint("UseParcelFileDescriptor") FileDescriptor fd) {
+        this(new LocalSocketImpl(fd), SOCKET_UNKNOWN);
+        checkConnected();
     }
 
     /**
      * for use with LocalServerSocket.accept()
      */
     static LocalSocket createLocalSocketForAccept(LocalSocketImpl impl) {
-        return createConnectedLocalSocket(impl, SOCKET_UNKNOWN);
-    }
-
-    /**
-     * Creates a LocalSocket from an existing LocalSocketImpl that is already connected.
-     */
-    private static LocalSocket createConnectedLocalSocket(LocalSocketImpl impl, int sockType) {
-        LocalSocket socket = new LocalSocket(impl, sockType);
-        socket.isConnected = true;
-        socket.isBound = true;
-        socket.implCreated = true;
+        LocalSocket socket = new LocalSocket(impl, SOCKET_UNKNOWN);
+        socket.checkConnected();
         return socket;
     }
 
@@ -179,7 +196,8 @@ public class LocalSocket implements Closeable {
     }
 
     /**
-     * Retrieves the input stream for this instance.
+     * Retrieves the input stream for this instance. Closing this stream is equivalent to closing
+     * the entire socket and its associated streams using {@link #close()}.
      *
      * @return input stream
      * @throws IOException if socket has been closed or cannot be created.
@@ -190,7 +208,8 @@ public class LocalSocket implements Closeable {
     }
 
     /**
-     * Retrieves the output stream for this instance.
+     * Retrieves the output stream for this instance. Closing this stream is equivalent to closing
+     * the entire socket and its associated streams using {@link #close()}.
      *
      * @return output stream
      * @throws IOException if socket has been closed or cannot be created.

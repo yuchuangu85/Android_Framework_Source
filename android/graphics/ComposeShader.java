@@ -22,6 +22,7 @@ import android.annotation.NonNull;
 /** A subclass of shader that returns the composition of two other shaders, combined by
     an {@link android.graphics.Xfermode} subclass.
 */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class ComposeShader extends Shader {
 
     Shader mShaderA;
@@ -39,9 +40,13 @@ public class ComposeShader extends Shader {
      * @param shaderB  The colors from this shader are seen as the "src" by the mode
      * @param mode     The mode that combines the colors from the two shaders. If mode
      *                 is null, then SRC_OVER is assumed.
-    */
+     */
+    //TODO(358126864): allow a ComposeShader to accept a RuntimeXfermode
+    @Deprecated
     public ComposeShader(@NonNull Shader shaderA, @NonNull Shader shaderB, @NonNull Xfermode mode) {
-        this(shaderA, shaderB, mode.porterDuffMode);
+        this(shaderA, shaderB,
+                mode instanceof PorterDuffXfermode ? ((PorterDuffXfermode) mode).porterDuffMode
+                : BlendMode.SRC_OVER.getXfermode().porterDuffMode);
     }
 
     /**
@@ -52,10 +57,25 @@ public class ComposeShader extends Shader {
      * @param shaderA  The colors from this shader are seen as the "dst" by the mode
      * @param shaderB  The colors from this shader are seen as the "src" by the mode
      * @param mode     The PorterDuff mode that combines the colors from the two shaders.
-    */
+     *
+     */
     public ComposeShader(@NonNull Shader shaderA, @NonNull Shader shaderB,
             @NonNull PorterDuff.Mode mode) {
         this(shaderA, shaderB, mode.nativeInt);
+    }
+
+    /**
+     * Create a new compose shader, given shaders A, B, and a combining PorterDuff mode.
+     * When the mode is applied, it will be given the result from shader A as its
+     * "dst", and the result from shader B as its "src".
+     *
+     * @param shaderA  The colors from this shader are seen as the "dst" by the mode
+     * @param shaderB  The colors from this shader are seen as the "src" by the mode
+     * @param blendMode The blend mode that combines the colors from the two shaders.
+    */
+    public ComposeShader(@NonNull Shader shaderA, @NonNull Shader shaderB,
+            @NonNull BlendMode blendMode) {
+        this(shaderA, shaderB, blendMode.getXfermode().porterDuffMode);
     }
 
     private ComposeShader(Shader shaderA, Shader shaderB, int nativeMode) {
@@ -68,34 +88,20 @@ public class ComposeShader extends Shader {
         mPorterDuffMode = nativeMode;
     }
 
+    /** @hide */
     @Override
-    long createNativeInstance(long nativeMatrix) {
-        mNativeInstanceShaderA = mShaderA.getNativeInstance();
-        mNativeInstanceShaderB = mShaderB.getNativeInstance();
+    protected long createNativeInstance(long nativeMatrix, boolean filterFromPaint) {
+        mNativeInstanceShaderA = mShaderA.getNativeInstance(filterFromPaint);
+        mNativeInstanceShaderB = mShaderB.getNativeInstance(filterFromPaint);
         return nativeCreate(nativeMatrix,
                 mShaderA.getNativeInstance(), mShaderB.getNativeInstance(), mPorterDuffMode);
     }
 
     /** @hide */
     @Override
-    protected void verifyNativeInstance() {
-        if (mShaderA.getNativeInstance() != mNativeInstanceShaderA
-                || mShaderB.getNativeInstance() != mNativeInstanceShaderB) {
-            // Child shader native instance has been updated,
-            // so our cached native instance is no longer valid - discard it
-            discardNativeInstance();
-        }
-    }
-
-    /**
-     * @hide
-     */
-    @Override
-    protected Shader copy() {
-        final ComposeShader copy = new ComposeShader(
-                mShaderA.copy(), mShaderB.copy(), mPorterDuffMode);
-        copyLocalMatrix(copy);
-        return copy;
+    protected boolean shouldDiscardNativeInstance(boolean filterFromPaint) {
+        return mShaderA.getNativeInstance(filterFromPaint) != mNativeInstanceShaderA
+                || mShaderB.getNativeInstance(filterFromPaint) != mNativeInstanceShaderB;
     }
 
     private static native long nativeCreate(long nativeMatrix,

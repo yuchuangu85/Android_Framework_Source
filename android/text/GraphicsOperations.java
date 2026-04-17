@@ -26,6 +26,7 @@ import android.graphics.Paint;
  *
  * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface GraphicsOperations extends CharSequence {
     /**
      * Just like {@link Canvas#drawText}.
@@ -58,6 +59,6 @@ public interface GraphicsOperations extends CharSequence {
     /**
      * Just like {@link Paint#getTextRunCursor}.
      */
-    int getTextRunCursor(int contextStart, int contextEnd, int dir, int offset,
+    int getTextRunCursor(int contextStart, int contextEnd, boolean isRtl, int offset,
             int cursorOpt, Paint p);
 }

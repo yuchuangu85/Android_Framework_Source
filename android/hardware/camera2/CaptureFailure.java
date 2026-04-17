@@ -15,8 +15,9 @@
  */
 package android.hardware.camera2;
 
-import android.annotation.NonNull;
 import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -58,20 +59,23 @@ public class CaptureFailure {
 
     private final CaptureRequest mRequest;
     private final int mReason;
-    private final boolean mDropped;
+    private final boolean mWasImageCaptured;
     private final int mSequenceId;
     private final long mFrameNumber;
+    private final String mErrorPhysicalCameraId;
 
     /**
      * @hide
      */
     public CaptureFailure(CaptureRequest request, int reason,
-            boolean dropped, int sequenceId, long frameNumber) {
+            boolean wasImageCaptured, int sequenceId, long frameNumber,
+            String errorPhysicalCameraId) {
         mRequest = request;
         mReason = reason;
-        mDropped = dropped;
+        mWasImageCaptured = wasImageCaptured;
         mSequenceId = sequenceId;
         mFrameNumber = frameNumber;
+        mErrorPhysicalCameraId = errorPhysicalCameraId;
     }
 
     /**
@@ -138,7 +142,7 @@ public class CaptureFailure {
      * @return boolean True if the image was captured, false otherwise.
      */
     public boolean wasImageCaptured() {
-        return !mDropped;
+        return mWasImageCaptured;
     }
 
     /**
@@ -150,9 +154,22 @@ public class CaptureFailure {
      *
      * @return int The ID for the sequence of requests that this capture failure is the result of
      *
-     * @see CameraDevice.CaptureCallback#onCaptureSequenceCompleted
+     * @see CameraCaptureSession.CaptureCallback#onCaptureSequenceCompleted
      */
     public int getSequenceId() {
         return mSequenceId;
+    }
+
+    /**
+     * The physical camera device ID in case the capture failure comes from a {@link CaptureRequest}
+     * with configured physical camera streams for a logical camera.
+     *
+     * @return String The physical camera device ID of the respective failing output.
+     *         {@code null} in case the capture request has no associated physical camera device.
+     * @see CaptureRequest.Builder#setPhysicalCameraKey
+     * @see android.hardware.camera2.params.OutputConfiguration#setPhysicalCameraId
+     */
+    public @Nullable String getPhysicalCameraId() {
+        return mErrorPhysicalCameraId;
     }
 }

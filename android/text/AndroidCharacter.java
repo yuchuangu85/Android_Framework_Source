@@ -22,6 +22,7 @@ package android.text;
  * @deprecated Use various methods from {@link android.icu.lang.UCharacter}, instead.
  */
 @Deprecated
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class AndroidCharacter
 {
     public static final int EAST_ASIAN_WIDTH_NEUTRAL = 0;

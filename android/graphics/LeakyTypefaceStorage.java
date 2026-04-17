@@ -32,6 +32,7 @@ import java.util.ArrayList;
  *
  * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class LeakyTypefaceStorage {
     private static final Object sLock = new Object();
 

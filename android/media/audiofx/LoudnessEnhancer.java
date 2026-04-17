@@ -43,7 +43,7 @@ public class LoudnessEnhancer extends AudioEffect {
     // These parameter constants must be synchronized with those in
     // /system/media/audio_effects/include/audio_effects/effect_loudnessenhancer.h
     /**
-     * The maximum gain applied applied to the signal to process.
+     * The maximum gain applied to the signal to process.
      * It is expressed in millibels (100mB = 1dB) where 0mB corresponds to no amplification.
      */
     public static final int PARAM_TARGET_GAIN_MB = 0;

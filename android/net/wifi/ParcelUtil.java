@@ -16,7 +16,10 @@
 
 package android.net.wifi;
 
+import android.annotation.NonNull;
 import android.os.Parcel;
+
+import com.android.modules.utils.build.SdkLevel;
 
 import java.io.ByteArrayInputStream;
 import java.security.KeyFactory;
@@ -28,6 +31,8 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Provides utilities for writing/reading a non-Parcelable objects to/from
@@ -161,5 +166,17 @@ public class ParcelUtil {
             certs[i] = readCertificate(in);
         }
         return certs;
+    }
+
+    /** Read List<OuiKeyedData> from a Parcel. */
+    @NonNull
+    public static List<OuiKeyedData> readOuiKeyedDataList(@NonNull Parcel in) {
+        List<OuiKeyedData> dataList = new ArrayList<>();
+        if (SdkLevel.isAtLeastT()) {
+            in.readList(dataList, OuiKeyedData.class.getClassLoader(), OuiKeyedData.class);
+        } else {
+            in.readList(dataList, OuiKeyedData.class.getClassLoader());
+        }
+        return dataList;
     }
 }

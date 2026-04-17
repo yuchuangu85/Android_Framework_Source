@@ -23,6 +23,7 @@ import android.text.TextPaint;
  * class.  Most extend its subclass {@link MetricAffectingSpan}, but simple
  * ones may just implement {@link UpdateAppearance}.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public abstract class CharacterStyle {
     public abstract void updateDrawState(TextPaint tp);
 

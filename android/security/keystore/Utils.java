@@ -23,7 +23,7 @@ import java.util.Date;
  *
  * @hide
  */
-abstract class Utils {
+public final class Utils {
     private Utils() {}
 
     static Date cloneIfNotNull(Date value) {
@@ -31,6 +31,10 @@ abstract class Utils {
     }
 
     static byte[] cloneIfNotNull(byte[] value) {
+        return (value != null) ? value.clone() : null;
+    }
+
+    static int[] cloneIfNotNull(int[] value) {
         return (value != null) ? value.clone() : null;
     }
 }

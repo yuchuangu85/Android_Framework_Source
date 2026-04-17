@@ -31,7 +31,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
-import java.lang.reflect.Method;
 import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 
@@ -39,12 +38,12 @@ import java.nio.ByteBuffer;
  * Handle various requests related to profiling / debugging of the view system.
  * Support for these features are advertised via {@link DdmHandleHello}.
  */
-public class DdmHandleViewDebug extends ChunkHandler {
+public class DdmHandleViewDebug extends DdmHandle {
     /** List {@link ViewRootImpl}'s of this process. */
-    private static final int CHUNK_VULW = type("VULW");
+    private static final int CHUNK_VULW = ChunkHandler.type("VULW");
 
     /** Operation on view root, first parameter in packet should be one of VURT_* constants */
-    private static final int CHUNK_VURT = type("VURT");
+    private static final int CHUNK_VURT = ChunkHandler.type("VURT");
 
     /** Dump view hierarchy. */
     private static final int VURT_DUMP_HIERARCHY = 1;
@@ -59,7 +58,7 @@ public class DdmHandleViewDebug extends ChunkHandler {
      * Generic View Operation, first parameter in the packet should be one of the
      * VUOP_* constants below.
      */
-    private static final int CHUNK_VUOP = type("VUOP");
+    private static final int CHUNK_VUOP = ChunkHandler.type("VUOP");
 
     /** Capture View. */
     private static final int VUOP_CAPTURE_VIEW = 1;
@@ -99,11 +98,11 @@ public class DdmHandleViewDebug extends ChunkHandler {
     }
 
     @Override
-    public void connected() {
+    public void onConnected() {
     }
 
     @Override
-    public void disconnected() {
+    public void onDisconnected() {
     }
 
     @Override
@@ -123,14 +122,15 @@ public class DdmHandleViewDebug extends ChunkHandler {
         }
 
         if (type == CHUNK_VURT) {
-            if (op == VURT_DUMP_HIERARCHY)
+            if (op == VURT_DUMP_HIERARCHY) {
                 return dumpHierarchy(rootView, in);
-            else if (op == VURT_CAPTURE_LAYERS)
+            } else if (op == VURT_CAPTURE_LAYERS) {
                 return captureLayers(rootView);
-            else if (op == VURT_DUMP_THEME)
+            } else if (op == VURT_DUMP_THEME) {
                 return dumpTheme(rootView);
-            else
+            } else {
                 return createFailChunk(ERR_INVALID_OP, "Unknown view root operation: " + op);
+            }
         }
 
         final View targetView = getTargetView(rootView, in);
@@ -154,7 +154,7 @@ public class DdmHandleViewDebug extends ChunkHandler {
                     return createFailChunk(ERR_INVALID_OP, "Unknown view operation: " + op);
             }
         } else {
-            throw new RuntimeException("Unknown packet " + ChunkHandler.name(type));
+            throw new RuntimeException("Unknown packet " + name(type));
         }
     }
 
@@ -207,9 +207,9 @@ public class DdmHandleViewDebug extends ChunkHandler {
     /**
      * Returns the view hierarchy and/or view properties starting at the provided view.
      * Based on the input options, the return data may include:
-     *  - just the view hierarchy
-     *  - view hierarchy & the properties for each of the views
-     *  - just the view properties for a specific view.
+     * - just the view hierarchy
+     * - view hierarchy & the properties for each of the views
+     * - just the view properties for a specific view.
      *  TODO: Currently this only returns views starting at the root, need to fix so that
      *  it can return properties of any view.
      */
@@ -220,7 +220,7 @@ public class DdmHandleViewDebug extends ChunkHandler {
 
         long start = System.currentTimeMillis();
 
-        ByteArrayOutputStream b = new ByteArrayOutputStream(2*1024*1024);
+        ByteArrayOutputStream b = new ByteArrayOutputStream(2 * 1024 * 1024);
         try {
             if (v2) {
                 ViewDebug.dumpv2(rootView, b);
@@ -304,97 +304,60 @@ public class DdmHandleViewDebug extends ChunkHandler {
      * Invokes provided method on the view.
      * The method name and its arguments are passed in as inputs via the byte buffer.
      * The buffer contains:<ol>
-     *  <li> len(method name) </li>
-     *  <li> method name </li>
-     *  <li> # of args </li>
-     *  <li> arguments: Each argument comprises of a type specifier followed by the actual argument.
-     *          The type specifier is a single character as used in JNI:
-     *          (Z - boolean, B - byte, C - char, S - short, I - int, J - long,
-     *          F - float, D - double). <p>
-     *          The type specifier is followed by the actual value of argument.
-     *          Booleans are encoded via bytes with 0 indicating false.</li>
+     * <li> len(method name) </li>
+     * <li> method name (encoded as UTF-16 2-byte characters) </li>
+     * <li> # of args </li>
+     * <li> arguments: Each argument comprises of a type specifier followed by the actual argument.
+     * The type specifier is one character modelled after JNI signatures:
+     *          <ul>
+     *              <li>[ - array<br>
+     *                This is followed by a second character according to this spec, indicating the
+     *                array type, then the array length as an Int, followed by a repeated encoding
+     *                of the actual data.
+     *                WARNING: Only <b>byte[]</b> is supported currently.
+     *              </li>
+     *              <li>Z - boolean<br>
+     *                 Booleans are encoded via bytes with 0 indicating false</li>
+     *              <li>B - byte</li>
+     *              <li>C - char</li>
+     *              <li>S - short</li>
+     *              <li>I - int</li>
+     *              <li>J - long</li>
+     *              <li>F - float</li>
+     *              <li>D - double</li>
+     *              <li>V - void<br>
+     *                NOT followed by a value. Only used for return types</li>
+     *              <li>R - String (not a real JNI type, but added for convenience)<br>
+     *                Strings are encoded as an unsigned short of the number of <b>bytes</b>,
+     *                followed by the actual UTF-8 encoded bytes.
+     *                WARNING: This is the same encoding as produced by
+     *                ViewHierarchyEncoder#writeString. However, note that this encoding is
+     *                different to what DdmHandle#getString() expects, which is used in other places
+     *                in this class.
+     *                WARNING: Since the length is the number of UTF-8 encoded bytes, Strings can
+     *                contain up to 64k ASCII characters, yet depending on the actual data, the true
+     *                maximum might be as little as 21844 unicode characters.
+     *                <b>null</b> String objects are encoded as an empty string
+     *              </li>
+     *            </ul>
+     *   </li>
      * </ol>
      * Methods that take no arguments need only specify the method name.
+     *
+     * The return value is encoded the same way as a single parameter (type + value)
      */
-    private Chunk invokeViewMethod(final View rootView, final View targetView, ByteBuffer in) {
+    private Chunk invokeViewMethod(View rootView, final View targetView, ByteBuffer in) {
         int l = in.getInt();
         String methodName = getString(in, l);
 
-        Class<?>[] argTypes;
-        Object[] args;
-        if (!in.hasRemaining()) {
-            argTypes = new Class<?>[0];
-            args = new Object[0];
-        } else {
-            int nArgs = in.getInt();
-
-            argTypes = new Class<?>[nArgs];
-            args = new Object[nArgs];
-
-            for (int i = 0; i < nArgs; i++) {
-                char c = in.getChar();
-                switch (c) {
-                    case 'Z':
-                        argTypes[i] = boolean.class;
-                        args[i] = in.get() == 0 ? false : true;
-                        break;
-                    case 'B':
-                        argTypes[i] = byte.class;
-                        args[i] = in.get();
-                        break;
-                    case 'C':
-                        argTypes[i] = char.class;
-                        args[i] = in.getChar();
-                        break;
-                    case 'S':
-                        argTypes[i] = short.class;
-                        args[i] = in.getShort();
-                        break;
-                    case 'I':
-                        argTypes[i] = int.class;
-                        args[i] = in.getInt();
-                        break;
-                    case 'J':
-                        argTypes[i] = long.class;
-                        args[i] = in.getLong();
-                        break;
-                    case 'F':
-                        argTypes[i] = float.class;
-                        args[i] = in.getFloat();
-                        break;
-                    case 'D':
-                        argTypes[i] = double.class;
-                        args[i] = in.getDouble();
-                        break;
-                    default:
-                        Log.e(TAG, "arg " + i + ", unrecognized type: " + c);
-                        return createFailChunk(ERR_INVALID_PARAM,
-                                "Unsupported parameter type (" + c + ") to invoke view method.");
-                }
-            }
-        }
-
-        Method method = null;
         try {
-            method = targetView.getClass().getMethod(methodName, argTypes);
-        } catch (NoSuchMethodException e) {
-            Log.e(TAG, "No such method: " + e.getMessage());
-            return createFailChunk(ERR_INVALID_PARAM,
-                    "No such method: " + e.getMessage());
-        }
-
-        try {
-            ViewDebug.invokeViewMethod(targetView, method, args);
+            byte[] returnValue =  ViewDebug.invokeViewMethod(targetView, methodName, in);
+            return new Chunk(CHUNK_VUOP, returnValue, 0, returnValue.length);
+        } catch (ViewDebug.ViewMethodInvocationSerializationException e) {
+            return createFailChunk(ERR_INVALID_PARAM, e.getMessage());
         } catch (Exception e) {
-            Log.e(TAG, "Exception while invoking method: " + e.getCause().getMessage());
-            String msg = e.getCause().getMessage();
-            if (msg == null) {
-                msg = e.getCause().toString();
-            }
-            return createFailChunk(ERR_EXCEPTION, msg);
+            return createFailChunk(ERR_EXCEPTION, e.getMessage());
         }
-
-        return null;
     }
 
     private Chunk setLayoutParameter(final View rootView, final View targetView, ByteBuffer in) {
@@ -406,7 +369,7 @@ public class DdmHandleViewDebug extends ChunkHandler {
         } catch (Exception e) {
             Log.e(TAG, "Exception setting layout parameter: " + e);
             return createFailChunk(ERR_EXCEPTION, "Error accessing field "
-                        + param + ":" + e.getMessage());
+                    + param + ":" + e.getMessage());
         }
 
         return null;

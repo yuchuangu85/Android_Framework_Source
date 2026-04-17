@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,8 +17,8 @@
 package android.security.net.config;
 
 import android.util.Pair;
+
 import java.security.KeyStore;
-import java.security.KeyStoreException;
 import java.util.Set;
 
 /**
@@ -29,11 +29,11 @@ class KeyStoreConfigSource implements ConfigSource {
     private final NetworkSecurityConfig mConfig;
 
     public KeyStoreConfigSource(KeyStore ks) {
-        mConfig = new NetworkSecurityConfig.Builder()
-                .addCertificatesEntryRef(
-                        // Use the KeyStore and do not override pins (of which there are none).
-                        new CertificatesEntryRef(new KeyStoreCertificateSource(ks), false))
-                .build();
+        CertificatesEntryRef entry = new CertificatesEntryRef(new KeyStoreCertificateSource(ks),
+                                                              /* overridesPins= */ false,
+                                                              /* disableCT= */ true);
+
+        mConfig = new NetworkSecurityConfig.Builder().addCertificatesEntryRef(entry).build();
     }
 
     @Override
@@ -45,5 +45,9 @@ class KeyStoreConfigSource implements ConfigSource {
     public NetworkSecurityConfig getDefaultConfig() {
         return mConfig;
     }
-}
 
+    @Override
+    public NetworkSecurityConfig getLocalhostConfig() {
+        return null;
+    }
+}

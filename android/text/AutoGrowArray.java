@@ -30,6 +30,7 @@ import libcore.util.EmptyArray;
  *
  * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public final class AutoGrowArray {
     private static final int MIN_CAPACITY_INCREMENT = 12;
     private static final int MAX_CAPACITY_TO_BE_KEPT = 10000;

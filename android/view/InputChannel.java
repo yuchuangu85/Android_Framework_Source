@@ -16,65 +16,115 @@
 
 package android.view;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Slog;
+
+import libcore.util.NativeAllocationRegistry;
 
 /**
  * An input channel specifies the file descriptors used to send input events to
  * a window in another process.  It is Parcelable so that it can be sent
  * to the process that is to receive events.  Only one thread should be reading
  * from an InputChannel at a time.
+ *
+ * The InputChannel object follows 'move' semantics - there should only be a single owner of the
+ * InputChannel object at a time. This is done by transferring ownership of the native object.
+ * Typically, the InputEventReceiver is the class that takes over the ownership of InputChannel.
+ *
+ * Incorrect handling of InputChannel objects will cause hard-to-detect bugs like ANRs and
+ * unresponsive UI.
+ *
+ * If in doubt, consult with the Android Framework Input team about your InputChannel usage.
  * @hide
  */
 public final class InputChannel implements Parcelable {
     private static final String TAG = "InputChannel";
-    
+
     private static final boolean DEBUG = false;
-    
-    public static final Parcelable.Creator<InputChannel> CREATOR
+
+    // To allow the JNI code to find this class on a hostside JVM,
+    // we need a nested class here.
+    private static class RegistryHolder {
+        private static final NativeAllocationRegistry sRegistry =
+                NativeAllocationRegistry.createMalloced(
+                        InputChannel.class.getClassLoader(),
+                        nativeGetFinalizer());
+    }
+
+    @UnsupportedAppUsage
+    public static final @android.annotation.NonNull Parcelable.Creator<InputChannel> CREATOR
             = new Parcelable.Creator<InputChannel>() {
         public InputChannel createFromParcel(Parcel source) {
             InputChannel result = new InputChannel();
             result.readFromParcel(source);
             return result;
         }
-        
+
         public InputChannel[] newArray(int size) {
             return new InputChannel[size];
         }
     };
-    
-    @SuppressWarnings("unused")
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    // The address of the native object.
     private long mPtr; // used by native code
-    
-    private static native InputChannel[] nativeOpenInputChannelPair(String name);
-    
-    private native void nativeDispose(boolean finalized);
-    private native void nativeTransferTo(InputChannel other);
-    private native void nativeReadFromParcel(Parcel parcel);
-    private native void nativeWriteToParcel(Parcel parcel);
-    private native void nativeDup(InputChannel target);
-    
-    private native String nativeGetName();
+
+    private static native long[] nativeOpenInputChannelPair(String name);
+
+    private static native long nativeGetFinalizer();
+    private native void nativeDispose(long channel);
+    private native long nativeReadFromParcel(Parcel parcel);
+    private native void nativeWriteToParcel(Parcel parcel, long channel);
+    private native long nativeDup(long channel);
+    private native IBinder nativeGetToken(long channel);
+
+    private native String nativeGetName(long channel);
+    private native boolean nativeIsValid(long channel);
+
+    public static class UninitializedException extends IllegalStateException {
+        public UninitializedException(String message) {
+            super(message);
+        }
+    }
+
+    private void checkValid() {
+        if (mPtr == 0 || !nativeIsValid(mPtr)) {
+            throw new UninitializedException(
+                "InputChannel is not initialized or has already been disposed");
+        }
+    }
 
     /**
      * Creates an uninitialized input channel.
      * It can be initialized by reading from a Parcel or by transferring the state of
      * another input channel into this one.
      */
+    @UnsupportedAppUsage
     public InputChannel() {
     }
 
-    @Override
-    protected void finalize() throws Throwable {
-        try {
-            nativeDispose(true);
-        } finally {
-            super.finalize();
+    /**
+     *  Set Native input channel object from native space.
+     *  @param nativeChannel the native channel object.
+     */
+    private void setNativeInputChannel(long nativeChannel) {
+        if (nativeChannel == 0) {
+            throw new IllegalArgumentException("Attempting to set native input channel to null.");
         }
+        if (mPtr != 0) {
+            throw new IllegalArgumentException("Already has native input channel.");
+        }
+        if (DEBUG) {
+            Slog.d(TAG, "setNativeInputChannel : " +  String.format("%x", nativeChannel));
+        }
+        RegistryHolder.sRegistry.registerNativeAllocation(this, nativeChannel);
+        mPtr = nativeChannel;
     }
-    
+
     /**
      * Creates a new input channel pair.  One channel should be provided to the input
      * dispatcher and the other to the application's input queue.
@@ -91,15 +141,22 @@ public final class InputChannel implements Parcelable {
         if (DEBUG) {
             Slog.d(TAG, "Opening input channel pair '" + name + "'");
         }
-        return nativeOpenInputChannelPair(name);
+        InputChannel channels[] = new InputChannel[2];
+        long[] nativeChannels = nativeOpenInputChannelPair(name);
+        for (int i = 0; i< 2; i++) {
+            channels[i] = new InputChannel();
+            channels[i].setNativeInputChannel(nativeChannels[i]);
+        }
+        return channels;
     }
-    
+
     /**
      * Gets the name of the input channel.
      * @return The input channel name.
      */
     public String getName() {
-        String name = nativeGetName();
+        checkValid();
+        String name = nativeGetName(mPtr);
         return name != null ? name : "uninitialized";
     }
 
@@ -109,29 +166,40 @@ public final class InputChannel implements Parcelable {
      * When all references are released, the input channel will be closed.
      */
     public void dispose() {
-        nativeDispose(false);
+        nativeDispose(mPtr);
     }
-    
+
     /**
-     * Transfers ownership of the internal state of the input channel to another
-     * instance and invalidates this instance.  This is used to pass an input channel
+     * Creates a copy of this instance to the outParameter. This is used to pass an input channel
      * as an out parameter in a binder call.
+     *
+     * This function should be avoided. You almost never want to actually make a copy of the
+     * channel. Incorrectly storing InputChannel will result in difficult-to-track ANRs in your
+     * process. Long-term, the input team is looking into removing this capability altogether.
+     *
      * @param other The other input channel instance.
      */
-    public void transferTo(InputChannel outParameter) {
+    public void copyTo(InputChannel outParameter) {
+        checkValid();
         if (outParameter == null) {
             throw new IllegalArgumentException("outParameter must not be null");
         }
-        
-        nativeTransferTo(outParameter);
+        if (outParameter.mPtr != 0) {
+            throw new IllegalArgumentException("Other object already has a native input channel.");
+        }
+        outParameter.setNativeInputChannel(nativeDup(mPtr));
     }
 
     /**
      * Duplicates the input channel.
+     * This function should be avoided. You almost never want to actually make a copy of the
+     * channel. Incorrectly storing InputChannel will result in difficult-to-track ANRs in your
+     * process. Long-term, the input team is looking into removing this capability altogether.
      */
     public InputChannel dup() {
+        checkValid();
         InputChannel target = new InputChannel();
-        nativeDup(target);
+        target.setNativeInputChannel(nativeDup(mPtr));
         return target;
     }
 
@@ -144,25 +212,37 @@ public final class InputChannel implements Parcelable {
         if (in == null) {
             throw new IllegalArgumentException("in must not be null");
         }
-        
-        nativeReadFromParcel(in);
+        long nativeIn = nativeReadFromParcel(in);
+        if (nativeIn != 0) {
+            setNativeInputChannel(nativeIn);
+        }
     }
 
+    /**
+     * This is a one-way, destructive operation. Sending the InputChannel across the binder
+     * interface will cause the ownership of the channel to be transferred to the recipient.
+     * The InputChannel object will be invalidated after calling this method.
+     */
     @Override
     public void writeToParcel(Parcel out, int flags) {
         if (out == null) {
             throw new IllegalArgumentException("out must not be null");
         }
-        
-        nativeWriteToParcel(out);
-        
+
+        nativeWriteToParcel(out, mPtr);
+
         if ((flags & PARCELABLE_WRITE_RETURN_VALUE) != 0) {
             dispose();
         }
     }
-    
+
     @Override
     public String toString() {
         return getName();
+    }
+
+    public IBinder getToken() {
+        checkValid();
+        return nativeGetToken(mPtr);
     }
 }

@@ -51,7 +51,6 @@ public class TimeAnimator extends ValueAnimator {
     public void setCurrentPlayTime(long playTime) {
         long currentTime = AnimationUtils.currentAnimationTimeMillis();
         mStartTime = Math.max(mStartTime, currentTime - playTime);
-        mStartTimeCommitted = true; // do not allow start time to be compensated for jank
         animateBasedOnTime(currentTime);
     }
 

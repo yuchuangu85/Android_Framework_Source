@@ -16,6 +16,8 @@
 
 package android.nfc;
 
+import com.android.internal.annotations.VisibleForTesting;
+
 /**
  * Wraps information associated with any NFC event.
  *
@@ -48,9 +50,36 @@ public final class NfcEvent {
      */
     public final int peerLlcpMinorVersion;
 
-    NfcEvent(NfcAdapter nfcAdapter, byte peerLlcpVersion) {
+    /**
+     * @hide
+     */
+    public NfcEvent(NfcAdapter nfcAdapter, byte peerLlcpVersion) {
         this.nfcAdapter = nfcAdapter;
         this.peerLlcpMajorVersion = (peerLlcpVersion & 0xF0) >> 4;
         this.peerLlcpMinorVersion = peerLlcpVersion & 0x0F;
+    }
+
+    /**
+     * @hide
+     */
+    @VisibleForTesting
+    public NfcAdapter getNfcAdapter() {
+        return nfcAdapter;
+    }
+
+    /**
+     * @hide
+     */
+    @VisibleForTesting
+    public int getPeerLlcpMajorVersion() {
+        return peerLlcpMajorVersion;
+    }
+
+    /**
+     * @hide
+     */
+    @VisibleForTesting
+    public int getPeerLlcpMinorVersion() {
+        return peerLlcpMinorVersion;
     }
 }

@@ -21,12 +21,15 @@ import android.annotation.FloatRange;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.graphics.Color;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
+import com.android.internal.graphics.cam.Cam;
 
 /**
  * Copied from: frameworks/support/core-utils/java/android/support/v4/graphics/ColorUtils.java
  *
  * A set of color-related utility methods, building upon those available in {@code Color}.
  */
+@RavenwoodKeepWholeClass
 public final class ColorUtils {
 
     private static final double XYZ_WHITE_REFERENCE_X = 95.047;
@@ -60,7 +63,10 @@ public final class ColorUtils {
         return Color.argb(a, r, g, b);
     }
 
-    private static int compositeAlpha(int foregroundAlpha, int backgroundAlpha) {
+    /**
+     * Returns the composite alpha of the given foreground and background alpha.
+     */
+    public static int compositeAlpha(int foregroundAlpha, int backgroundAlpha) {
         return 0xFF - (((0xFF - backgroundAlpha) * (0xFF - foregroundAlpha)) / 0xFF);
     }
 
@@ -333,6 +339,35 @@ public final class ColorUtils {
     }
 
     /**
+     * Convert the ARGB color to a color appearance model.
+     *
+     * The color appearance model is based on CAM16 hue and chroma, using L*a*b*'s L* as the
+     * third dimension.
+     *
+     * @param color the ARGB color to convert. The alpha component is ignored.
+     */
+    public static Cam colorToCAM(@ColorInt int color) {
+        return Cam.fromInt(color);
+    }
+
+    /**
+     * Convert a color appearance model representation to an ARGB color.
+     *
+     * Note: the returned color may have a lower chroma than requested. Whether a chroma is
+     * available depends on luminance. For example, there's no such thing as a high chroma light
+     * red, due to the limitations of our eyes and/or physics. If the requested chroma is
+     * unavailable, the highest possible chroma at the requested luminance is returned.
+     *
+     * @param hue hue, in degrees, in CAM coordinates
+     * @param chroma chroma in CAM coordinates.
+     * @param lstar perceptual luminance, L* in L*a*b*
+     */
+    @ColorInt
+    public static int CAMToColor(float hue, float chroma, float lstar) {
+        return Cam.getInt(hue, chroma, lstar);
+    }
+
+    /**
      * Set the alpha component of {@code color} to be {@code alpha}.
      */
     @ColorInt
@@ -358,7 +393,7 @@ public final class ColorUtils {
      * Convert RGB components to its CIE Lab representative components.
      *
      * <ul>
-     * <li>outLab[0] is L [0 ...1)</li>
+     * <li>outLab[0] is L [0 ...100)</li>
      * <li>outLab[1] is a [-128...127)</li>
      * <li>outLab[2] is b [-128...127)</li>
      * </ul>
@@ -440,7 +475,7 @@ public final class ColorUtils {
      * 2° Standard Observer (1931).</p>
      *
      * <ul>
-     * <li>outLab[0] is L [0 ...1)</li>
+     * <li>outLab[0] is L [0 ...100)</li>
      * <li>outLab[1] is a [-128...127)</li>
      * <li>outLab[2] is b [-128...127)</li>
      * </ul>

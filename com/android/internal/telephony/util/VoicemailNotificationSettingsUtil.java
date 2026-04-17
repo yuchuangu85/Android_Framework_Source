@@ -21,10 +21,8 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.preference.PreferenceManager;
-import android.provider.Settings;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
-import android.text.TextUtils;
 
 public class VoicemailNotificationSettingsUtil {
     private static final String VOICEMAIL_NOTIFICATION_RINGTONE_SHARED_PREFS_KEY_PREFIX =
@@ -64,27 +62,15 @@ public class VoicemailNotificationSettingsUtil {
     }
 
    public static void setRingtoneUri(Context context, Uri ringtoneUri) {
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        String ringtoneUriStr = ringtoneUri != null ? ringtoneUri.toString() : "";
-
-        SharedPreferences.Editor editor = prefs.edit();
-        editor.putString(getVoicemailRingtoneSharedPrefsKey(), ringtoneUriStr);
-        editor.commit();
+        // Do nothing; we don't use the shared preference any more.
     }
 
     public static Uri getRingtoneUri(Context context) {
         final NotificationChannel channel = NotificationChannelController.getChannel(
                 NotificationChannelController.CHANNEL_ID_VOICE_MAIL, context);
-        return (channel != null) ? channel.getSound() : getRingTonePreference(context);
-    }
-
-    public static Uri getRingTonePreference(Context context) {
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        migrateVoicemailRingtoneSettingsIfNeeded(context, prefs);
-        String uriString = prefs.getString(
-                getVoicemailRingtoneSharedPrefsKey(),
-                Settings.System.DEFAULT_NOTIFICATION_URI.toString());
-        return !TextUtils.isEmpty(uriString) ? Uri.parse(uriString) : null;
+        // Note: NEVER look at the shared preferences; this was migrated to the notification channel
+        // in Android P.
+        return (channel != null) ? channel.getSound() : null;
     }
 
     /**

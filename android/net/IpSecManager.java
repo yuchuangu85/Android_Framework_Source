@@ -15,15 +15,19 @@
  */
 package android.net;
 
-import static com.android.internal.util.Preconditions.checkNotNull;
+import static android.annotation.SystemApi.Client.MODULE_LIBRARIES;
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.annotation.RequiresFeature;
 import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.annotation.TestApi;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.os.Binder;
+import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.os.ServiceSpecificException;
@@ -33,6 +37,7 @@ import android.util.AndroidException;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.modules.utils.build.SdkLevel;
 
 import dalvik.system.CloseGuard;
 
@@ -43,6 +48,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.util.Objects;
 
 /**
  * This class contains methods for managing IPsec sessions. Once configured, the kernel will apply
@@ -50,14 +56,32 @@ import java.net.Socket;
  *
  * <p>Note that not all aspects of IPsec are permitted by this API. Applications may create
  * transport mode security associations and apply them to individual sockets. Applications looking
- * to create a VPN should use {@link VpnService}.
+ * to create an IPsec VPN should use {@link VpnManager} and {@link Ikev2VpnProfile}.
  *
  * @see <a href="https://tools.ietf.org/html/rfc4301">RFC 4301, Security Architecture for the
  *     Internet Protocol</a>
  */
 @SystemService(Context.IPSEC_SERVICE)
-public final class IpSecManager {
+public class IpSecManager {
     private static final String TAG = "IpSecManager";
+
+    /**
+     * Feature flag to declare the kernel support of updating IPsec SAs.
+     *
+     * <p>Feature for {@link #getSystemAvailableFeatures} and {@link #hasSystemFeature}: The device
+     * has the requisite kernel support for migrating IPsec tunnels to new source/destination
+     * addresses.
+     *
+     * <p>This feature implies that the device supports XFRM Migration (CONFIG_XFRM_MIGRATE) and has
+     * the kernel fixes to allow XFRM Migration correctly
+     *
+     * @see android.content.pm.PackageManager#FEATURE_IPSEC_TUNNEL_MIGRATION
+     * @hide
+     */
+    // Redefine this flag here so that IPsec code shipped in a mainline module can build on old
+    // platforms before FEATURE_IPSEC_TUNNEL_MIGRATION API is released.
+    public static final String FEATURE_IPSEC_TUNNEL_MIGRATION =
+            "android.software.ipsec_tunnel_migration";
 
     /**
      * Used when applying a transform to direct traffic through an {@link IpSecTransform}
@@ -75,6 +99,17 @@ public final class IpSecManager {
      */
     public static final int DIRECTION_OUT = 1;
 
+    /**
+     * Used when applying a transform to direct traffic through an {@link IpSecTransform} for
+     * forwarding between interfaces.
+     *
+     * <p>See {@link #applyTransportModeTransform(Socket, int, IpSecTransform)}.
+     *
+     * @hide
+     */
+    @SystemApi(client = MODULE_LIBRARIES)
+    public static final int DIRECTION_FWD = 2;
+
     /** @hide */
     @IntDef(value = {DIRECTION_IN, DIRECTION_OUT})
     @Retention(RetentionPolicy.SOURCE)
@@ -91,9 +126,9 @@ public final class IpSecManager {
 
     /** @hide */
     public interface Status {
-        public static final int OK = 0;
-        public static final int RESOURCE_UNAVAILABLE = 1;
-        public static final int SPI_UNAVAILABLE = 2;
+        int OK = 0;
+        int RESOURCE_UNAVAILABLE = 1;
+        int SPI_UNAVAILABLE = 2;
     }
 
     /** @hide */
@@ -238,7 +273,7 @@ public final class IpSecManager {
             } catch (RemoteException e) {
                 throw e.rethrowFromSystemServer();
             }
-            mCloseGuard.open("open");
+            mCloseGuard.open("close");
         }
 
         /** @hide */
@@ -268,7 +303,7 @@ public final class IpSecManager {
      * @param destinationAddress the destination address for traffic bearing the requested SPI.
      *     For inbound traffic, the destination should be an address currently assigned on-device.
      * @return the reserved SecurityParameterIndex
-     * @throws {@link #ResourceUnavailableException} indicating that too many SPIs are
+     * @throws ResourceUnavailableException indicating that too many SPIs are
      *     currently allocated for this user
      */
     @NonNull
@@ -299,9 +334,9 @@ public final class IpSecManager {
      * @param requestedSpi the requested SPI. The range 1-255 is reserved and may not be used. See
      *     RFC 4303 Section 2.1.
      * @return the reserved SecurityParameterIndex
-     * @throws {@link #ResourceUnavailableException} indicating that too many SPIs are
+     * @throws ResourceUnavailableException indicating that too many SPIs are
      *     currently allocated for this user
-     * @throws {@link #SpiUnavailableException} indicating that the requested SPI could not be
+     * @throws SpiUnavailableException indicating that the requested SPI could not be
      *     reserved
      */
     @NonNull
@@ -575,7 +610,7 @@ public final class IpSecManager {
             } catch (RemoteException e) {
                 throw e.rethrowFromSystemServer();
             }
-            mCloseGuard.open("constructor");
+            mCloseGuard.open("close");
         }
 
         /** Get the encapsulation socket's file descriptor. */
@@ -632,7 +667,7 @@ public final class IpSecManager {
         }
 
         /** @hide */
-        @VisibleForTesting
+        @SystemApi(client = MODULE_LIBRARIES)
         public int getResourceId() {
             return mResourceId;
         }
@@ -720,6 +755,7 @@ public final class IpSecManager {
      * to create Network objects which are accessible to the Android system.
      * @hide
      */
+    @SystemApi
     public static final class IpSecTunnelInterface implements AutoCloseable {
         private final String mOpPackageName;
         private final IIpSecService mService;
@@ -746,6 +782,8 @@ public final class IpSecManager {
          * @param prefixLen length of the InetAddress prefix
          * @hide
          */
+        @SystemApi
+        @RequiresFeature(PackageManager.FEATURE_IPSEC_TUNNELS)
         @RequiresPermission(android.Manifest.permission.MANAGE_IPSEC_TUNNELS)
         public void addAddress(@NonNull InetAddress address, int prefixLen) throws IOException {
             try {
@@ -767,6 +805,8 @@ public final class IpSecManager {
          * @param prefixLen length of the InetAddress prefix
          * @hide
          */
+        @SystemApi
+        @RequiresFeature(PackageManager.FEATURE_IPSEC_TUNNELS)
         @RequiresPermission(android.Manifest.permission.MANAGE_IPSEC_TUNNELS)
         public void removeAddress(@NonNull InetAddress address, int prefixLen) throws IOException {
             try {
@@ -774,6 +814,45 @@ public final class IpSecManager {
                         mResourceId, new LinkAddress(address, prefixLen), mOpPackageName);
             } catch (ServiceSpecificException e) {
                 throw rethrowCheckedExceptionFromServiceSpecificException(e);
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            }
+        }
+
+        /**
+         * Update the underlying network for this IpSecTunnelInterface.
+         *
+         * <p>This new underlying network will be used for all transforms applied AFTER this call is
+         * complete. Before {@link IpSecTransform}(s) with matching addresses are applied to this
+         * tunnel interface, traffic will still use the old transform, and be routed on the old
+         * underlying network.
+         *
+         * <p>To migrate IPsec tunnel mode traffic, a caller should:
+         *
+         * <ol>
+         *   <li>Update the IpSecTunnelInterface’s underlying network.
+         *   <li>Apply the new {@link IpSecTransform}(s) to this IpSecTunnelInterface. These can be
+         *       new {@link IpSecTransform}(s) with matching addresses, or {@link IpSecTransform}(s)
+         *       that have started migration (see {@link
+         *       IpSecManager#startTunnelModeTransformMigration}).
+         * </ol>
+         *
+         * @param underlyingNetwork the new {@link Network} that will carry traffic for this tunnel.
+         *     This network MUST be a functional {@link Network} with valid {@link LinkProperties},
+         *     and MUST never be the network exposing this IpSecTunnelInterface, otherwise this
+         *     method will throw an {@link IllegalArgumentException}. If the IpSecTunnelInterface is
+         *     later added to this network, all outbound traffic will be blackholed.
+         */
+        // The purpose of making updating network and applying transforms separate is to leave open
+        // the possibility to support lossless migration procedures. To do that, Android platform
+        // will need to support multiple inbound tunnel mode transforms, just like it can support
+        // multiple transport mode transforms.
+        @RequiresFeature(PackageManager.FEATURE_IPSEC_TUNNELS)
+        @RequiresPermission(android.Manifest.permission.MANAGE_IPSEC_TUNNELS)
+        public void setUnderlyingNetwork(@NonNull Network underlyingNetwork) throws IOException {
+            try {
+                mService.setNetworkForTunnelInterface(
+                        mResourceId, underlyingNetwork, mOpPackageName);
             } catch (RemoteException e) {
                 throw e.rethrowFromSystemServer();
             }
@@ -812,7 +891,7 @@ public final class IpSecManager {
             } catch (RemoteException e) {
                 throw e.rethrowFromSystemServer();
             }
-            mCloseGuard.open("constructor");
+            mCloseGuard.open("close");
         }
 
         /**
@@ -853,6 +932,7 @@ public final class IpSecManager {
             return mResourceId;
         }
 
+        @NonNull
         @Override
         public String toString() {
             return new StringBuilder()
@@ -880,7 +960,9 @@ public final class IpSecManager {
      * @throws ResourceUnavailableException indicating that too many encapsulation sockets are open
      * @hide
      */
+    @SystemApi
     @NonNull
+    @RequiresFeature(PackageManager.FEATURE_IPSEC_TUNNELS)
     @RequiresPermission(android.Manifest.permission.MANAGE_IPSEC_TUNNELS)
     public IpSecTunnelInterface createIpSecTunnelInterface(@NonNull InetAddress localAddress,
             @NonNull InetAddress remoteAddress, @NonNull Network underlyingNetwork)
@@ -900,7 +982,6 @@ public final class IpSecManager {
      * IP header and IPsec Header on all inbound traffic).
      * <p>Applications should probably not use this API directly.
      *
-     *
      * @param tunnel The {@link IpSecManager#IpSecTunnelInterface} that will use the supplied
      *        transform.
      * @param direction the direction, {@link DIRECTION_OUT} or {@link #DIRECTION_IN} in which
@@ -910,6 +991,8 @@ public final class IpSecManager {
      *         layer failure.
      * @hide
      */
+    @SystemApi
+    @RequiresFeature(PackageManager.FEATURE_IPSEC_TUNNELS)
     @RequiresPermission(android.Manifest.permission.MANAGE_IPSEC_TUNNELS)
     public void applyTunnelModeTransform(@NonNull IpSecTunnelInterface tunnel,
             @PolicyDirection int direction, @NonNull IpSecTransform transform) throws IOException {
@@ -925,6 +1008,89 @@ public final class IpSecManager {
     }
 
     /**
+     * Migrate an active Tunnel Mode IPsec Transform to new source/destination addresses.
+     *
+     * <p>Begins the process of migrating a transform and cache the new addresses. To complete the
+     * migration once started, callers MUST apply the same transform to the appropriate tunnel using
+     * {@link IpSecManager#applyTunnelModeTransform}. Otherwise, the address update will not be
+     * committed and the transform will still only process traffic between the current source and
+     * destination address. One common use case is that the control plane will start the migration
+     * process and then hand off the transform to the IPsec caller to perform the actual migration
+     * when the tunnel is ready.
+     *
+     * <p>If this method is called multiple times before {@link
+     * IpSecManager#applyTunnelModeTransform} is called, when the transform is applied, it will be
+     * migrated to the addresses from the last call.
+     *
+     * <p>The provided source and destination addresses MUST share the same address family, but they
+     * can have a different family from the current addresses.
+     *
+     * <p>Transform migration is only supported for tunnel mode transforms. Calling this method on
+     * other types of transforms will throw an {@code UnsupportedOperationException}.
+     *
+     * @see IpSecTunnelInterface#setUnderlyingNetwork
+     * @param transform a tunnel mode {@link IpSecTransform}
+     * @param newSourceAddress the new source address
+     * @param newDestinationAddress the new destination address
+     * @hide
+     */
+    @SystemApi
+    @RequiresFeature(FEATURE_IPSEC_TUNNEL_MIGRATION)
+    @RequiresPermission(android.Manifest.permission.MANAGE_IPSEC_TUNNELS)
+    public void startTunnelModeTransformMigration(
+            @NonNull IpSecTransform transform,
+            @NonNull InetAddress newSourceAddress,
+            @NonNull InetAddress newDestinationAddress) {
+        if (!SdkLevel.isAtLeastU()) {
+            throw new UnsupportedOperationException(
+                    "Transform migration only supported for Android 14+");
+        }
+
+        Objects.requireNonNull(transform, "transform was null");
+        Objects.requireNonNull(newSourceAddress, "newSourceAddress was null");
+        Objects.requireNonNull(newDestinationAddress, "newDestinationAddress was null");
+
+        try {
+            mService.migrateTransform(
+                    transform.getResourceId(),
+                    newSourceAddress.getHostAddress(),
+                    newDestinationAddress.getHostAddress(),
+                    mContext.getOpPackageName());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * @hide
+     */
+    public IpSecTransformResponse createTransform(IpSecConfig config, IBinder binder,
+            String callingPackage) {
+        try {
+            return mService.createTransform(config, binder, callingPackage);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * @hide
+     */
+    public void deleteTransform(int resourceId) {
+        try {
+            mService.deleteTransform(resourceId);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /** @hide */
+    public IpSecTransformState getTransformState(int transformId)
+            throws IllegalStateException, RemoteException {
+        return mService.getTransformState(transformId);
+    }
+
+    /**
      * Construct an instance of IpSecManager within an application context.
      *
      * @param context the application context for this manager
@@ -932,7 +1098,7 @@ public final class IpSecManager {
      */
     public IpSecManager(Context ctx, IIpSecService service) {
         mContext = ctx;
-        mService = checkNotNull(service, "missing service");
+        mService = Objects.requireNonNull(service, "missing service");
     }
 
     private static void maybeHandleServiceSpecificException(ServiceSpecificException sse) {
@@ -941,7 +1107,8 @@ public final class IpSecManager {
             throw new IllegalArgumentException(sse);
         } else if (sse.errorCode == OsConstants.EAGAIN) {
             throw new IllegalStateException(sse);
-        } else if (sse.errorCode == OsConstants.EOPNOTSUPP) {
+        } else if (sse.errorCode == OsConstants.EOPNOTSUPP
+                || sse.errorCode == OsConstants.EPROTONOSUPPORT) {
             throw new UnsupportedOperationException(sse);
         }
     }

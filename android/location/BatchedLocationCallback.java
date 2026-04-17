@@ -28,7 +28,7 @@ import java.util.List;
  * the a batch of location is ready. These methods are called if the
  * BatchedLocationCallback has been registered with the location manager service
  * using the
- * {@link LocationManager#registerGnssBatchedLocationCallback#startGnssBatch(long,
+ * {@link LocationManager#registerGnssBatchedLocationCallback(long,
  * boolean, BatchedLocationCallback, android.os.Handler)} method.
  * @hide
  */

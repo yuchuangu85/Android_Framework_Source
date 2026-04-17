@@ -74,10 +74,10 @@ public abstract class RecommendationService extends Service {
             @Override
             public void registerCallbacks(IRecommendationServiceCallbacks callbacks) {
                 // The callbacks come in order of the caller on oneway calls. Hence while the caller
-                // cannot know at what time the connection is made, he can know the ordering of
+                // cannot know at what time the connection is made, they can know the ordering of
                 // connection and disconnection.
                 //
-                // Similar he cannot know when the disconnection is processed, hence he has to
+                // Similar they cannot know when the disconnection is processed, hence they have to
                 // handle callbacks after calling disconnect.
                 if (callbacks != null) {
                     mHandler.obtainMessage(MyHandler.MSG_CONNECT, callbacks).sendToTarget();
@@ -119,14 +119,16 @@ public abstract class RecommendationService extends Service {
                     mCallbacks = null;
                     break;
                 case MSG_UPDATE:
-                    // Note that there might be a connection change in progress. In this case the
-                    // message is handled as before the change. This is acceptable as the caller of
-                    // the connection change has not guarantee when the connection change binder
-                    // transaction is actually processed.
-                    try {
-                        mCallbacks.onRecommendationsUpdated((List<RecommendationInfo>) msg.obj);
-                    } catch (RemoteException | NullPointerException e) {
-                        Log.e(LOG_TAG, "Could not update recommended services", e);
+                    if (mCallbacks != null) {
+                        // Note that there might be a connection change in progress. In this case
+                        // the message is handled as before the change. This is acceptable as the
+                        // caller of the connection change has not guarantee when the connection
+                        // change binder transaction is actually processed.
+                        try {
+                            mCallbacks.onRecommendationsUpdated((List<RecommendationInfo>) msg.obj);
+                        } catch (RemoteException | NullPointerException e) {
+                            Log.e(LOG_TAG, "Could not update recommended services", e);
+                        }
                     }
                     break;
             }

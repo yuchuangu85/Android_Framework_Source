@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,13 @@
 
 package android.security.net.config;
 
+import com.android.org.conscrypt.TrustedCertificateStore;
+
 import java.io.File;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.Date;
 import java.util.Set;
-
-import com.android.org.conscrypt.TrustedCertificateStore;
 
 /** @hide */
 public class TrustedCertificateStoreAdapter extends TrustedCertificateStore {

@@ -16,6 +16,7 @@
 
 package android.os.health;
 
+import android.annotation.TestApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.ArrayMap;
@@ -31,7 +32,7 @@ import java.util.Map;
  * Each of the keys references data in one of five data types:
  *
  * <p>
- * A <b>measurement</b> metric contains a sinlge {@code long} value. That value may
+ * A <b>measurement</b> metric contains a single {@code long} value. That value may
  * be a count, a time, or some other type of value. The unit for a measurement
  * (COUNT, MS, etc) will always be in the name of the constant for the key to
  * retrieve it. For example, the
@@ -126,6 +127,7 @@ public class HealthStats {
      *
      * @hide
      */
+    @TestApi
     public HealthStats(Parcel in) {
         int count;
 

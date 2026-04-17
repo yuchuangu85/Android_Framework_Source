@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -54,6 +54,7 @@ import java.util.function.LongConsumer;
  * @since 1.8
  * @hide Visible for CTS testing only (OpenJDK8 tests).
  */
+// Android-changed: Made public for CTS tests only.
 public class SpinedBuffer<E>
         extends AbstractSpinedBuffer
         implements Consumer<E>, Iterable<E> {
@@ -94,6 +95,7 @@ public class SpinedBuffer<E>
      *         is negative
      */
     @SuppressWarnings("unchecked")
+    // Android-changed: Made public for CTS tests only.
     public SpinedBuffer(int initialCapacity) {
         super(initialCapacity);
         curChunk = (E[]) new Object[1 << initialChunkPower];
@@ -103,6 +105,7 @@ public class SpinedBuffer<E>
      * Constructs an empty list with an initial capacity of sixteen.
      */
     @SuppressWarnings("unchecked")
+    // Android-changed: Made public for CTS tests only.
     public SpinedBuffer() {
         super();
         curChunk = (E[]) new Object[1 << initialChunkPower];
@@ -415,9 +418,8 @@ public class SpinedBuffer<E>
      * @param <E> the wrapper type for this primitive type
      * @param <T_ARR> the array type for this primitive type
      * @param <T_CONS> the Consumer type for this primitive type
-     * @hide Visible for CTS testing only (OpenJDK8 tests).
      */
-    public abstract static class OfPrimitive<E, T_ARR, T_CONS>
+    abstract static class OfPrimitive<E, T_ARR, T_CONS>
             extends AbstractSpinedBuffer implements Iterable<E> {
 
         /*
@@ -585,7 +587,6 @@ public class SpinedBuffer<E>
             spineIndex = 0;
         }
 
-        @SuppressWarnings("overloads")
         public void forEach(T_CONS consumer) {
             // completed chunks, if any
             for (int j = 0; j < spineIndex; j++)
@@ -723,10 +724,14 @@ public class SpinedBuffer<E>
      * An ordered collection of {@code int} values.
      * @hide Visible for CTS testing only (OpenJDK8 tests).
      */
+    @SuppressWarnings("overloads")
+    // Android-changed: Made public for CTS tests only.
     public static class OfInt extends SpinedBuffer.OfPrimitive<Integer, int[], IntConsumer>
             implements IntConsumer {
+        // Android-changed: Made public for CTS tests only.
         public OfInt() { }
 
+        // Android-changed: Made public for CTS tests only.
         public OfInt(int initialCapacity) {
             super(initialCapacity);
         }
@@ -788,6 +793,7 @@ public class SpinedBuffer<E>
         }
 
         public Spliterator.OfInt spliterator() {
+            @SuppressWarnings("overloads")
             class Splitr extends BaseSpliterator<Spliterator.OfInt>
                     implements Spliterator.OfInt {
                 Splitr(int firstSpineIndex, int lastSpineIndex,
@@ -837,10 +843,14 @@ public class SpinedBuffer<E>
      * An ordered collection of {@code long} values.
      * @hide Visible for CTS testing only (OpenJDK8 tests).
      */
+    @SuppressWarnings("overloads")
+    // Android-changed: Made public for CTS tests only.
     public static class OfLong extends SpinedBuffer.OfPrimitive<Long, long[], LongConsumer>
             implements LongConsumer {
+        // Android-changed: Made public for CTS tests only.
         public OfLong() { }
 
+        // Android-changed: Made public for CTS tests only.
         public OfLong(int initialCapacity) {
             super(initialCapacity);
         }
@@ -903,6 +913,7 @@ public class SpinedBuffer<E>
 
 
         public Spliterator.OfLong spliterator() {
+            @SuppressWarnings("overloads")
             class Splitr extends BaseSpliterator<Spliterator.OfLong>
                     implements Spliterator.OfLong {
                 Splitr(int firstSpineIndex, int lastSpineIndex,
@@ -952,11 +963,15 @@ public class SpinedBuffer<E>
      * An ordered collection of {@code double} values.
      * @hide Visible for CTS testing only (OpenJDK8 tests).
      */
+    @SuppressWarnings("overloads")
+    // Android-changed: Made public for CTS tests only.
     public static class OfDouble
             extends SpinedBuffer.OfPrimitive<Double, double[], DoubleConsumer>
             implements DoubleConsumer {
+        // Android-changed: Made public for CTS tests only.
         public OfDouble() { }
 
+        // Android-changed: Made public for CTS tests only.
         public OfDouble(int initialCapacity) {
             super(initialCapacity);
         }
@@ -1018,6 +1033,7 @@ public class SpinedBuffer<E>
         }
 
         public Spliterator.OfDouble spliterator() {
+            @SuppressWarnings("overloads")
             class Splitr extends BaseSpliterator<Spliterator.OfDouble>
                     implements Spliterator.OfDouble {
                 Splitr(int firstSpineIndex, int lastSpineIndex,

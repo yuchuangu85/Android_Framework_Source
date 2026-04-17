@@ -16,13 +16,15 @@
 
 package com.android.internal.os;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.util.Log;
 
 /**
  * Print stream which log lines using Android's logging system.
  *
- * {@hide}
+ * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 class AndroidPrintStream extends LoggingPrintStream {
 
     private final int priority;
@@ -34,6 +36,7 @@ class AndroidPrintStream extends LoggingPrintStream {
      * @param priority from {@link android.util.Log}
      * @param tag to log
      */
+    @UnsupportedAppUsage
     public AndroidPrintStream(int priority, String tag) {
         if (tag == null) {
             throw new NullPointerException("tag");

@@ -30,6 +30,7 @@ import android.text.TextPaint;
  * <img src="{@docRoot}reference/android/images/text/style/maskfilterspan.png" />
  * <figcaption>Text blurred with the <code>MaskFilterSpan</code>.</figcaption>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class MaskFilterSpan extends CharacterStyle implements UpdateAppearance {
 
     private MaskFilter mFilter;
@@ -55,5 +56,10 @@ public class MaskFilterSpan extends CharacterStyle implements UpdateAppearance {
     @Override
     public void updateDrawState(TextPaint ds) {
         ds.setMaskFilter(mFilter);
+    }
+
+    @Override
+    public String toString() {
+        return "MaskFilterSpan{filter=" + getMaskFilter() + '}';
     }
 }

@@ -17,6 +17,8 @@
 package android.hardware.usb;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.hardware.usb.flags.Flags;
 import android.service.usb.UsbDeviceFilterProto;
 import android.util.Slog;
 
@@ -40,6 +42,9 @@ import java.util.Objects;
 public class DeviceFilter {
     private static final String TAG = DeviceFilter.class.getSimpleName();
 
+    // Name of tag used for serialization and deserialization.
+    public static final String XML_ROOT_NAME = "usb-device";
+
     // USB Vendor ID (or -1 for unspecified)
     public final int mVendorId;
     // USB Product ID (or -1 for unspecified)
@@ -56,9 +61,12 @@ public class DeviceFilter {
     public final String mProductName;
     // USB device serial number string (or null for unspecified)
     public final String mSerialNumber;
+    // USB interface name (or null for unspecified). This will be used when matching devices using
+    // the available interfaces.
+    public final String mInterfaceName;
 
     public DeviceFilter(int vid, int pid, int clasz, int subclass, int protocol,
-            String manufacturer, String product, String serialnum) {
+            String manufacturer, String product, String serialnum, String interfaceName) {
         mVendorId = vid;
         mProductId = pid;
         mClass = clasz;
@@ -67,6 +75,7 @@ public class DeviceFilter {
         mManufacturerName = manufacturer;
         mProductName = product;
         mSerialNumber = serialnum;
+        mInterfaceName = interfaceName;
     }
 
     public DeviceFilter(UsbDevice device) {
@@ -78,6 +87,19 @@ public class DeviceFilter {
         mManufacturerName = device.getManufacturerName();
         mProductName = device.getProductName();
         mSerialNumber = device.getSerialNumber();
+        mInterfaceName = null;
+    }
+
+    public DeviceFilter(@NonNull DeviceFilter filter) {
+        mVendorId = filter.mVendorId;
+        mProductId = filter.mProductId;
+        mClass = filter.mClass;
+        mSubclass = filter.mSubclass;
+        mProtocol = filter.mProtocol;
+        mManufacturerName = filter.mManufacturerName;
+        mProductName = filter.mProductName;
+        mSerialNumber = filter.mSerialNumber;
+        mInterfaceName = filter.mInterfaceName;
     }
 
     public static DeviceFilter read(XmlPullParser parser)
@@ -90,7 +112,7 @@ public class DeviceFilter {
         String manufacturerName = null;
         String productName = null;
         String serialNumber = null;
-
+        String interfaceName = null;
         int count = parser.getAttributeCount();
         for (int i = 0; i < count; i++) {
             String name = parser.getAttributeName(i);
@@ -102,6 +124,8 @@ public class DeviceFilter {
                 productName = value;
             } else if ("serial-number".equals(name)) {
                 serialNumber = value;
+            }  else if ("interface-name".equals(name)) {
+                interfaceName = value;
             } else {
                 int intValue;
                 int radix = 10;
@@ -132,11 +156,11 @@ public class DeviceFilter {
         }
         return new DeviceFilter(vendorId, productId,
                 deviceClass, deviceSubclass, deviceProtocol,
-                manufacturerName, productName, serialNumber);
+                manufacturerName, productName, serialNumber, interfaceName);
     }
 
     public void write(XmlSerializer serializer) throws IOException {
-        serializer.startTag(null, "usb-device");
+        serializer.startTag(null, XML_ROOT_NAME);
         if (mVendorId != -1) {
             serializer.attribute(null, "vendor-id", Integer.toString(mVendorId));
         }
@@ -161,13 +185,25 @@ public class DeviceFilter {
         if (mSerialNumber != null) {
             serializer.attribute(null, "serial-number", mSerialNumber);
         }
-        serializer.endTag(null, "usb-device");
+        if (mInterfaceName != null) {
+            serializer.attribute(null, "interface-name", mInterfaceName);
+        }
+        serializer.endTag(null, XML_ROOT_NAME);
     }
 
-    private boolean matches(int clasz, int subclass, int protocol) {
-        return ((mClass == -1 || clasz == mClass) &&
-                (mSubclass == -1 || subclass == mSubclass) &&
-                (mProtocol == -1 || protocol == mProtocol));
+    private boolean matches(int usbClass, int subclass, int protocol) {
+        return ((mClass == -1 || usbClass == mClass)
+                && (mSubclass == -1 || subclass == mSubclass)
+                && (mProtocol == -1 || protocol == mProtocol));
+    }
+
+    private boolean matches(int usbClass, int subclass, int protocol, String interfaceName) {
+        if (Flags.enableInterfaceNameDeviceFilter()) {
+            return matches(usbClass, subclass, protocol)
+                    && (mInterfaceName == null || mInterfaceName.equals(interfaceName));
+        } else {
+            return matches(usbClass, subclass, protocol);
+        }
     }
 
     public boolean matches(UsbDevice device) {
@@ -183,16 +219,22 @@ public class DeviceFilter {
         if (mSerialNumber != null && device.getSerialNumber() != null &&
                 !mSerialNumber.equals(device.getSerialNumber())) return false;
 
-        // check device class/subclass/protocol
-        if (matches(device.getDeviceClass(), device.getDeviceSubclass(),
-                device.getDeviceProtocol())) return true;
+        // If the filter specifies an interface name, it is strictly an Interface-scoped filter.
+        // We must skip the Device-level check to ensure we verify the interface name later.
+        boolean isInterfaceScoped =
+                (mInterfaceName != null) && Flags.enableDeviceAndInterfaceFilterSeparation();
 
-        // if device doesn't match, check the interfaces
+        if (!isInterfaceScoped && matches(device.getDeviceClass(), device.getDeviceSubclass(),
+                device.getDeviceProtocol())) {
+            return true;
+        }
+
+        // Check interfaces.
         int count = device.getInterfaceCount();
         for (int i = 0; i < count; i++) {
             UsbInterface intf = device.getInterface(i);
             if (matches(intf.getInterfaceClass(), intf.getInterfaceSubclass(),
-                    intf.getInterfaceProtocol())) return true;
+                    intf.getInterfaceProtocol(), intf.getName())) return true;
         }
 
         return false;
@@ -227,7 +269,7 @@ public class DeviceFilter {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         // can't compare if we have wildcard strings
         if (mVendorId == -1 || mProductId == -1 ||
                 mClass == -1 || mSubclass == -1 || mProtocol == -1) {
@@ -308,11 +350,12 @@ public class DeviceFilter {
 
     @Override
     public String toString() {
-        return "DeviceFilter[mVendorId=" + mVendorId + ",mProductId=" + mProductId +
-                ",mClass=" + mClass + ",mSubclass=" + mSubclass +
-                ",mProtocol=" + mProtocol + ",mManufacturerName=" + mManufacturerName +
-                ",mProductName=" + mProductName + ",mSerialNumber=" + mSerialNumber +
-                "]";
+        return "DeviceFilter[mVendorId=" + mVendorId + ",mProductId=" + mProductId
+                + ",mClass=" + mClass + ",mSubclass=" + mSubclass
+                + ",mProtocol=" + mProtocol + ",mManufacturerName=" + mManufacturerName
+                + ",mProductName=" + mProductName + ",mSerialNumber=" + mSerialNumber
+                + ",mInterfaceName=" + mInterfaceName
+                + "]";
     }
 
     /**

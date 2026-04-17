@@ -94,7 +94,7 @@ public class SmsMessage {
 
     /** Contains actual SmsMessage. Only public for debugging and for framework layer.
      * @deprecated Use android.telephony.SmsMessage.
-     * {@hide}
+     * @hide
      */
     @Deprecated public SmsMessageBase mWrappedSmsMessage;
 
@@ -113,7 +113,7 @@ public class SmsMessage {
         }
 
         /** @deprecated Use android.telephony.SmsMessage.
-         * {@hide}
+         * @hide
          */
         @Deprecated
         protected SubmitPdu(SubmitPduBase spb) {

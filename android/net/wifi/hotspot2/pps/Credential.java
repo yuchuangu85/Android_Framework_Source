@@ -16,10 +16,13 @@
 
 package android.net.wifi.hotspot2.pps;
 
+import static android.net.wifi.hotspot2.PasspointConfiguration.MAX_STRING_LENGTH;
+
 import android.net.wifi.EAPConstants;
 import android.net.wifi.ParcelUtil;
-import android.os.Parcelable;
+import android.net.wifi.WifiEnterpriseConfig;
 import android.os.Parcel;
+import android.os.Parcelable;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -142,7 +145,7 @@ public final class Credential implements Parcelable {
          * Maximum string length for username.  Refer to Credential/UsernamePassword/Username
          * node in Hotspot 2.0 Release 2 Technical Specification Section 9.1 for more info.
          */
-        private static final int MAX_USERNAME_BYTES = 63;
+        private static final int MAX_USERNAME_BYTES = 253;
 
         /**
          * Maximum string length for password.  Refer to Credential/UsernamePassword/Password
@@ -378,12 +381,12 @@ public final class Credential implements Parcelable {
         @Override
         public String toString() {
             StringBuilder builder = new StringBuilder();
-            builder.append("Username: ").append(mUsername).append("\n");
-            builder.append("MachineManaged: ").append(mMachineManaged).append("\n");
-            builder.append("SoftTokenApp: ").append(mSoftTokenApp).append("\n");
-            builder.append("AbleToShare: ").append(mAbleToShare).append("\n");
-            builder.append("EAPType: ").append(mEapType).append("\n");
-            builder.append("AuthMethod: ").append(mNonEapInnerMethod).append("\n");
+            builder.append("Username=").append(mUsername).append(", ");
+            builder.append("MachineManaged=").append(mMachineManaged).append(", ");
+            builder.append("SoftTokenApp=").append(mSoftTokenApp).append(", ");
+            builder.append("AbleToShare=").append(mAbleToShare).append(", ");
+            builder.append("EAPType=").append(mEapType).append(", ");
+            builder.append("AuthMethod=").append(mNonEapInnerMethod);
             return builder.toString();
         }
 
@@ -413,6 +416,13 @@ public final class Credential implements Parcelable {
                         + mPassword.getBytes(StandardCharsets.UTF_8).length);
                 return false;
             }
+            if (mSoftTokenApp != null) {
+                if (mSoftTokenApp.getBytes(StandardCharsets.UTF_8).length > MAX_STRING_LENGTH) {
+                    Log.d(TAG, "app name exceeding maximum length: "
+                            + mSoftTokenApp.getBytes(StandardCharsets.UTF_8).length);
+                    return false;
+                }
+            }
 
             // Only supports EAP-TTLS for user credential.
             if (mEapType != EAPConstants.EAP_TTLS) {
@@ -428,7 +438,7 @@ public final class Credential implements Parcelable {
             return true;
         }
 
-        public static final Creator<UserCredential> CREATOR =
+        public static final @android.annotation.NonNull Creator<UserCredential> CREATOR =
             new Creator<UserCredential>() {
                 @Override
                 public UserCredential createFromParcel(Parcel in) {
@@ -448,6 +458,16 @@ public final class Credential implements Parcelable {
                     return new UserCredential[size];
                 }
             };
+
+        /**
+         * Get a unique identifier for UserCredential.
+         *
+         * @hide
+         * @return a Unique identifier for a UserCredential object
+         */
+        public int getUniqueId() {
+            return Objects.hash(mUsername);
+        }
     }
     private UserCredential mUserCredential = null;
     /**
@@ -572,12 +592,12 @@ public final class Credential implements Parcelable {
 
         @Override
         public int hashCode() {
-            return Objects.hash(mCertType, mCertSha256Fingerprint);
+            return Objects.hash(mCertType, Arrays.hashCode(mCertSha256Fingerprint));
         }
 
         @Override
         public String toString() {
-            return "CertificateType: " + mCertType + "\n";
+            return "CertificateType=" + mCertType;
         }
 
         /**
@@ -599,7 +619,7 @@ public final class Credential implements Parcelable {
             return true;
         }
 
-        public static final Creator<CertificateCredential> CREATOR =
+        public static final @android.annotation.NonNull Creator<CertificateCredential> CREATOR =
             new Creator<CertificateCredential>() {
                 @Override
                 public CertificateCredential createFromParcel(Parcel in) {
@@ -738,8 +758,17 @@ public final class Credential implements Parcelable {
         @Override
         public String toString() {
             StringBuilder builder = new StringBuilder();
-            builder.append("IMSI: ").append(mImsi).append("\n");
-            builder.append("EAPType: ").append(mEapType).append("\n");
+            String imsi;
+            if (mImsi != null) {
+                if (mImsi.length() > 6 && mImsi.charAt(6) != '*') {
+                    // Truncate the full IMSI from the log
+                    imsi = mImsi.substring(0, 6) + "****";
+                } else {
+                    imsi = mImsi;
+                }
+                builder.append("IMSI=").append(imsi).append(", ");
+            }
+            builder.append("EAPType=").append(mEapType);
             return builder.toString();
         }
 
@@ -770,7 +799,7 @@ public final class Credential implements Parcelable {
             return true;
         }
 
-        public static final Creator<SimCredential> CREATOR =
+        public static final @android.annotation.NonNull Creator<SimCredential> CREATOR =
             new Creator<SimCredential>() {
                 @Override
                 public SimCredential createFromParcel(Parcel in) {
@@ -842,24 +871,50 @@ public final class Credential implements Parcelable {
     }
 
     /**
-     * CA (Certificate Authority) X509 certificate.
+     * CA (Certificate Authority) X509 certificates.
      */
-    private X509Certificate mCaCertificate = null;
+    private X509Certificate[] mCaCertificates = null;
+
     /**
      * Set the CA (Certification Authority) certificate associated with this credential.
      *
      * @param caCertificate The CA certificate to set to
      */
     public void setCaCertificate(X509Certificate caCertificate) {
-        mCaCertificate = caCertificate;
+        mCaCertificates = null;
+        if (caCertificate != null) {
+            mCaCertificates = new X509Certificate[] {caCertificate};
+        }
     }
+
+    /**
+     * Set the CA (Certification Authority) certificates associated with this credential.
+     *
+     * @param caCertificates The list of CA certificates to set to
+     * @hide
+     */
+    public void setCaCertificates(X509Certificate[] caCertificates) {
+        mCaCertificates = caCertificates;
+    }
+
     /**
      * Get the CA (Certification Authority) certificate associated with this credential.
      *
-     * @return CA certificate associated with this credential
+     * @return CA certificate associated with this credential, {@code null} if certificate is not
+     * set or certificate is more than one.
      */
     public X509Certificate getCaCertificate() {
-        return mCaCertificate;
+        return mCaCertificates == null || mCaCertificates.length > 1 ? null : mCaCertificates[0];
+    }
+
+    /**
+     * Get the CA (Certification Authority) certificates associated with this credential.
+     *
+     * @return The list of CA certificates associated with this credential
+     * @hide
+     */
+    public X509Certificate[] getCaCertificates() {
+        return mCaCertificates;
     }
 
     /**
@@ -905,6 +960,43 @@ public final class Credential implements Parcelable {
     }
 
     /**
+     * The required minimum TLS version.
+     */
+    private @WifiEnterpriseConfig.TlsVersion int mMinimumTlsVersion = WifiEnterpriseConfig.TLS_V1_0;
+    /**
+     * Set the minimum TLS version for TLS-based EAP methods.
+     *
+     * {@link android.net.wifi.WifiManager#isTlsMinimumVersionSupported()} indicates whether
+     * or not a minimum TLS version can be set. If not supported, the minimum TLS version
+     * is always TLS v1.0.
+     * <p>
+     * {@link android.net.wifi.WifiManager#isTlsV13Supported()} indicates whether or not
+     * TLS v1.3 is supported. If requested minimum is not supported, it will default to
+     * the maximum supported version.
+     *
+     * @param tlsVersion the TLS version
+     * @throws IllegalArgumentException if the TLS version is invalid.
+     */
+    public void setMinimumTlsVersion(@WifiEnterpriseConfig.TlsVersion int tlsVersion)
+            throws IllegalArgumentException {
+        if (tlsVersion < WifiEnterpriseConfig.TLS_VERSION_MIN
+                || tlsVersion > WifiEnterpriseConfig.TLS_VERSION_MAX) {
+            throw new IllegalArgumentException(
+                    "Invalid TLS version: " + tlsVersion);
+        }
+        mMinimumTlsVersion = tlsVersion;
+    }
+
+    /**
+     * Get the minimum TLS version for TLS-based EAP methods.
+     *
+     * @return the TLS version
+     */
+    public @WifiEnterpriseConfig.TlsVersion int getMinimumTlsVersion() {
+        return mMinimumTlsVersion;
+    }
+
+    /**
      * Constructor for creating Credential with default values.
      */
     public Credential() {}
@@ -933,8 +1025,13 @@ public final class Credential implements Parcelable {
                 mClientCertificateChain = Arrays.copyOf(source.mClientCertificateChain,
                                                         source.mClientCertificateChain.length);
             }
-            mCaCertificate = source.mCaCertificate;
+            if (source.mCaCertificates != null) {
+                mCaCertificates = Arrays.copyOf(source.mCaCertificates,
+                        source.mCaCertificates.length);
+            }
+
             mClientPrivateKey = source.mClientPrivateKey;
+            mMinimumTlsVersion = source.mMinimumTlsVersion;
         }
     }
 
@@ -952,9 +1049,10 @@ public final class Credential implements Parcelable {
         dest.writeParcelable(mUserCredential, flags);
         dest.writeParcelable(mCertCredential, flags);
         dest.writeParcelable(mSimCredential, flags);
-        ParcelUtil.writeCertificate(dest, mCaCertificate);
+        ParcelUtil.writeCertificates(dest, mCaCertificates);
         ParcelUtil.writeCertificates(dest, mClientCertificateChain);
         ParcelUtil.writePrivateKey(dest, mClientPrivateKey);
+        dest.writeInt(mMinimumTlsVersion);
     }
 
     @Override
@@ -977,16 +1075,30 @@ public final class Credential implements Parcelable {
                     : mCertCredential.equals(that.mCertCredential))
                 && (mSimCredential == null ? that.mSimCredential == null
                     : mSimCredential.equals(that.mSimCredential))
-                && isX509CertificateEquals(mCaCertificate, that.mCaCertificate)
+                && isX509CertificatesEquals(mCaCertificates, that.mCaCertificates)
                 && isX509CertificatesEquals(mClientCertificateChain, that.mClientCertificateChain)
-                && isPrivateKeyEquals(mClientPrivateKey, that.mClientPrivateKey);
+                && isPrivateKeyEquals(mClientPrivateKey, that.mClientPrivateKey)
+                && mMinimumTlsVersion == that.mMinimumTlsVersion;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mRealm, mCreationTimeInMillis, mExpirationTimeInMillis,
+        return Objects.hash(mCreationTimeInMillis, mExpirationTimeInMillis, mRealm,
                 mCheckAaaServerCertStatus, mUserCredential, mCertCredential, mSimCredential,
-                mCaCertificate, mClientCertificateChain, mClientPrivateKey);
+                mClientPrivateKey, Arrays.hashCode(mCaCertificates),
+                Arrays.hashCode(mClientCertificateChain), mMinimumTlsVersion);
+    }
+
+    /**
+     * Get a unique identifier for Credential. This identifier depends only on items that remain
+     * constant throughout the lifetime of a subscription's credentials.
+     *
+     * @hide
+     * @return a Unique identifier for a Credential object
+     */
+    public int getUniqueId() {
+        return Objects.hash(mUserCredential != null ? mUserCredential.getUniqueId() : 0,
+                mCertCredential, mSimCredential, mRealm);
     }
 
     @Override
@@ -1008,6 +1120,7 @@ public final class Credential implements Parcelable {
             builder.append(mCertCredential);
             builder.append("CertificateCredential End ---\n");
         }
+        builder.append("MinimumTlsVersion: ").append(mMinimumTlsVersion).append("\n");
         if (mSimCredential != null) {
             builder.append("SIMCredential Begin ---\n");
             builder.append(mSimCredential);
@@ -1054,7 +1167,7 @@ public final class Credential implements Parcelable {
         return true;
     }
 
-    public static final Creator<Credential> CREATOR =
+    public static final @android.annotation.NonNull Creator<Credential> CREATOR =
         new Creator<Credential>() {
             @Override
             public Credential createFromParcel(Parcel in) {
@@ -1066,9 +1179,10 @@ public final class Credential implements Parcelable {
                 credential.setUserCredential(in.readParcelable(null));
                 credential.setCertCredential(in.readParcelable(null));
                 credential.setSimCredential(in.readParcelable(null));
-                credential.setCaCertificate(ParcelUtil.readCertificate(in));
+                credential.setCaCertificates(ParcelUtil.readCertificates(in));
                 credential.setClientCertificateChain(ParcelUtil.readCertificates(in));
                 credential.setClientPrivateKey(ParcelUtil.readPrivateKey(in));
+                credential.setMinimumTlsVersion(in.readInt());
                 return credential;
             }
 
@@ -1080,6 +1194,7 @@ public final class Credential implements Parcelable {
 
     /**
      * Verify user credential.
+     * If no CA certificate is provided, then the system uses the CAs in the trust store.
      *
      * @return true if user credential is valid, false otherwise.
      */
@@ -1095,16 +1210,14 @@ public final class Credential implements Parcelable {
         if (!mUserCredential.validate()) {
             return false;
         }
-        if (mCaCertificate == null) {
-            Log.d(TAG, "Missing CA Certificate for user credential");
-            return false;
-        }
+
         return true;
     }
 
     /**
      * Verify certificate credential, which is used for EAP-TLS.  This will verify
      * that the necessary client key and certificates are provided.
+     * If no CA certificate is provided, then the system uses the CAs in the trust store.
      *
      * @return true if certificate credential is valid, false otherwise.
      */
@@ -1122,11 +1235,6 @@ public final class Credential implements Parcelable {
             return false;
         }
 
-        // Verify required key and certificates for certificate credential.
-        if (mCaCertificate == null) {
-            Log.d(TAG, "Missing CA Certificate for certificate credential");
-            return false;
-        }
         if (mClientPrivateKey == null) {
             Log.d(TAG, "Missing client private key for certificate credential");
             return false;
@@ -1177,7 +1285,15 @@ public final class Credential implements Parcelable {
                 Arrays.equals(key1.getEncoded(), key2.getEncoded());
     }
 
-    private static boolean isX509CertificateEquals(X509Certificate cert1, X509Certificate cert2) {
+    /**
+     * Verify two X.509 certificates are identical.
+     *
+     * @param cert1 a certificate to compare
+     * @param cert2 a certificate to compare
+     * @return {@code true} if given certificates are the same each other, {@code false} otherwise.
+     * @hide
+     */
+    public static boolean isX509CertificateEquals(X509Certificate cert1, X509Certificate cert2) {
         if (cert1 == null && cert2 == null) {
             return true;
         }

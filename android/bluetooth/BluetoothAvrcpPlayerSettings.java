@@ -16,6 +16,9 @@
 
 package android.bluetooth;
 
+import android.annotation.Hide;
+import android.annotation.NonNull;
+import android.annotation.RequiresNoPermission;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
@@ -23,85 +26,70 @@ import android.util.Log;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Class used to identify settings associated with the player on AG.
- *
- * {@hide}
- */
+/** Class used to identify settings associated with the player on AG. */
+@Hide
 public final class BluetoothAvrcpPlayerSettings implements Parcelable {
-    public static final String TAG = "BluetoothAvrcpPlayerSettings";
+    private static final String TAG = BluetoothAvrcpPlayerSettings.class.getSimpleName();
 
-    /**
-     * Equalizer setting.
-     */
+    /** Equalizer setting. */
     public static final int SETTING_EQUALIZER = 0x01;
 
-    /**
-     * Repeat setting.
-     */
+    /** Repeat setting. */
     public static final int SETTING_REPEAT = 0x02;
 
-    /**
-     * Shuffle setting.
-     */
+    /** Shuffle setting. */
     public static final int SETTING_SHUFFLE = 0x04;
 
-    /**
-     * Scan mode setting.
-     */
+    /** Scan mode setting. */
     public static final int SETTING_SCAN = 0x08;
 
     /**
      * Invalid state.
      *
-     * Used for returning error codes.
+     * <p>Used for returning error codes.
      */
     public static final int STATE_INVALID = -1;
 
     /**
      * OFF state.
      *
-     * Denotes a general OFF state. Applies to all settings.
+     * <p>Denotes a general OFF state. Applies to all settings.
      */
     public static final int STATE_OFF = 0x00;
 
     /**
      * ON state.
      *
-     * Applies to {@link SETTING_EQUALIZER}.
+     * <p>Applies to {@link SETTING_EQUALIZER}.
      */
     public static final int STATE_ON = 0x01;
 
     /**
      * Single track repeat.
      *
-     * Applies only to {@link SETTING_REPEAT}.
+     * <p>Applies only to {@link SETTING_REPEAT}.
      */
     public static final int STATE_SINGLE_TRACK = 0x02;
 
     /**
      * All track repeat/shuffle.
      *
-     * Applies to {@link #SETTING_REPEAT}, {@link #SETTING_SHUFFLE} and {@link #SETTING_SCAN}.
+     * <p>Applies to {@link #SETTING_REPEAT}, {@link #SETTING_SHUFFLE} and {@link #SETTING_SCAN}.
      */
     public static final int STATE_ALL_TRACK = 0x03;
 
     /**
      * Group repeat/shuffle.
      *
-     * Applies to {@link #SETTING_REPEAT}, {@link #SETTING_SHUFFLE} and {@link #SETTING_SCAN}.
+     * <p>Applies to {@link #SETTING_REPEAT}, {@link #SETTING_SHUFFLE} and {@link #SETTING_SCAN}.
      */
     public static final int STATE_GROUP = 0x04;
 
-    /**
-     * List of supported settings ORed.
-     */
-    private int mSettings;
+    /** List of supported settings ORed. */
+    private final int mSettings;
 
-    /**
-     * Hash map of current capability values.
-     */
-    private Map<Integer, Integer> mSettingsValue = new HashMap<Integer, Integer>();
+    /** Hash map of current capability values. */
+    private final Map<Integer, Integer> mSettingsValue = new HashMap<Integer, Integer>();
 
     @Override
     public int describeContents() {
@@ -118,16 +106,16 @@ public final class BluetoothAvrcpPlayerSettings implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<BluetoothAvrcpPlayerSettings> CREATOR =
-            new Parcelable.Creator<BluetoothAvrcpPlayerSettings>() {
-        public BluetoothAvrcpPlayerSettings createFromParcel(Parcel in) {
-            return new BluetoothAvrcpPlayerSettings(in);
-        }
+    public static final @NonNull Creator<BluetoothAvrcpPlayerSettings> CREATOR =
+            new Creator<>() {
+                public BluetoothAvrcpPlayerSettings createFromParcel(Parcel in) {
+                    return new BluetoothAvrcpPlayerSettings(in);
+                }
 
-        public BluetoothAvrcpPlayerSettings[] newArray(int size) {
-            return new BluetoothAvrcpPlayerSettings[size];
-        }
-    };
+                public BluetoothAvrcpPlayerSettings[] newArray(int size) {
+                    return new BluetoothAvrcpPlayerSettings[size];
+                }
+            };
 
     private BluetoothAvrcpPlayerSettings(Parcel in) {
         mSettings = in.readInt();
@@ -151,6 +139,7 @@ public final class BluetoothAvrcpPlayerSettings implements Parcelable {
      *
      * @return int ORed value of supported settings.
      */
+    @RequiresNoPermission
     public int getSettings() {
         return mSettings;
     }
@@ -158,12 +147,13 @@ public final class BluetoothAvrcpPlayerSettings implements Parcelable {
     /**
      * Add a setting value.
      *
-     * The setting must be part of possible settings in {@link getSettings()}.
+     * <p>The setting must be part of possible settings in {@link getSettings()}.
      *
      * @param setting setting config.
      * @param value value for the setting.
      * @throws IllegalStateException if the setting is not supported.
      */
+    @RequiresNoPermission
     public void addSettingValue(int setting, int value) {
         if ((setting & mSettings) == 0) {
             Log.e(TAG, "Setting not supported: " + setting + " " + mSettings);
@@ -175,12 +165,13 @@ public final class BluetoothAvrcpPlayerSettings implements Parcelable {
     /**
      * Get a setting value.
      *
-     * The setting must be part of possible settings in {@link getSettings()}.
+     * <p>The setting must be part of possible settings in {@link getSettings()}.
      *
      * @param setting setting config.
      * @return value value for the setting.
      * @throws IllegalStateException if the setting is not supported.
      */
+    @RequiresNoPermission
     public int getSettingValue(int setting) {
         if ((setting & mSettings) == 0) {
             Log.e(TAG, "Setting not supported: " + setting + " " + mSettings);

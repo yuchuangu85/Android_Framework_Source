@@ -16,13 +16,13 @@
 
 package com.android.ims;
 
-import com.android.ims.internal.IImsMultiEndpoint;
-import com.android.ims.internal.IImsExternalCallStateListener;
-
 import android.os.RemoteException;
-import android.telephony.Rlog;
 import android.telephony.ims.ImsExternalCallState;
 import android.telephony.ims.ImsReasonInfo;
+
+import com.android.ims.internal.IImsExternalCallStateListener;
+import com.android.ims.internal.IImsMultiEndpoint;
+import com.android.telephony.Rlog;
 
 import java.util.List;
 
@@ -70,15 +70,10 @@ public class ImsMultiEndpoint {
     }
 
     public void setExternalCallStateListener(ImsExternalCallStateListener externalCallStateListener)
-            throws ImsException {
-        try {
-            if (DBG) Rlog.d(TAG, "setExternalCallStateListener");
-            mImsMultiendpoint.setListener(new ImsExternalCallStateListenerProxy(
-                    externalCallStateListener));
-        } catch (RemoteException e) {
-            throw new ImsException("setExternalCallStateListener could not be set.", e,
-                    ImsReasonInfo.CODE_LOCAL_IMS_SERVICE_DOWN);
-        }
+            throws RemoteException {
+        if (DBG) Rlog.d(TAG, "setExternalCallStateListener");
+        mImsMultiendpoint.setListener(externalCallStateListener != null ?
+                new ImsExternalCallStateListenerProxy(externalCallStateListener) : null);
     }
 
     public boolean isBinderAlive() {

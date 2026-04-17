@@ -23,6 +23,7 @@ import android.text.TextPaint;
  * The classes that affect character-level text formatting in a way that
  * changes the width or height of characters extend this class.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public abstract class MetricAffectingSpan
         extends CharacterStyle
         implements UpdateLayout {

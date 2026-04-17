@@ -16,6 +16,8 @@
 
 package android.util;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
  * Helper class for crating pools of objects. An example use looks like this:
  * <pre>
@@ -40,6 +42,7 @@ package android.util;
  *
  * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public final class Pools {
 
     /**
@@ -52,6 +55,7 @@ public final class Pools {
         /**
          * @return An instance from the pool if such, null otherwise.
          */
+        @UnsupportedAppUsage
         public T acquire();
 
         /**
@@ -62,6 +66,7 @@ public final class Pools {
          *
          * @throws IllegalStateException If the instance is already in the pool.
          */
+        @UnsupportedAppUsage
         public boolean release(T instance);
     }
 
@@ -75,6 +80,7 @@ public final class Pools {
      * @param <T> The pooled type.
      */
     public static class SimplePool<T> implements Pool<T> {
+        @UnsupportedAppUsage
         private final Object[] mPool;
 
         private int mPoolSize;
@@ -86,6 +92,7 @@ public final class Pools {
          *
          * @throws IllegalArgumentException If the max pool size is less than zero.
          */
+        @UnsupportedAppUsage
         public SimplePool(int maxPoolSize) {
             if (maxPoolSize <= 0) {
                 throw new IllegalArgumentException("The max pool size must be > 0");
@@ -95,6 +102,7 @@ public final class Pools {
 
         @Override
         @SuppressWarnings("unchecked")
+        @UnsupportedAppUsage
         public T acquire() {
             if (mPoolSize > 0) {
                 final int lastPooledIndex = mPoolSize - 1;
@@ -107,6 +115,7 @@ public final class Pools {
         }
 
         @Override
+        @UnsupportedAppUsage
         public boolean release(T instance) {
             if (isInPool(instance)) {
                 throw new IllegalStateException("Already in the pool!");
@@ -151,11 +160,13 @@ public final class Pools {
         }
 
         /** @see #SynchronizedPool(int, Object)  */
+        @UnsupportedAppUsage
         public SynchronizedPool(int maxPoolSize) {
             this(maxPoolSize, new Object());
         }
 
         @Override
+        @UnsupportedAppUsage
         public T acquire() {
             synchronized (mLock) {
                 return super.acquire();
@@ -163,6 +174,7 @@ public final class Pools {
         }
 
         @Override
+        @UnsupportedAppUsage
         public boolean release(T element) {
             synchronized (mLock) {
                 return super.release(element);

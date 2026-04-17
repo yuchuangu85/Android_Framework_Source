@@ -16,7 +16,11 @@
 
 package android.view;
 
+import static android.app.WindowConfiguration.ROTATION_UNDEFINED;
+
+import android.annotation.NonNull;
 import android.content.Context;
+import android.content.res.CompatibilityInfo;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -70,8 +74,8 @@ public abstract class OrientationEventListener {
         mRate = rate;
         mSensor = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         if (mSensor != null) {
-            // Create listener only if sensors do exist
-            mSensorEventListener = new SensorEventListenerImpl();
+            // Create listener only if sensors do exist.
+            mSensorEventListener = new CompatSensorEventListenerImpl(new SensorEventListenerImpl());
         }
     }
     
@@ -114,13 +118,13 @@ public abstract class OrientationEventListener {
         private static final int _DATA_X = 0;
         private static final int _DATA_Y = 1;
         private static final int _DATA_Z = 2;
-        
+
         public void onSensorChanged(SensorEvent event) {
             float[] values = event.values;
             int orientation = ORIENTATION_UNKNOWN;
             float X = -values[_DATA_X];
             float Y = -values[_DATA_Y];
-            float Z = -values[_DATA_Z];        
+            float Z = -values[_DATA_Z];
             float magnitude = X*X + Y*Y;
             // Don't trust the angle if the magnitude is small compared to the y value
             if (magnitude * 4 >= Z*Z) {
@@ -130,7 +134,7 @@ public abstract class OrientationEventListener {
                 // normalize to 0 - 359 range
                 while (orientation >= 360) {
                     orientation -= 360;
-                } 
+                }
                 while (orientation < 0) {
                     orientation += 360;
                 }
@@ -148,7 +152,48 @@ public abstract class OrientationEventListener {
 
         }
     }
-    
+
+    /** Decorator to the {@link SensorEventListenerImpl}, which provides compat values if needed. */
+    class CompatSensorEventListenerImpl implements SensorEventListener {
+        // SensorEventListener without compatibility capabilities.
+        final SensorEventListenerImpl mSensorEventListener;
+
+        CompatSensorEventListenerImpl(@NonNull SensorEventListenerImpl sensorEventListener) {
+            mSensorEventListener = sensorEventListener;
+        }
+
+        public void onSensorChanged(SensorEvent event) {
+            // If the display rotation override is set, the same override should be applied to
+            // this orientation too. This rotation override will only be set when an app has a
+            // camera open and it is in camera compat mode for desktop windowing (freeform mode).
+            // Values of this override is Surface.ROTATION_0/90/180/270, or
+            // WindowConfiguration.ROTATION_UNDEFINED when not set.
+            final int sandboxedDisplayRotation = CompatibilityInfo.getCameraCompatibilityInfo()
+                    .getDisplayRotationSandbox();
+            if (sandboxedDisplayRotation != ROTATION_UNDEFINED) {
+                // SensorEventListener reports the rotation in the opposite direction from the
+                // display rotation.
+                int orientation = (360 - sandboxedDisplayRotation * 90) % 360;
+                if (orientation != mOrientation) {
+                    mOrientation = orientation;
+                    onOrientationChanged(orientation);
+                }
+                // `mOldListener` is deprecated and returns 3D values, which are highly unlikely to
+                // be used for orienting camera image. Thus this listener is not called here, as
+                // opposed to extrapolating values from display rotation, from 1D->3D.
+            } else {
+                // Use the default implementation: calculate the orientation from event coordinates.
+                // This method will call OrientationEventListener.onOrientationChanged(orientation)
+                // if the orientation has changed.
+                mSensorEventListener.onSensorChanged(event);
+            }
+        }
+
+        public void onAccuracyChanged(Sensor sensor, int accuracy) {
+
+        }
+    }
+
     /*
      * Returns true if sensor is enabled and false otherwise
      */

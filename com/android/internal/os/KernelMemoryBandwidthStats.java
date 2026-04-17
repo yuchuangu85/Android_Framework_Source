@@ -23,7 +23,7 @@ import java.io.IOException;
  *
  * where time is measured in nanoseconds.
  */
-public class KernelMemoryBandwidthStats {
+public final class KernelMemoryBandwidthStats {
     private static final String TAG = "KernelMemoryBandwidthStats";
 
     private static final String mSysfsFile = "/sys/kernel/memory_state_time/show_stat";

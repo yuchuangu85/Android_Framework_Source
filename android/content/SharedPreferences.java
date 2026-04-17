@@ -17,6 +17,7 @@
 package android.content;
 
 import android.annotation.Nullable;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
 
 import java.util.Map;
 import java.util.Set;
@@ -30,10 +31,27 @@ import java.util.Set;
  * when they are committed to storage.  Objects that are returned from the
  * various <code>get</code> methods must be treated as immutable by the application.
  *
- * <p>Note: This class provides strong consistency guarantees. It is using expensive operations
- * which might slow down an app. Frequently changing properties or properties where loss can be
- * tolerated should use other mechanisms. For more details read the comments on
- * {@link Editor#commit()} and {@link Editor#apply()}.
+ * <p>SharedPreferences is best suited to storing data about how the user prefers
+ * to experience the app, for example, whether the user prefers a particular UI theme
+ * or whether they prefer viewing particular content in a list vs. a grid. To this end,
+ * SharedPreferences reflects changes {@link Editor#commit() committed} or
+ * {@link Editor#apply() applied} by {@link Editor}s <em>immediately</em>, potentially
+ * before those changes are durably persisted.
+ * Under some circumstances such as app crashes or termination these changes may be lost,
+ * even if an {@link OnSharedPreferenceChangeListener} reported the change was successful.
+ * SharedPreferences is not recommended for storing data that is sensitive to this
+ * kind of rollback to a prior state such as user security or privacy settings.
+ * For other high-level data persistence options, see
+ * <a href="https://d.android.com/room">Room</a> or
+ * <a href="https://d.android.com/datastore">DataStore</a>.
+ *
+ * <p><em>Note:</em> Common implementations guarantee that outstanding edits to preference
+ * files are persisted to disk when host Activities become stopped. In some situations
+ * (e.g. performing many {@link Editor#commit()} or {@link Editor#apply()}
+ * operations just prior to navigating away from the host Activity) this can lead
+ * to blocking the main thread during lifecycle transition events and associated
+ * ANR errors. For more details see the documentation for {@link Editor#commit()} and
+ * {@link Editor#apply()}.
  *
  * <p><em>Note: This class does not support use across multiple processes.</em>
  *
@@ -45,6 +63,7 @@ import java.util.Set;
  *
  * @see Context#getSharedPreferences
  */
+@RavenwoodKeepWholeClass
 public interface SharedPreferences {
     /**
      * Interface definition for a callback to be invoked when a shared
@@ -57,14 +76,20 @@ public interface SharedPreferences {
          *
          * <p>This callback will be run on your main thread.
          *
-         * @param sharedPreferences The {@link SharedPreferences} that received
-         *            the change.
-         * @param key The key of the preference that was changed, added, or
-         *            removed.
+         * <p><em>Note: This callback will not be triggered when preferences are cleared
+         * via {@link Editor#clear()}, unless targeting {@link android.os.Build.VERSION_CODES#R}
+         * on devices running OS versions {@link android.os.Build.VERSION_CODES#R Android R}
+         * or later.</em>
+         *
+         * @param sharedPreferences The {@link SharedPreferences} that received the change.
+         * @param key The key of the preference that was changed, added, or removed. Apps targeting
+         *            {@link android.os.Build.VERSION_CODES#R} on devices running OS versions
+         *            {@link android.os.Build.VERSION_CODES#R Android R} or later, will receive
+         *            a {@code null} value when preferences are cleared.
          */
-        void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key);
+        void onSharedPreferenceChanged(SharedPreferences sharedPreferences, @Nullable String key);
     }
-    
+
     /**
      * Interface used for modifying values in a {@link SharedPreferences}
      * object.  All changes you make in an editor are batched, and not copied
@@ -375,10 +400,10 @@ public interface SharedPreferences {
      * @see #unregisterOnSharedPreferenceChangeListener
      */
     void registerOnSharedPreferenceChangeListener(OnSharedPreferenceChangeListener listener);
-    
+
     /**
      * Unregisters a previous callback.
-     * 
+     *
      * @param listener The callback that should be unregistered.
      * @see #registerOnSharedPreferenceChangeListener
      */

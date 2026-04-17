@@ -28,8 +28,8 @@ import android.os.Parcelable;
  * Information about a Keyboard Shortcut.
  */
 public final class KeyboardShortcutInfo implements Parcelable {
-    private final CharSequence mLabel;
-    private final Icon mIcon;
+    @Nullable private final CharSequence mLabel;
+    @Nullable private Icon mIcon;
     private final char mBaseCharacter;
     private final int mKeycode;
     private final int mModifiers;
@@ -81,17 +81,34 @@ public final class KeyboardShortcutInfo implements Parcelable {
      *     {@link KeyEvent#META_SYM_ON}.
      */
     public KeyboardShortcutInfo(CharSequence label, char baseCharacter, int modifiers) {
+        this(label, null, baseCharacter, modifiers);
+    }
+
+    /**
+     * @param label The label that identifies the action performed by this shortcut.
+     * @param icon An icon that identifies the action performed by this shortcut.
+     * @param baseCharacter The character that triggers the shortcut.
+     * @param modifiers The set of modifiers that, combined with the key, trigger the shortcut.
+     *     These should be a combination of {@link KeyEvent#META_CTRL_ON},
+     *     {@link KeyEvent#META_SHIFT_ON}, {@link KeyEvent#META_META_ON},
+     *     {@link KeyEvent#META_ALT_ON}, {@link KeyEvent#META_FUNCTION_ON} and
+     *     {@link KeyEvent#META_SYM_ON}.
+     *
+     * @hide
+     */
+    public KeyboardShortcutInfo(
+            CharSequence label, @Nullable Icon icon, char baseCharacter, int modifiers) {
         mLabel = label;
         checkArgument(baseCharacter != MIN_VALUE);
         mBaseCharacter = baseCharacter;
         mKeycode = KeyEvent.KEYCODE_UNKNOWN;
         mModifiers = modifiers;
-        mIcon = null;
+        mIcon = icon;
     }
 
     private KeyboardShortcutInfo(Parcel source) {
         mLabel = source.readCharSequence();
-        mIcon = source.readParcelable(null);
+        mIcon = source.readParcelable(null, android.graphics.drawable.Icon.class);
         mBaseCharacter = (char) source.readInt();
         mKeycode = source.readInt();
         mModifiers = source.readInt();
@@ -113,6 +130,15 @@ public final class KeyboardShortcutInfo implements Parcelable {
     @Nullable
     public Icon getIcon() {
         return mIcon;
+    }
+
+    /**
+     * Removes an icon that was previously set.
+     *
+     * @hide
+     */
+    public void clearIcon() {
+        mIcon = null;
     }
 
     /**
@@ -156,7 +182,7 @@ public final class KeyboardShortcutInfo implements Parcelable {
         dest.writeInt(mModifiers);
     }
 
-    public static final Creator<KeyboardShortcutInfo> CREATOR =
+    public static final @android.annotation.NonNull Creator<KeyboardShortcutInfo> CREATOR =
             new Creator<KeyboardShortcutInfo>() {
         public KeyboardShortcutInfo createFromParcel(Parcel source) {
             return new KeyboardShortcutInfo(source);

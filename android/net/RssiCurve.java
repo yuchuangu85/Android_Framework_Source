@@ -16,6 +16,8 @@
 
 package android.net;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -48,8 +50,10 @@ import java.util.Objects;
  * the system.
  *
  * @see ScoredNetwork
+ * @deprecated as part of the {@link NetworkScoreManager} deprecation.
  * @hide
  */
+@Deprecated
 @SystemApi
 public class RssiCurve implements Parcelable {
     private static final int DEFAULT_ACTIVE_NETWORK_RSSI_BOOST = 25;
@@ -170,7 +174,7 @@ public class RssiCurve implements Parcelable {
      * not considered equal to each other.
      */
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 
@@ -187,6 +191,7 @@ public class RssiCurve implements Parcelable {
         return Objects.hash(start, bucketWidth, activeNetworkRssiBoost) ^ Arrays.hashCode(rssiBuckets);
     }
 
+    @NonNull
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -209,7 +214,7 @@ public class RssiCurve implements Parcelable {
         return sb.toString();
     }
 
-    public static final Creator<RssiCurve> CREATOR =
+    public static final @android.annotation.NonNull Creator<RssiCurve> CREATOR =
             new Creator<RssiCurve>() {
                 @Override
                 public RssiCurve createFromParcel(Parcel in) {

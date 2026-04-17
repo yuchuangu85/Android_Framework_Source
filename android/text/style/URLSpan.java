@@ -41,6 +41,7 @@ import android.view.View;
  * <img src="{@docRoot}reference/android/images/text/style/urlspan.png" />
  * <figcaption>Text with <code>URLSpan</code>.</figcaption>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class URLSpan extends ClickableSpan implements ParcelableSpan {
 
     private final String mURL;
@@ -106,7 +107,12 @@ public class URLSpan extends ClickableSpan implements ParcelableSpan {
         try {
             context.startActivity(intent);
         } catch (ActivityNotFoundException e) {
-            Log.w("URLSpan", "Actvity was not found for intent, " + intent.toString());
+            Log.w("URLSpan", "Activity was not found for intent, " + intent.toString());
         }
+    }
+
+    @Override
+    public String toString() {
+        return "URLSpan{" + "URL='" + getURL() + '\'' + '}';
     }
 }

@@ -24,6 +24,7 @@ import java.io.IOException;
  * Utility methods for Backup/Restore
  * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class BackupUtils {
 
     public static final int NULL = 0;
@@ -36,6 +37,10 @@ public class BackupUtils {
     public static class BadVersionException extends Exception {
         public BadVersionException(String message) {
             super(message);
+        }
+
+        public BadVersionException(String message, Throwable throwable) {
+            super(message, throwable);
         }
     }
 

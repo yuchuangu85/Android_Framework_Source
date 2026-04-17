@@ -15,7 +15,9 @@
  */
 package com.android.internal.view;
 
+import android.annotation.Nullable;
 import android.view.InputQueue;
+import android.view.PendingInsetsController;
 import android.view.SurfaceHolder;
 
 /** hahahah */
@@ -26,4 +28,5 @@ public interface RootViewSurfaceTaker {
     void setSurfaceKeepScreenOn(boolean keepOn);
     InputQueue.Callback willYouTakeTheInputQueue();
     void onRootViewScrollYChanged(int scrollY);
+    @Nullable PendingInsetsController providePendingInsetsController();
 }

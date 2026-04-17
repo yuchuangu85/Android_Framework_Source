@@ -25,6 +25,10 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.util.Pair;
 
+import com.android.modules.utils.build.SdkLevel;
+
+import org.xml.sax.SAXException;
+
 import java.io.IOException;
 import java.text.DateFormat;
 import java.text.ParseException;
@@ -35,8 +39,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import org.xml.sax.SAXException;
 
 /**
  * Utility class for converting OMA-DM (Open Mobile Alliance's Device Management)
@@ -136,7 +138,7 @@ public final class PpsMoParser {
     private static final String NODE_UPDATE_IDENTIFIER = "UpdateIdentifier";
     private static final String NODE_AAA_SERVER_TRUST_ROOT = "AAAServerTrustRoot";
     private static final String NODE_SUBSCRIPTION_UPDATE = "SubscriptionUpdate";
-    private static final String NODE_SUBSCRIPTION_PARAMETER = "SubscriptionParameter";
+    private static final String NODE_SUBSCRIPTION_PARAMETER = "SubscriptionParameters";
     private static final String NODE_TYPE_OF_SUBSCRIPTION = "TypeOfSubscription";
     private static final String NODE_USAGE_LIMITS = "UsageLimits";
     private static final String NODE_DATA_LIMIT = "DataLimit";
@@ -145,6 +147,51 @@ public final class PpsMoParser {
     private static final String NODE_USAGE_TIME_PERIOD = "UsageTimePeriod";
     private static final String NODE_CREDENTIAL_PRIORITY = "CredentialPriority";
     private static final String NODE_EXTENSION = "Extension";
+
+    /**
+     * Fields under Extension/Android subtree.
+     */
+    /*
+     * This node is used to put Android specific extension nodes and must be put
+     * under "Extension" node. Nodes with unknown names are allowed under this subtree.
+     * If there is any new node added in later release, it won't break older release parsing.
+     * <p>
+     * Ex:
+     * <Node>
+     *   <NodeName>Extension</NodeName>
+     *   <Node>
+     *     <NodeName>Android</NodeName>
+     *     <Node>
+     *       <NodeName>AndroidSpecificAttribute</NodeName>
+     *       <Value>AndroidSpecificValue</Value>
+     *     </Node>
+     *     <Node>
+     *       <NodeName>AndroidSpecificAttribute2</NodeName>
+     *       <Value>AndroidSpecificValue2</Value>
+     *     </Node>
+     *   </Node>
+     * </Node>
+     */
+    private static final String NODE_VENDOR_ANDROID = "Android";
+    /*
+     * This node describes AAA server trusted names. The trusted name must be put in
+     * a leaf named "FQDN". More than one trusted names can be provided by using
+     * semicolons to separate the strings (e.g., example.org;example.com).
+     * <p>
+     * Ex:
+     * <Node>
+     *   <NodeName>AAAServerTrustedNames</NodeName>
+     *   <Node>
+     *     <NodeName>FQDN</NodeName>
+     *     <Value>trusted.com;auth.net</Value>
+     *  </Node>
+     * <Node>
+     */
+    private static final String NODE_AAA_SERVER_TRUSTED_NAMES = "AAAServerTrustedNames";
+
+    private static final String NODE_VENDOR_WBA = "WBA";
+    private static final String NODE_EXTENSION_NAI = "NAI";
+    private static final String NODE_DECORATED_IDENTITY_PREFIX = "DecoratedPrefix";
 
     /**
      * Fields under HomeSP subtree.
@@ -344,9 +391,11 @@ public final class PpsMoParser {
         try {
             root = xmlParser.parse(xmlString);
         } catch(IOException | SAXException e) {
+            Log.e(TAG, "Failed to parse XML input");
             return null;
         }
         if (root == null) {
+            Log.e(TAG, "Root is not available");
             return null;
         }
 
@@ -375,7 +424,7 @@ public final class PpsMoParser {
                     try {
                         config = parsePpsNode(child);
                     } catch (ParsingException e) {
-                        Log.e(TAG, e.getMessage());
+                        Log.e(TAG, e.getMessage(), e);
                         return null;
                     }
                     break;
@@ -633,7 +682,7 @@ public final class PpsMoParser {
                     break;
                 case NODE_EXTENSION:
                     // All vendor specific information will be under this node.
-                    Log.d(TAG, "Ignore Extension node for vendor specific information");
+                    parseExtension(child, config);
                     break;
                 default:
                     throw new ParsingException("Unknown node: " + child.getName());
@@ -896,7 +945,7 @@ public final class PpsMoParser {
      */
     private static Credential parseCredential(PPSNode node) throws ParsingException {
         if (node.isLeaf()) {
-            throw new ParsingException("Leaf node not expected for HomeSP");
+            throw new ParsingException("Leaf node not expected for Credential");
         }
 
         Credential credential = new Credential();
@@ -968,8 +1017,8 @@ public final class PpsMoParser {
                     parseEAPMethod(child, userCred);
                     break;
                 default:
-                    throw new ParsingException("Unknown node under UsernamPassword: " +
-                            child.getName());
+                    throw new ParsingException("Unknown node under UsernamePassword: "
+                            + child.getName());
             }
         }
         return userCred;
@@ -1024,7 +1073,7 @@ public final class PpsMoParser {
     private static Credential.CertificateCredential parseCertificateCredential(PPSNode node)
             throws ParsingException {
         if (node.isLeaf()) {
-            throw new ParsingException("Leaf node not expected for DigitalCertificate");
+            throw new ParsingException("Leaf node not expected for CertificateCredential");
         }
 
         Credential.CertificateCredential certCred = new Credential.CertificateCredential();
@@ -1037,8 +1086,8 @@ public final class PpsMoParser {
                     certCred.setCertSha256Fingerprint(parseHexString(getPpsNodeValue(child)));
                     break;
                 default:
-                    throw new ParsingException("Unknown node under DigitalCertificate: " +
-                            child.getName());
+                    throw new ParsingException("Unknown node under CertificateCredential: "
+                            + child.getName());
             }
         }
         return certCred;
@@ -1055,7 +1104,7 @@ public final class PpsMoParser {
     private static Credential.SimCredential parseSimCredential(PPSNode node)
             throws ParsingException {
         if (node.isLeaf()) {
-            throw new ParsingException("Leaf node not expected for SIM");
+            throw new ParsingException("Leaf node not expected for SimCredential");
         }
 
         Credential.SimCredential simCred = new Credential.SimCredential();
@@ -1068,7 +1117,8 @@ public final class PpsMoParser {
                     simCred.setEapType(parseInteger(getPpsNodeValue(child)));
                     break;
                 default:
-                    throw new ParsingException("Unknown node under SIM: " + child.getName());
+                    throw new ParsingException("Unknown node under SimCredential: "
+                            + child.getName());
             }
         }
         return simCred;
@@ -1572,6 +1622,171 @@ public final class PpsMoParser {
     }
 
     /**
+     * Parse configurations under PerProviderSubscription/Extension/Android/AAAServerTrustedNames
+     * subtree.
+     *
+     * @param node PPSNode representing the root of the
+     *             PerProviderSubscription/Extension/Android/AAAServerTrustedNames subtree
+     * @return String[] list of trusted name
+     * @throws ParsingException
+     */
+    private static String[] parseAaaServerTrustedNames(PPSNode node) throws ParsingException {
+        if (node.isLeaf()) {
+            throw new ParsingException("Leaf node not expected for AAAServerTrustedNames instance");
+        }
+        String fqdnListStr = null;
+        String[] fqdnListArray = null;
+        for (PPSNode child : node.getChildren()) {
+            switch (child.getName()) {
+                case NODE_FQDN:
+                    fqdnListStr = getPpsNodeValue(child);
+                    fqdnListArray = fqdnListStr.split(";");
+                    break;
+                default:
+                    throw new ParsingException(
+                            "Unknown node under AAAServerTrustedNames instance: "
+                            + child.getName());
+            }
+        }
+        if (fqdnListArray == null) {
+            throw new ParsingException("AAAServerTrustedNames instance missing FQDN field");
+        }
+
+        return fqdnListArray;
+    }
+
+    /**
+     * Parse configurations under PerProviderSubscription/Extension/Android/NAI
+     * subtree.
+     *
+     * @param node PPSNode representing the root of the
+     *             PerProviderSubscription/Extension/Android/NAI subtree
+     * @throws ParsingException
+     */
+    private static void parseVendorWbaExtensionNai(PPSNode node,
+            PasspointConfiguration config) throws ParsingException {
+        if (node.isLeaf()) {
+            throw new ParsingException("Leaf node not expected for NAI instance");
+        }
+        for (PPSNode child : node.getChildren()) {
+            switch (child.getName()) {
+                case NODE_DECORATED_IDENTITY_PREFIX:
+                    if (SdkLevel.isAtLeastS()) {
+                        config.setDecoratedIdentityPrefix(parseDecoratedIdentityPrefix(child));
+                    }
+                    break;
+                default:
+                    Log.w(TAG, "Unknown node under NAI instance: " + child.getName());
+                    break;
+            }
+        }
+    }
+
+    /**
+     * Parse configurations under PerProviderSubscription/Extension/Android/NAI/DecoratedPrefix
+     * leaf. This leaf node must contain a list of realms (could be a list of 1) delimited by a '!'
+     * character. e.g. homerealm.example.org! or proxyrealm.example.net!homerealm.example.org!
+     * as per RFC 7542.
+     *
+     * @param node PPSNode representing the root of the
+     *             PerProviderSubscription/Extension/Android/NAI/DecoratedPrefix leaf
+     * @return Decorated identity prefix
+     * @throws ParsingException
+     */
+    private static String parseDecoratedIdentityPrefix(PPSNode node) throws ParsingException {
+        if (!node.isLeaf()) {
+            throw new ParsingException("Leaf node expected for " + NODE_DECORATED_IDENTITY_PREFIX);
+        }
+        String decoratedIdentityPrefix = getPpsNodeValue(node);
+
+        if (TextUtils.isEmpty(decoratedIdentityPrefix) || !decoratedIdentityPrefix.endsWith("!")) {
+            throw new ParsingException("Invalid value for node " + NODE_DECORATED_IDENTITY_PREFIX);
+        }
+
+        return decoratedIdentityPrefix;
+    }
+
+    /**
+     * Parse configurations under PerProviderSubscription/Extension/Android subtree.
+     *
+     * @param node PPSNode representing the root of PerProviderSubscription/Extension
+     *             subtree
+     * @param config Instance of {@link PasspointConfiguration}
+     * @throws ParsingException
+     */
+    private static void parseVendorAndroidExtension(PPSNode node, PasspointConfiguration config)
+            throws ParsingException {
+        if (node.isLeaf()) {
+            throw new ParsingException("Leaf node not expected for AndroidExtension");
+        }
+        for (PPSNode child : node.getChildren()) {
+            switch (child.getName()) {
+                case NODE_AAA_SERVER_TRUSTED_NAMES:
+                    config.setAaaServerTrustedNames(parseAaaServerTrustedNames(child));
+                    break;
+                default:
+                    // Don't raise an exception for unknown nodes to avoid breaking old release
+                    Log.w(TAG, "Unknown node under Android Extension: " + child.getName());
+            }
+        }
+    }
+
+    /**
+     * Parse configurations under PerProviderSubscription/Extension/WBA subtree.
+     *
+     * @param node PPSNode representing the root of PerProviderSubscription/Extension
+     *             subtree
+     * @param config Instance of {@link PasspointConfiguration}
+     * @throws ParsingException
+     */
+    private static void parseVendorWbaExtension(PPSNode node, PasspointConfiguration config)
+            throws ParsingException {
+        if (node.isLeaf()) {
+            throw new ParsingException("Leaf node not expected for WBA Extension");
+        }
+        for (PPSNode child : node.getChildren()) {
+            switch (child.getName()) {
+                case NODE_EXTENSION_NAI:
+                    parseVendorWbaExtensionNai(child, config);
+                    break;
+                default:
+                    // Don't raise an exception for unknown nodes
+                    Log.w(TAG, "Unknown node under WBA Extension: " + child.getName());
+            }
+        }
+    }
+
+    /**
+     * Parse configurations under PerProviderSubscription/Extension subtree.
+     *
+     * @param node PPSNode representing the root of PerProviderSubscription/Extension
+     *             subtree
+     * @param config Instance of {@link PasspointConfiguration}
+     * @throws ParsingException
+     */
+    private static void parseExtension(PPSNode node, PasspointConfiguration config)
+            throws ParsingException {
+        if (node.isLeaf()) {
+            throw new ParsingException("Leaf node not expected for Extension");
+        }
+        for (PPSNode child : node.getChildren()) {
+            switch (child.getName()) {
+                case NODE_VENDOR_ANDROID:
+                    parseVendorAndroidExtension(child, config);
+                    break;
+                case NODE_VENDOR_WBA:
+                    parseVendorWbaExtension(child, config);
+                    break;
+                default:
+                    // Unknown nodes under Extension won't raise exception.
+                    // This allows adding new nodes in the future and
+                    // won't break older release.
+                    Log.w(TAG, "Unknown node under Extension: " + child.getName());
+            }
+        }
+    }
+
+    /**
      * Convert a hex string to a byte array.
      *
      * @param str String containing hex values
@@ -1580,7 +1795,8 @@ public final class PpsMoParser {
      */
     private static byte[] parseHexString(String str) throws ParsingException {
         if ((str.length() & 1) == 1) {
-            throw new ParsingException("Odd length hex string: " + str.length());
+            throw new ParsingException("Odd length hex string: " + str + ", length: "
+                    + str.length());
         }
 
         byte[] result = new byte[str.length() / 2];

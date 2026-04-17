@@ -21,6 +21,7 @@ package android.text;
  * into a new Spanned when performing a slice or copy operation on the original
  * Spanned it was placed in.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface NoCopySpan {
     /**
      * Convenience equivalent for when you would just want a new Object() for

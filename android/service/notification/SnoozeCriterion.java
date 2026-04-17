@@ -15,8 +15,8 @@
  */
 package android.service.notification;
 
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
-import android.annotation.TestApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -26,7 +26,6 @@ import android.os.Parcelable;
  * @hide
  */
 @SystemApi
-@TestApi
 public final class SnoozeCriterion implements Parcelable {
     private final String mId;
     private final CharSequence mExplanation;
@@ -78,7 +77,7 @@ public final class SnoozeCriterion implements Parcelable {
         return mConfirmation;
     }
 
-    public static final Creator<SnoozeCriterion> CREATOR = new Creator<SnoozeCriterion>() {
+    public static final @android.annotation.NonNull Creator<SnoozeCriterion> CREATOR = new Creator<SnoozeCriterion>() {
         @Override
         public SnoozeCriterion createFromParcel(Parcel in) {
             return new SnoozeCriterion(in);
@@ -118,7 +117,7 @@ public final class SnoozeCriterion implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 

@@ -19,6 +19,7 @@ package android.database.sqlite;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.database.DatabaseErrorHandler;
 import android.database.SQLException;
@@ -26,9 +27,9 @@ import android.database.sqlite.SQLiteDatabase.CursorFactory;
 import android.os.FileUtils;
 import android.util.Log;
 
-import com.android.internal.util.Preconditions;
-
 import java.io.File;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * A helper class to manage database creation and version management.
@@ -47,11 +48,22 @@ import java.io.File;
  *
  * <p class="note"><strong>Note:</strong> this class assumes
  * monotonically increasing version numbers for upgrades.</p>
+ *
+ * <p class="note"><strong>Note:</strong> the {@link AutoCloseable} interface was
+ * first added in the {@link android.os.Build.VERSION_CODES#Q} release.</p>
  */
-public abstract class SQLiteOpenHelper {
+public abstract class SQLiteOpenHelper implements AutoCloseable {
     private static final String TAG = SQLiteOpenHelper.class.getSimpleName();
 
+    // Every database file has a lock, saved in this map.  The lock is held while the database is
+    // opened.
+    private static final ConcurrentHashMap<String, Object> sDbLock = new ConcurrentHashMap<>();
+
+    // The lock that this open helper instance must hold when the database is opened.
+    private final Object mLock;
+
     private final Context mContext;
+    @UnsupportedAppUsage
     private final String mName;
     private final int mNewVersion;
     private final int mMinimumSupportedVersion;
@@ -156,7 +168,7 @@ public abstract class SQLiteOpenHelper {
     private SQLiteOpenHelper(@Nullable Context context, @Nullable String name, int version,
             int minimumSupportedVersion,
             @NonNull SQLiteDatabase.OpenParams.Builder openParamsBuilder) {
-        Preconditions.checkNotNull(openParamsBuilder);
+        Objects.requireNonNull(openParamsBuilder);
         if (version < 1) throw new IllegalArgumentException("Version must be >= 1, was " + version);
 
         mContext = context;
@@ -164,6 +176,14 @@ public abstract class SQLiteOpenHelper {
         mNewVersion = version;
         mMinimumSupportedVersion = Math.max(0, minimumSupportedVersion);
         setOpenParamsBuilder(openParamsBuilder);
+
+        Object lock = null;
+        if (mName == null) {
+            lock = new Object();
+        } else {
+            lock = sDbLock.computeIfAbsent(mName, (String k) -> new Object());
+        }
+        mLock = lock;
     }
 
     /**
@@ -197,8 +217,9 @@ public abstract class SQLiteOpenHelper {
                 }
                 mOpenParamsBuilder.setWriteAheadLoggingEnabled(enabled);
             }
+
             // Compatibility WAL is disabled if an app disables or enables WAL
-            mOpenParamsBuilder.addOpenFlags(SQLiteDatabase.DISABLE_COMPATIBILITY_WAL);
+            mOpenParamsBuilder.removeOpenFlags(SQLiteDatabase.ENABLE_LEGACY_COMPATIBILITY_WAL);
         }
     }
 
@@ -239,7 +260,7 @@ public abstract class SQLiteOpenHelper {
      * @throws IllegalStateException if the database is already open
      */
     public void setOpenParams(@NonNull SQLiteDatabase.OpenParams openParams) {
-        Preconditions.checkNotNull(openParams);
+        Objects.requireNonNull(openParams);
         synchronized (this) {
             if (mDatabase != null && mDatabase.isOpen()) {
                 throw new IllegalStateException(
@@ -261,9 +282,22 @@ public abstract class SQLiteOpenHelper {
      * <p>This method should be called from the constructor of the subclass,
      * before opening the database
      *
+     * <p><b>DO NOT USE</b> this method.
+     * This feature has negative side effects that are very hard to foresee.
+     * See the javadoc of
+     * {@link SQLiteDatabase.OpenParams.Builder#setIdleConnectionTimeout(long)}
+     * for the details.
+     *
      * @param idleConnectionTimeoutMs timeout in milliseconds. Use {@link Long#MAX_VALUE} value
      * to allow unlimited idle connections.
+     *
+     * @see SQLiteDatabase.OpenParams.Builder#setIdleConnectionTimeout(long)
+     *
+     * @deprecated DO NOT USE this method. See the javadoc of
+     * {@link SQLiteDatabase.OpenParams.Builder#setIdleConnectionTimeout(long)}
+     * for the details.
      */
+    @Deprecated
     public void setIdleConnectionTimeout(@IntRange(from = 0) final long idleConnectionTimeoutMs) {
         synchronized (this) {
             if (mDatabase != null && mDatabase.isOpen()) {
@@ -340,80 +374,77 @@ public abstract class SQLiteOpenHelper {
 
         SQLiteDatabase db = mDatabase;
         try {
-            mIsInitializing = true;
+            synchronized (mLock) {
+                mIsInitializing = true;
 
-            if (db != null) {
-                if (writable && db.isReadOnly()) {
-                    db.reopenReadWrite();
-                }
-            } else if (mName == null) {
-                db = SQLiteDatabase.createInMemory(mOpenParamsBuilder.build());
-            } else {
-                final File filePath = mContext.getDatabasePath(mName);
-                SQLiteDatabase.OpenParams params = mOpenParamsBuilder.build();
-                try {
-                    db = SQLiteDatabase.openDatabase(filePath, params);
-                    // Keep pre-O-MR1 behavior by resetting file permissions to 660
-                    setFilePermissionsForDb(filePath.getPath());
-                } catch (SQLException ex) {
-                    if (writable) {
-                        throw ex;
+                if (db != null) {
+                    if (writable && db.isReadOnly()) {
+                        db.reopenReadWrite();
                     }
-                    Log.e(TAG, "Couldn't open " + mName
-                            + " for writing (will try read-only):", ex);
-                    params = params.toBuilder().addOpenFlags(SQLiteDatabase.OPEN_READONLY).build();
-                    db = SQLiteDatabase.openDatabase(filePath, params);
-                }
-            }
-
-            onConfigure(db);
-
-            final int version = db.getVersion();
-            if (version != mNewVersion) {
-                if (db.isReadOnly()) {
-                    throw new SQLiteException("Can't upgrade read-only database from version " +
-                            db.getVersion() + " to " + mNewVersion + ": " + mName);
-                }
-
-                if (version > 0 && version < mMinimumSupportedVersion) {
-                    File databaseFile = new File(db.getPath());
-                    onBeforeDelete(db);
-                    db.close();
-                    if (SQLiteDatabase.deleteDatabase(databaseFile)) {
-                        mIsInitializing = false;
-                        return getDatabaseLocked(writable);
-                    } else {
-                        throw new IllegalStateException("Unable to delete obsolete database "
-                                + mName + " with version " + version);
-                    }
+                } else if (mName == null) {
+                    db = SQLiteDatabase.createInMemory(mOpenParamsBuilder.build());
                 } else {
-                    db.beginTransaction();
+                    final File filePath = mContext.getDatabasePath(mName);
+                    SQLiteDatabase.OpenParams params = mOpenParamsBuilder.build();
                     try {
-                        if (version == 0) {
-                            onCreate(db);
-                        } else {
-                            if (version > mNewVersion) {
-                                onDowngrade(db, version, mNewVersion);
-                            } else {
-                                onUpgrade(db, version, mNewVersion);
-                            }
+                        db = SQLiteDatabase.openDatabase(filePath, params);
+                        // Keep pre-O-MR1 behavior by resetting file permissions to 660
+                        setFilePermissionsForDb(filePath.getPath());
+                    } catch (SQLException ex) {
+                        if (writable) {
+                            throw ex;
                         }
-                        db.setVersion(mNewVersion);
-                        db.setTransactionSuccessful();
-                    } finally {
-                        db.endTransaction();
+                        Log.e(TAG, "Couldn't open database for writing (will try read-only):", ex);
+                        params = params.toBuilder()
+                                 .addOpenFlags(SQLiteDatabase.OPEN_READONLY).build();
+                        db = SQLiteDatabase.openDatabase(filePath, params);
                     }
                 }
+
+                onConfigure(db);
+
+                final int version = db.getVersion();
+                if (version != mNewVersion) {
+                    if (db.isReadOnly()) {
+                        throw new SQLiteException("Can't upgrade read-only database from version "
+                                + db.getVersion() + " to " + mNewVersion + ": " + mName);
+                    }
+
+                    if (version > 0 && version < mMinimumSupportedVersion) {
+                        File databaseFile = new File(db.getPath());
+                        onBeforeDelete(db);
+                        db.close();
+                        if (SQLiteDatabase.deleteDatabase(databaseFile)) {
+                            mIsInitializing = false;
+                            return getDatabaseLocked(writable);
+                        } else {
+                            throw new IllegalStateException("Unable to delete obsolete database "
+                                    + mName + " with version " + version);
+                        }
+                    } else {
+                        db.beginTransaction();
+                        try {
+                            if (version == 0) {
+                                onCreate(db);
+                            } else {
+                                if (version > mNewVersion) {
+                                    onDowngrade(db, version, mNewVersion);
+                                } else {
+                                    onUpgrade(db, version, mNewVersion);
+                                }
+                            }
+                            db.setVersion(mNewVersion);
+                            db.setTransactionSuccessful();
+                        } finally {
+                            db.endTransaction();
+                        }
+                    }
+                }
+
+                onOpen(db);
+                mDatabase = db;
+                return db;
             }
-
-            onOpen(db);
-
-            if (db.isReadOnly()) {
-                Log.w(TAG, "Opened " + mName + " in read-only mode");
-            }
-
-            mDatabase = db;
-            return db;
         } finally {
             mIsInitializing = false;
             if (db != null && db != mDatabase) {
@@ -495,6 +526,19 @@ public abstract class SQLiteOpenHelper {
      * This method executes within a transaction.  If an exception is thrown, all changes
      * will automatically be rolled back.
      * </p>
+     * <p>
+     * <em>Important:</em> You should NOT modify an existing migration step from version X to X+1
+     * once a build has been released containing that migration step.  If a migration step has an
+     * error and it runs on a device, the step will NOT re-run itself in the future if a fix is made
+     * to the migration step.</p>
+     * <p>For example, suppose a migration step renames a database column from {@code foo} to
+     * {@code bar} when the name should have been {@code baz}.  If that migration step is released
+     * in a build and runs on a user's device, the column will be renamed to {@code bar}.  If the
+     * developer subsequently edits this same migration step to change the name to {@code baz} as
+     * intended, the user devices which have already run this step will still have the name
+     * {@code bar}.  Instead, a NEW migration step should be created to correct the error and rename
+     * {@code bar} to {@code baz}, ensuring the error is corrected on devices which have already run
+     * the migration step with the error.</p>
      *
      * @param db The database.
      * @param oldVersion The old database version.

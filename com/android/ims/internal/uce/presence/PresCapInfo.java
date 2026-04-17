@@ -16,22 +16,26 @@
 
 package com.android.ims.internal.uce.presence;
 
-import com.android.ims.internal.uce.common.CapInfo;
-
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import com.android.ims.internal.uce.common.CapInfo;
 
 
 /** @hide */
 public class PresCapInfo implements Parcelable {
 
     private CapInfo mCapInfo;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private String mContactUri = "";
 
     /**
      * Gets the UCE capability information.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public CapInfo getCapInfo() {
         return mCapInfo;
     }
@@ -48,6 +52,7 @@ public class PresCapInfo implements Parcelable {
      *  Gets the contact URI.
      *  @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public String getContactUri() {
         return mContactUri;
     }
@@ -100,6 +105,6 @@ public class PresCapInfo implements Parcelable {
     /** @hide */
     public void readFromParcel(Parcel source) {
         mContactUri = source.readString();
-        mCapInfo = source.readParcelable(CapInfo.class.getClassLoader());
+        mCapInfo = source.readParcelable(CapInfo.class.getClassLoader(), com.android.ims.internal.uce.common.CapInfo.class);
     }
 }

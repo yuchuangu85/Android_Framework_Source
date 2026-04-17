@@ -23,7 +23,10 @@ import android.view.Choreographer;
  * Provider of timing pulse that uses SurfaceFlinger Vsync Choreographer for frame callbacks.
  *
  * @hide
+ * @deprecated See b/222698397 - use vsync IDs instead.
  */
+// TODO(b/222698397): remove getSfInstance/this class usage and use vsyncId for transactions
+@Deprecated
 public final class SfVsyncFrameCallbackProvider implements AnimationFrameCallbackProvider {
 
     private final Choreographer mChoreographer;
@@ -39,16 +42,6 @@ public final class SfVsyncFrameCallbackProvider implements AnimationFrameCallbac
     @Override
     public void postFrameCallback(Choreographer.FrameCallback callback) {
         mChoreographer.postFrameCallback(callback);
-    }
-
-    @Override
-    public void postCommitCallback(Runnable runnable) {
-        mChoreographer.postCallback(Choreographer.CALLBACK_COMMIT, runnable, null);
-    }
-
-    @Override
-    public long getFrameTime() {
-        return mChoreographer.getFrameTime();
     }
 
     @Override

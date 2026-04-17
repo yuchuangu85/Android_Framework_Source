@@ -16,10 +16,15 @@
 
 package android.net;
 
-import static android.os.UserHandle.PER_USER_RANGE;
-
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.UserHandle;
+import android.util.ArraySet;
+import android.util.Range;
+
+import java.util.Collection;
+import java.util.Set;
 
 /**
  * An inclusive range of UIDs.
@@ -38,14 +43,25 @@ public final class UidRange implements Parcelable {
         stop  = stopUid;
     }
 
-    public static UidRange createForUser(int userId) {
-        return new UidRange(userId * PER_USER_RANGE, (userId + 1) * PER_USER_RANGE - 1);
+    /** Creates a UidRange for the specified user. */
+    public static UidRange createForUser(UserHandle user) {
+        final UserHandle nextUser = UserHandle.of(user.getIdentifier() + 1);
+        final int start = user.getUid(0 /* appId */);
+        final int end = nextUser.getUid(0 /* appId */) - 1;
+        return new UidRange(start, end);
     }
 
+    /** Returns the smallest user Id which is contained in this UidRange */
     public int getStartUser() {
-        return start / PER_USER_RANGE;
+        return UserHandle.getUserHandleForUid(start).getIdentifier();
     }
 
+    /** Returns the largest user Id which is contained in this UidRange */
+    public int getEndUser() {
+        return UserHandle.getUserHandleForUid(stop).getIdentifier();
+    }
+
+    /** Returns whether the UidRange contains the specified UID. */
     public boolean contains(int uid) {
         return start <= uid && uid <= stop;
     }
@@ -58,7 +74,7 @@ public final class UidRange implements Parcelable {
     }
 
     /**
-     * @return {@code true} if this range contains every UID contained by the {@param other} range.
+     * @return {@code true} if this range contains every UID contained by the {@code other} range.
      */
     public boolean containsRange(UidRange other) {
         return start <= other.start && other.stop <= stop;
@@ -73,7 +89,7 @@ public final class UidRange implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) {
             return true;
         }
@@ -89,7 +105,9 @@ public final class UidRange implements Parcelable {
         return start + "-" + stop;
     }
 
-    // implement the Parcelable interface
+    // Implement the Parcelable interface
+    // TODO: Consider making this class no longer parcelable, since all users are likely in the
+    // system server.
     @Override
     public int describeContents() {
         return 0;
@@ -101,18 +119,85 @@ public final class UidRange implements Parcelable {
         dest.writeInt(stop);
     }
 
-    public static final Creator<UidRange> CREATOR =
-        new Creator<UidRange>() {
-            @Override
-            public UidRange createFromParcel(Parcel in) {
-                int start = in.readInt();
-                int stop = in.readInt();
+    public static final @android.annotation.NonNull Creator<UidRange> CREATOR =
+            new Creator<UidRange>() {
+        @Override
+        public UidRange createFromParcel(Parcel in) {
+            int start = in.readInt();
+            int stop = in.readInt();
 
-                return new UidRange(start, stop);
-            }
-            @Override
-            public UidRange[] newArray(int size) {
-                return new UidRange[size];
-            }
+            return new UidRange(start, stop);
+        }
+        @Override
+        public UidRange[] newArray(int size) {
+            return new UidRange[size];
+        }
     };
+
+    /**
+     * Returns whether any of the UidRange in the collection contains the specified uid
+     *
+     * @param ranges The collection of UidRange to check
+     * @param uid the uid in question
+     * @return {@code true} if the uid is contained within the ranges, {@code false} otherwise
+     *
+     * @see UidRange#contains(int)
+     */
+    public static boolean containsUid(Collection<UidRange> ranges, int uid) {
+        if (ranges == null) return false;
+        for (UidRange range : ranges) {
+            if (range.contains(uid)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     *  Convert a set of {@code Range<Integer>} to a set of {@link UidRange}.
+     */
+    @Nullable
+    public static ArraySet<UidRange> fromIntRanges(@Nullable Set<Range<Integer>> ranges) {
+        if (null == ranges) return null;
+
+        final ArraySet<UidRange> uids = new ArraySet<>();
+        for (Range<Integer> range : ranges) {
+            uids.add(new UidRange(range.getLower(), range.getUpper()));
+        }
+        return uids;
+    }
+
+    /**
+     *  Convert a set of {@link UidRange} to a set of {@code Range<Integer>}.
+     */
+    @Nullable
+    public static ArraySet<Range<Integer>> toIntRanges(@Nullable Set<UidRange> ranges) {
+        if (null == ranges) return null;
+
+        final ArraySet<Range<Integer>> uids = new ArraySet<>();
+        for (UidRange range : ranges) {
+            uids.add(new Range<Integer>(range.start, range.stop));
+        }
+        return uids;
+    }
+
+    /**
+     * Compare if the given UID range sets have the same UIDs.
+     *
+     * @hide
+     */
+    public static boolean hasSameUids(@Nullable Set<UidRange> uids1,
+            @Nullable Set<UidRange> uids2) {
+        if (null == uids1) return null == uids2;
+        if (null == uids2) return false;
+        // Make a copy so it can be mutated to check that all ranges in uids2 also are in uids.
+        final Set<UidRange> remainingUids = new ArraySet<>(uids2);
+        for (UidRange range : uids1) {
+            if (!remainingUids.contains(range)) {
+                return false;
+            }
+            remainingUids.remove(range);
+        }
+        return remainingUids.isEmpty();
+    }
 }

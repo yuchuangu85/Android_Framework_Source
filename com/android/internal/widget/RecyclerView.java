@@ -20,6 +20,7 @@ import android.annotation.CallSuper;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.database.Observable;
@@ -585,6 +586,10 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
         } else {
             setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
         }
+
+        TypedArray a = context.obtainStyledAttributes(attrs,
+                com.android.internal.R.styleable.EdgeEffect);
+        a.recycle();
 
         // Re-set whether nested scrolling is enabled so that it is set on all API levels
         setNestedScrollingEnabled(nestedScrollingEnabled);
@@ -1294,7 +1299,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
      * Recycled view pools allow multiple RecyclerViews to share a common pool of scrap views.
      * This can be useful if you have multiple RecyclerViews with adapters that use the same
      * view types, for example if you have several data sets with the same kinds of item views
-     * displayed by a {@link android.support.v4.view.ViewPager ViewPager}.
+     * displayed by a {@link androidx.viewpager.view.ViewPager ViewPager}.
      *
      * @param pool Pool to set. If this parameter is null a new pool will be created and used.
      */
@@ -1347,7 +1352,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
                     new Exception());
         }
         mScrollState = state;
-        if (state != SCROLL_STATE_SET/TLING) {
+        if (state != SCROLL_STATE_SETTLING) {
             stopScrollersInternal();
         }
         dispatchOnScrollStateChanged(state);
@@ -2010,12 +2015,28 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
         }
 
         if (!dispatchNestedPreFling(velocityX, velocityY)) {
-            final boolean canScroll = canScrollHorizontal || canScrollVertical;
-            dispatchNestedFling(velocityX, velocityY, canScroll);
+            boolean consumed = false;
+            if (mLayout.getChildCount() > 0) {
+                final View firstChild = mLayout.getChildAt(0);
+                final View lastChild = mLayout.getChildAt(mLayout.getChildCount() - 1);
+                if (velocityY < 0) {
+                    consumed = getChildAdapterPosition(firstChild) > 0
+                            || firstChild.getTop() < getPaddingTop();
+                }
+
+                if (velocityY > 0) {
+                    consumed = getChildAdapterPosition(lastChild) < mAdapter.getItemCount() - 1
+                            || lastChild.getBottom() > getHeight() - getPaddingBottom();
+                }
+            }
+
+            dispatchNestedFling(velocityX, velocityY, consumed);
 
             if (mOnFlingListener != null && mOnFlingListener.onFling(velocityX, velocityY)) {
                 return true;
             }
+
+            final boolean canScroll = canScrollHorizontal || canScrollVertical;
 
             if (canScroll) {
                 velocityX = Math.max(-mMaxFlingVelocity, Math.min(velocityX, mMaxFlingVelocity));
@@ -2648,7 +2669,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
                 mInitialTouchX = mLastTouchX = (int) (e.getX() + 0.5f);
                 mInitialTouchY = mLastTouchY = (int) (e.getY() + 0.5f);
 
-                if (mScrollState == SCROLL_STATE_SETTLING) {
+                if (stopGlowAnimations(e) || mScrollState == SCROLL_STATE_SETTLING) {
                     getParent().requestDisallowInterceptTouchEvent(true);
                     setScrollState(SCROLL_STATE_DRAGGING);
                 }
@@ -2714,6 +2735,38 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
             }
         }
         return mScrollState == SCROLL_STATE_DRAGGING;
+    }
+
+    /**
+     * This stops any edge glow animation that is currently running by applying a
+     * 0 length pull at the displacement given by the provided MotionEvent. On pre-S devices,
+     * this method does nothing, allowing any animating edge effect to continue animating and
+     * returning <code>false</code> always.
+     *
+     * @param e The motion event to use to indicate the finger position for the displacement of
+     *          the current pull.
+     * @return <code>true</code> if any edge effect had an existing effect to be drawn ond the
+     * animation was stopped or <code>false</code> if no edge effect had a value to display.
+     */
+    private boolean stopGlowAnimations(MotionEvent e) {
+        boolean stopped = false;
+        if (mLeftGlow != null && mLeftGlow.getDistance() != 0) {
+            mLeftGlow.onPullDistance(0, 1 - (e.getY() / getHeight()));
+            stopped = true;
+        }
+        if (mRightGlow != null && mRightGlow.getDistance() != 0) {
+            mRightGlow.onPullDistance(0, e.getY() / getHeight());
+            stopped = true;
+        }
+        if (mTopGlow != null && mTopGlow.getDistance() != 0) {
+            mTopGlow.onPullDistance(0, e.getX() / getWidth());
+            stopped = true;
+        }
+        if (mBottomGlow != null && mBottomGlow.getDistance() != 0) {
+            mBottomGlow.onPullDistance(0, 1 - e.getX() / getWidth());
+            stopped = true;
+        }
+        return stopped;
     }
 
     @Override
@@ -2784,6 +2837,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
                 if (index < 0) {
                     Log.e(TAG, "Error processing scroll; pointer index for id "
                             + mScrollPointerId + " not found. Did any MotionEvents get skipped?");
+                    vtev.recycle();
                     return false;
                 }
 
@@ -2791,6 +2845,8 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
                 final int y = (int) (e.getY(index) + 0.5f);
                 int dx = mLastTouchX - x;
                 int dy = mLastTouchY - y;
+                dx -= releaseHorizontalGlow(dx, e.getY());
+                dy -= releaseVerticalGlow(dy, e.getX());
 
                 if (dispatchNestedPreScroll(dx, dy, mScrollConsumed, mScrollOffset)) {
                     dx -= mScrollConsumed[0];
@@ -2869,6 +2925,72 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
         vtev.recycle();
 
         return true;
+    }
+
+    /**
+     * If either of the horizontal edge glows are currently active, this consumes part or all of
+     * deltaX on the edge glow.
+     *
+     * @param deltaX The pointer motion, in pixels, in the horizontal direction, positive
+     *                         for moving down and negative for moving up.
+     * @param y The vertical position of the pointer.
+     * @return The amount of <code>deltaX</code> that has been consumed by the
+     * edge glow.
+     */
+    private int releaseHorizontalGlow(int deltaX, float y) {
+        // First allow releasing existing overscroll effect:
+        float consumed = 0;
+        float displacement = y / getHeight();
+        float pullDistance = (float) deltaX / getWidth();
+        if (mLeftGlow != null && mLeftGlow.getDistance() != 0) {
+            consumed = -mLeftGlow.onPullDistance(-pullDistance, 1 - displacement);
+            if (mLeftGlow.getDistance() == 0) {
+                mLeftGlow.onRelease();
+            }
+        } else if (mRightGlow != null && mRightGlow.getDistance() != 0) {
+            consumed = mRightGlow.onPullDistance(pullDistance, displacement);
+            if (mRightGlow.getDistance() == 0) {
+                mRightGlow.onRelease();
+            }
+        }
+        int pixelsConsumed = Math.round(consumed * getWidth());
+        if (pixelsConsumed != 0) {
+            invalidate();
+        }
+        return pixelsConsumed;
+    }
+
+    /**
+     * If either of the vertical edge glows are currently active, this consumes part or all of
+     * deltaY on the edge glow.
+     *
+     * @param deltaY The pointer motion, in pixels, in the vertical direction, positive
+     *                         for moving down and negative for moving up.
+     * @param x The vertical position of the pointer.
+     * @return The amount of <code>deltaY</code> that has been consumed by the
+     * edge glow.
+     */
+    private int releaseVerticalGlow(int deltaY, float x) {
+        // First allow releasing existing overscroll effect:
+        float consumed = 0;
+        float displacement = x / getWidth();
+        float pullDistance = (float) deltaY / getHeight();
+        if (mTopGlow != null && mTopGlow.getDistance() != 0) {
+            consumed = -mTopGlow.onPullDistance(-pullDistance, displacement);
+            if (mTopGlow.getDistance() == 0) {
+                mTopGlow.onRelease();
+            }
+        } else if (mBottomGlow != null && mBottomGlow.getDistance() != 0) {
+            consumed = mBottomGlow.onPullDistance(pullDistance, 1 - displacement);
+            if (mBottomGlow.getDistance() == 0) {
+                mBottomGlow.onRelease();
+            }
+        }
+        int pixelsConsumed = Math.round(consumed * getHeight());
+        if (pixelsConsumed != 0) {
+            invalidate();
+        }
+        return pixelsConsumed;
     }
 
     private void resetTouch() {
@@ -4953,6 +5075,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
          * constructed by {@link GapWorker} prefetch from being bound to a lower priority prefetch.
          */
         static class ScrapData {
+            @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
             ArrayList<ViewHolder> mScrapHeap = new ArrayList<>();
             int mMaxScrap = DEFAULT_MAX_SCRAP;
             long mCreateRunningAverageNs = 0;
@@ -9641,13 +9764,13 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
          * Some general properties that a LayoutManager may want to use.
          */
         public static class Properties {
-            /** @attr ref android.support.v7.recyclerview.R.styleable#RecyclerView_android_orientation */
+            /** @attr ref androidx.recyclerview.R.styleable#RecyclerView_android_orientation */
             public int orientation;
-            /** @attr ref android.support.v7.recyclerview.R.styleable#RecyclerView_spanCount */
+            /** @attr ref androidx.recyclerview.R.styleable#RecyclerView_spanCount */
             public int spanCount;
-            /** @attr ref android.support.v7.recyclerview.R.styleable#RecyclerView_reverseLayout */
+            /** @attr ref androidx.recyclerview.R.styleable#RecyclerView_reverseLayout */
             public boolean reverseLayout;
-            /** @attr ref android.support.v7.recyclerview.R.styleable#RecyclerView_stackFromEnd */
+            /** @attr ref androidx.recyclerview.R.styleable#RecyclerView_stackFromEnd */
             public boolean stackFromEnd;
         }
     }
@@ -9964,7 +10087,7 @@ public class RecyclerView extends ViewGroup implements ScrollingView, NestedScro
         static final int FLAG_IGNORE = 1 << 7;
 
         /**
-         * When the View is detached form the parent, we set this flag so that we can take correct
+         * When the View is detached from the parent, we set this flag so that we can take correct
          * action when we need to remove it or add it back.
          */
         static final int FLAG_TMP_DETACHED = 1 << 8;

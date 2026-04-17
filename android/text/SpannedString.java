@@ -22,6 +22,7 @@ package android.text;
  * For mutable markup, see {@link SpannableString}; for mutable text,
  * see {@link SpannableStringBuilder}.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public final class SpannedString
 extends SpannableStringInternal
 implements CharSequence, GetChars, Spanned

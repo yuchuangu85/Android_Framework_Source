@@ -17,14 +17,13 @@
 package android.accessibilityservice;
 
 import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.RemoteException;
 import android.util.ArrayMap;
 import android.util.Slog;
 
-import com.android.internal.util.Preconditions;
+import java.util.Objects;
 
 /**
  * Controller for the accessibility button within the system's navigation area
@@ -76,13 +75,16 @@ public final class AccessibilityButtonController {
      * available to the calling service, {@code false} otherwise
      */
     public boolean isAccessibilityButtonAvailable() {
-        try {
-            return mServiceConnection.isAccessibilityButtonAvailable();
-        } catch (RemoteException re) {
-            Slog.w(LOG_TAG, "Failed to get accessibility button availability.", re);
-            re.rethrowFromSystemServer();
-            return false;
+        if (mServiceConnection != null) {
+            try {
+                return mServiceConnection.isAccessibilityButtonAvailable();
+            } catch (RemoteException re) {
+                Slog.w(LOG_TAG, "Failed to get accessibility button availability.", re);
+                re.rethrowFromSystemServer();
+                return false;
+            }
         }
+        return false;
     }
 
     /**
@@ -106,8 +108,8 @@ public final class AccessibilityButtonController {
      */
     public void registerAccessibilityButtonCallback(@NonNull AccessibilityButtonCallback callback,
             @NonNull Handler handler) {
-        Preconditions.checkNotNull(callback);
-        Preconditions.checkNotNull(handler);
+        Objects.requireNonNull(callback);
+        Objects.requireNonNull(handler);
         synchronized (mLock) {
             if (mCallbacks == null) {
                 mCallbacks = new ArrayMap<>();
@@ -125,7 +127,7 @@ public final class AccessibilityButtonController {
      */
     public void unregisterAccessibilityButtonCallback(
             @NonNull AccessibilityButtonCallback callback) {
-        Preconditions.checkNotNull(callback);
+        Objects.requireNonNull(callback);
         synchronized (mLock) {
             if (mCallbacks == null) {
                 return;

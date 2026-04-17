@@ -16,8 +16,10 @@
 
 package android.telephony.ims.compat.stub;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.RemoteException;
 import android.util.Log;
 
@@ -58,6 +60,7 @@ public class ImsConfigImplBase {
 
     ImsConfigStub mImsConfigStub;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public ImsConfigImplBase(Context context) {
         mImsConfigStub = new ImsConfigStub(this, context);
     }
@@ -87,7 +90,7 @@ public class ImsConfigImplBase {
     /**
      * Sets the value for IMS service/capabilities parameters by the operator device
      * management entity. It sets the config item value in the provisioned storage
-     * from which the master value is derived. Synchronous blocking call.
+     * from which the main value is derived. Synchronous blocking call.
      *
      * @param item, as defined in com.android.ims.ImsConfig#ConfigConstants.
      * @param value in Integer format.
@@ -100,7 +103,7 @@ public class ImsConfigImplBase {
     /**
      * Sets the value for IMS service/capabilities parameters by the operator device
      * management entity. It sets the config item value in the provisioned storage
-     * from which the master value is derived.  Synchronous blocking call.
+     * from which the main value is derived.  Synchronous blocking call.
      *
      * @param item as defined in com.android.ims.ImsConfig#ConfigConstants.
      * @param value in String format.
@@ -112,7 +115,7 @@ public class ImsConfigImplBase {
 
     /**
      * Gets the value of the specified IMS feature item for specified network type.
-     * This operation gets the feature config value from the master storage (i.e. final
+     * This operation gets the feature config value from the main storage (i.e. final
      * value). Asynchronous non-blocking call.
      *
      * @param feature as defined in com.android.ims.ImsConfig#FeatureConstants.
@@ -125,7 +128,7 @@ public class ImsConfigImplBase {
 
     /**
      * Sets the value for IMS feature item for specified network type.
-     * This operation stores the user setting in setting db from which master db
+     * This operation stores the user setting in setting db from which main db
      * is derived.
      *
      * @param feature as defined in com.android.ims.ImsConfig#FeatureConstants.
@@ -162,6 +165,7 @@ public class ImsConfigImplBase {
     public void setVideoQuality(int quality, ImsConfigListener listener) throws RemoteException {
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public IImsConfig getIImsConfig() { return mImsConfigStub; }
 
     /**
@@ -265,7 +269,7 @@ public class ImsConfigImplBase {
         /**
          * Sets the value for IMS service/capabilities parameters by the operator device
          * management entity. It sets the config item value in the provisioned storage
-         * from which the master value is derived, and write it into local cache.
+         * from which the main value is derived, and write it into local cache.
          * Synchronous blocking call.
          *
          * @param item, as defined in com.android.ims.ImsConfig#ConfigConstants.
@@ -289,7 +293,7 @@ public class ImsConfigImplBase {
         /**
          * Sets the value for IMS service/capabilities parameters by the operator device
          * management entity. It sets the config item value in the provisioned storage
-         * from which the master value is derived, and write it into local cache.
+         * from which the main value is derived, and write it into local cache.
          * Synchronous blocking call.
          *
          * @param item as defined in com.android.ims.ImsConfig#ConfigConstants.

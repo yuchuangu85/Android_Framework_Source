@@ -16,45 +16,102 @@
 
 package android.net.nsd;
 
+import static com.android.net.module.util.HexDump.toHexString;
+
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
-import android.os.Parcelable;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
+import android.net.Network;
 import android.os.Parcel;
+import android.os.Parcelable;
 import android.text.TextUtils;
-import android.util.Base64;
-import android.util.Log;
 import android.util.ArrayMap;
+import android.util.ArraySet;
+import android.util.Log;
+
+import com.android.net.flags.Flags;
+import com.android.net.module.util.InetAddressUtils;
 
 import java.io.UnsupportedEncodingException;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.StringJoiner;
 
 /**
  * A class representing service information for network service discovery
- * {@see NsdManager}
+ * @see NsdManager
  */
 public final class NsdServiceInfo implements Parcelable {
 
     private static final String TAG = "NsdServiceInfo";
 
+    @Nullable
     private String mServiceName;
 
+    @Nullable
     private String mServiceType;
 
-    private final ArrayMap<String, byte[]> mTxtRecord = new ArrayMap<>();
+    private final Set<String> mSubtypes;
 
-    private InetAddress mHost;
+    private final ArrayMap<String, byte[]> mTxtRecord;
+
+    private final List<InetAddress> mHostAddresses;
+
+    @Nullable
+    private String mHostname;
 
     private int mPort;
 
+    @Nullable
+    private byte[] mPublicKey;
+
+    @Nullable
+    private Network mNetwork;
+
+    private int mInterfaceIndex;
+
+    // The timestamp that one or more resource records associated with this service are considered
+    // invalid.
+    @Nullable
+    private Instant mExpirationTime;
+
     public NsdServiceInfo() {
+        mSubtypes = new ArraySet<>();
+        mTxtRecord = new ArrayMap<>();
+        mHostAddresses = new ArrayList<>();
     }
 
     /** @hide */
     public NsdServiceInfo(String sn, String rt) {
+        this();
         mServiceName = sn;
         mServiceType = rt;
+    }
+
+    /**
+     * Creates a copy of {@code other}.
+     *
+     * @hide
+     */
+    public NsdServiceInfo(@NonNull NsdServiceInfo other) {
+        mServiceName = other.getServiceName();
+        mServiceType = other.getServiceType();
+        mSubtypes = new ArraySet<>(other.getSubtypes());
+        mTxtRecord = new ArrayMap<>(other.mTxtRecord);
+        mHostAddresses = new ArrayList<>(other.getHostAddresses());
+        mHostname = other.getHostname();
+        mPort = other.getPort();
+        mNetwork = other.getNetwork();
+        mInterfaceIndex = other.getInterfaceIndex();
+        mExpirationTime = other.getExpirationTime();
     }
 
     /** Get the service name */
@@ -77,17 +134,32 @@ public final class NsdServiceInfo implements Parcelable {
         mServiceType = s;
     }
 
-    /** Get the host address. The host address is valid for a resolved service. */
+    /**
+     * Get the host address. The host address is valid for a resolved service.
+     *
+     * @deprecated Use {@link #getHostAddresses()} to get the entire list of addresses for the host.
+     */
+    @Deprecated
     public InetAddress getHost() {
-        return mHost;
+        return mHostAddresses.size() == 0 ? null : mHostAddresses.get(0);
     }
 
-    /** Set the host address */
+    /**
+     * Set the host address
+     *
+     * @deprecated Use {@link #setHostAddresses(List)} to set multiple addresses for the host.
+     */
+    @Deprecated
     public void setHost(InetAddress s) {
-        mHost = s;
+        setHostAddresses(Collections.singletonList(s));
     }
 
-    /** Get port number. The port number is valid for a resolved service. */
+    /**
+     * Get port number. The port number is valid for a resolved service.
+     *
+     * The port is valid for all addresses.
+     * @see #getHostAddresses()
+     */
     public int getPort() {
         return mPort;
     }
@@ -98,15 +170,117 @@ public final class NsdServiceInfo implements Parcelable {
     }
 
     /**
-     * Unpack txt information from a base-64 encoded byte array.
+     * Get the host addresses.
      *
-     * @param rawRecords The raw base64 encoded records string read from netd.
+     * All host addresses are valid for the resolved service.
+     * All addresses share the same port
+     * @see #getPort()
+     */
+    @NonNull
+    public List<InetAddress> getHostAddresses() {
+        return new ArrayList<>(mHostAddresses);
+    }
+
+    /**
+     * Set the host addresses.
+     *
+     * <p>When registering hosts/services, there can only be one registration including address
+     * records for a given hostname.
+     *
+     * <p>For example, if a client registers a service with the hostname "MyHost" and the address
+     * records of 192.168.1.1 and 192.168.1.2, then other registrations for the hostname "MyHost"
+     * must not have any address record, otherwise there will be a conflict.
+     */
+    public void setHostAddresses(@NonNull List<InetAddress> addresses) {
+        // TODO: b/284905335 - Notify the client when there is a conflict.
+        mHostAddresses.clear();
+        mHostAddresses.addAll(addresses);
+    }
+
+    /**
+     * Get the hostname.
+     *
+     * <p>When a service is resolved through {@link NsdManager#resolveService} or
+     * {@link NsdManager#registerServiceInfoCallback}, this returns the hostname of the resolved
+     * service. Starting from T SDK extension 22, when received from
+     * {@link NsdManager.RegistrationListener#onServiceRegistered}, this returns the hostname
+     * used for advertising. In all other cases, this will be null. The top level domain ".local."
+     * is omitted. For example, this returns "MyHost" when the service's hostname is
+     * "MyHost.local.".
+     */
+    @FlaggedApi(Flags.FLAG_IPV6_OVER_BLE)
+    @Nullable
+    public String getHostname() {
+        return mHostname;
+    }
+
+    /**
+     * Sets the host name of the service.
+     *
+     * <p>When used for service advertising (via {@link NsdManager#registerService}), setting
+     * a custom host name is only supported for privileged callers having
+     * {@code NETWORK_SETTINGS} permission. For unprivileged applications, any host name
+     * set via this method will be ignored during the registration process.
+     * A hostname must be in ".local." domain. The ".local." must be omitted when calling this
+     * For example, you should call setHostname("MyHost") to use the hostname "MyHost.local.".
+     * If a hostname is set with this method, the addresses set with {@link #setHostAddresses}
+     * will be registered with the hostname. If the hostname is null (which is the default for a
+     * new {@link NsdServiceInfo}), a random hostname is used and the addresses of this device will
+     * be registered.
+     *
+     * @param hostname the host name to be associated with this service.
+     * @see #getHostname() for the usage.
      *
      * @hide
      */
-    public void setTxtRecords(@NonNull String rawRecords) {
-        byte[] txtRecordsRawBytes = Base64.decode(rawRecords, Base64.DEFAULT);
+    @FlaggedApi(com.android.tethering.flags.Flags.FLAG_NSD_MDNS_SCAN_OFFLOAD)
+    @SystemApi
+    public void setHostname(@Nullable String hostname) {
+        mHostname = hostname;
+    }
 
+    /**
+     * Set the public key RDATA to be advertised in a KEY RR (RFC 2535).
+     *
+     * <p>This is the public key of the key pair used for signing a DNS message (e.g. SRP). Clients
+     * typically don't need this information, but the KEY RR is usually published to claim the use
+     * of the DNS name so that another mDNS advertiser can't take over the ownership during a
+     * temporary power down of the original host device.
+     *
+     * <p>When the public key is set to non-null, exactly one KEY RR will be advertised for each of
+     * the service and host name if they are not null.
+     *
+     * @hide // For Thread only
+     */
+    public void setPublicKey(@Nullable byte[] publicKey) {
+        if (publicKey == null) {
+            mPublicKey = null;
+            return;
+        }
+        mPublicKey = Arrays.copyOf(publicKey, publicKey.length);
+    }
+
+    /**
+     * Get the public key RDATA in the KEY RR (RFC 2535) or {@code null} if no KEY RR exists.
+     *
+     * @hide // For Thread only
+     */
+    @Nullable
+    public byte[] getPublicKey() {
+        if (mPublicKey == null) {
+            return null;
+        }
+        return Arrays.copyOf(mPublicKey, mPublicKey.length);
+    }
+
+    /**
+     * Unpack txt information from a base-64 encoded byte array.
+     *
+     * @param txtRecordsRawBytes The raw base64 encoded byte array.
+     *
+     * @hide
+     */
+    public void setTxtRecords(@NonNull byte[] txtRecordsRawBytes) {
         // There can be multiple TXT records after each other. Each record has to following format:
         //
         // byte                  type                  required   meaning
@@ -184,8 +358,26 @@ public final class NsdServiceInfo implements Parcelable {
         }
     }
 
-    /** @hide */
-    public void setAttribute(String key, byte[] value) {
+    /**
+     * Add a service attribute as a key/value pair using raw bytes.
+     *
+     * <p> Service attributes are included as DNS-SD TXT record pairs.
+     *
+     * <p> This method preserves the provided bytes exactly, ensuring that data is
+     * maintained even if the bytes do not represent a valid UTF-8 string.
+     *
+     * <p> The key must be US-ASCII printable characters, excluding the '=' character. The
+     * total length of key + value must be less than 255 bytes.
+     *
+     * <p> Keys should be short, ideally no more than 9 characters, and unique per instance of
+     * {@link NsdServiceInfo}. Calling {@link #setAttribute} twice with the same key will
+     * overwrite the previous value.
+     *
+     * @param key the key of the attribute
+     * @param value the raw bytes of the attribute value, or null for an attribute with no value
+     */
+    @FlaggedApi(com.android.tethering.flags.Flags.FLAG_NSD_MDNS_SCAN_OFFLOAD)
+    public void setAttribute(@NonNull String key, @Nullable byte[] value) {
         if (TextUtils.isEmpty(key)) {
             throw new IllegalArgumentException("Key cannot be empty");
         }
@@ -249,6 +441,14 @@ public final class NsdServiceInfo implements Parcelable {
     }
 
     /**
+     * Remove all attributes
+     * @hide
+     */
+    public void clearAttributes() {
+        mTxtRecord.clear();
+    }
+
+    /**
      * Retrieve attributes as a map of String keys to byte[] values. The attributes map is only
      * valid for a resolved service.
      *
@@ -305,19 +505,166 @@ public final class NsdServiceInfo implements Parcelable {
         return txtRecord;
     }
 
-    public String toString() {
-        StringBuffer sb = new StringBuffer();
+    /**
+     * Get the network where the service can be found.
+     *
+     * This is set if this {@link NsdServiceInfo} was obtained from
+     * {@link NsdManager#discoverServices} or {@link NsdManager#resolveService}, unless the service
+     * was found on a network interface that does not have a {@link Network} (such as a tethering
+     * downstream, where services are advertised from devices connected to this device via
+     * tethering).
+     */
+    @Nullable
+    public Network getNetwork() {
+        return mNetwork;
+    }
 
+    /**
+     * Set the network where the service can be found.
+     * @param network The network, or null to search for, or to announce, the service on all
+     *                connected networks.
+     */
+    public void setNetwork(@Nullable Network network) {
+        mNetwork = network;
+    }
+
+    /**
+     * Get the index of the network interface where the service was found.
+     *
+     * This is only set when the service was found on an interface that does not have a usable
+     * Network, in which case {@link #getNetwork()} returns null.
+     * @return The interface index as per {@link java.net.NetworkInterface#getIndex}, or 0 if unset.
+     * @hide
+     */
+    public int getInterfaceIndex() {
+        return mInterfaceIndex;
+    }
+
+    /**
+     * Set the index of the network interface where the service was found.
+     * @hide
+     */
+    public void setInterfaceIndex(int interfaceIndex) {
+        mInterfaceIndex = interfaceIndex;
+    }
+
+    /**
+     * Sets the subtypes to be advertised for this service instance.
+     *
+     * The elements in {@code subtypes} should be the subtype identifiers which have the trailing
+     * "._sub" removed. For example, the subtype should be "_printer" for
+     * "_printer._sub._http._tcp.local".
+     *
+     * Only one subtype will be registered if multiple elements of {@code subtypes} have the same
+     * case-insensitive value.
+     */
+    @FlaggedApi(Flags.FLAG_NSD_SUBTYPES_SUPPORT_ENABLED)
+    public void setSubtypes(@NonNull Set<String> subtypes) {
+        mSubtypes.clear();
+        mSubtypes.addAll(subtypes);
+    }
+
+    /**
+     * Returns subtypes of this service instance.
+     *
+     * When this object is returned by the service discovery/browse APIs (etc. {@link
+     * NsdManager.DiscoveryListener}), the return value may or may not include the subtypes of this
+     * service.
+     */
+    @FlaggedApi(Flags.FLAG_NSD_SUBTYPES_SUPPORT_ENABLED)
+    @NonNull
+    public Set<String> getSubtypes() {
+        return Collections.unmodifiableSet(mSubtypes);
+    }
+
+    /**
+     * Sets the timestamp after when this service is expired.
+     *
+     * Note: the value after the decimal point (in unit of seconds) will be discarded. For
+     * example, {@code 30} seconds will be used when {@code Duration.ofSeconds(30L, 50_000L)}
+     * is provided.
+     *
+     * @hide
+     */
+    public void setExpirationTime(@Nullable Instant expirationTime) {
+        if (expirationTime == null) {
+            mExpirationTime = null;
+        } else {
+            mExpirationTime = Instant.ofEpochSecond(expirationTime.getEpochSecond());
+        }
+    }
+
+    /**
+     * Returns the timestamp after when this service is expired or {@code null} if it's unknown.
+     *
+     * A service is considered expired if any of its DNS record is expired.
+     *
+     * Clients that are depending on the refreshness of the service information should not continue
+     * use this service after the returned timestamp. Instead, clients may re-send queries for the
+     * service to get updated the service information.
+     *
+     * @hide
+     */
+    // @FlaggedApi(NsdManager.Flags.NSD_CUSTOM_TTL_ENABLED)
+    @Nullable
+    public Instant getExpirationTime() {
+        return mExpirationTime;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
         sb.append("name: ").append(mServiceName)
                 .append(", type: ").append(mServiceType)
-                .append(", host: ").append(mHost)
-                .append(", port: ").append(mPort);
+                .append(", subtypes: ").append(TextUtils.join(", ", mSubtypes))
+                .append(", hostAddresses: ").append(TextUtils.join(", ", mHostAddresses))
+                .append(", hostname: ").append(mHostname)
+                .append(", port: ").append(mPort)
+                .append(", network: ").append(mNetwork)
+                .append(", expirationTime: ").append(mExpirationTime);
 
-        byte[] txtRecord = getTxtRecord();
-        if (txtRecord != null) {
-            sb.append(", txtRecord: ").append(new String(txtRecord, StandardCharsets.UTF_8));
+        final StringJoiner txtJoiner =
+                new StringJoiner(", " /* delimiter */, "{" /* prefix */, "}" /* suffix */);
+
+        sb.append(", txtRecord: ");
+        for (int i = 0; i < mTxtRecord.size(); i++) {
+            txtJoiner.add(mTxtRecord.keyAt(i) + "=" + getPrintableTxtValue(mTxtRecord.valueAt(i)));
         }
+        sb.append(txtJoiner.toString());
         return sb.toString();
+    }
+
+    /**
+     * Returns printable string for {@code txtValue}.
+     *
+     * If {@code txtValue} contains non-printable ASCII characters, a HEX string with prefix "0x"
+     * will be returned. Otherwise, the ASCII string of {@code txtValue} is returned.
+     *
+     */
+    private static String getPrintableTxtValue(@Nullable byte[] txtValue) {
+        if (txtValue == null) {
+            return "(null)";
+        }
+
+        if (containsNonPrintableChars(txtValue)) {
+            return "0x" + toHexString(txtValue);
+        }
+
+        return new String(txtValue, StandardCharsets.US_ASCII);
+    }
+
+    /**
+     * Returns {@code true} if {@code txtValue} contains non-printable ASCII characters.
+     *
+     * The printable characters are in range of [32, 126].
+     */
+    private static boolean containsNonPrintableChars(byte[] txtValue) {
+        for (int i = 0; i < txtValue.length; i++) {
+            if (txtValue[i] < 32 || txtValue[i] > 126) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Implement the Parcelable interface */
@@ -329,12 +676,7 @@ public final class NsdServiceInfo implements Parcelable {
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeString(mServiceName);
         dest.writeString(mServiceType);
-        if (mHost != null) {
-            dest.writeInt(1);
-            dest.writeByteArray(mHost.getAddress());
-        } else {
-            dest.writeInt(0);
-        }
+        dest.writeStringList(new ArrayList<>(mSubtypes));
         dest.writeInt(mPort);
 
         // TXT record key/value pairs.
@@ -350,22 +692,26 @@ public final class NsdServiceInfo implements Parcelable {
             }
             dest.writeString(key);
         }
+
+        dest.writeParcelable(mNetwork, 0);
+        dest.writeInt(mInterfaceIndex);
+        dest.writeInt(mHostAddresses.size());
+        for (InetAddress address : mHostAddresses) {
+            InetAddressUtils.parcelInetAddress(dest, address, flags);
+        }
+        dest.writeString(mHostname);
+        dest.writeLong(mExpirationTime != null ? mExpirationTime.getEpochSecond() : -1);
+        dest.writeByteArray(mPublicKey);
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<NsdServiceInfo> CREATOR =
+    public static final @android.annotation.NonNull Creator<NsdServiceInfo> CREATOR =
         new Creator<NsdServiceInfo>() {
             public NsdServiceInfo createFromParcel(Parcel in) {
                 NsdServiceInfo info = new NsdServiceInfo();
                 info.mServiceName = in.readString();
                 info.mServiceType = in.readString();
-
-                if (in.readInt() == 1) {
-                    try {
-                        info.mHost = InetAddress.getByAddress(in.createByteArray());
-                    } catch (java.net.UnknownHostException e) {}
-                }
-
+                info.setSubtypes(new ArraySet<>(in.createStringArrayList()));
                 info.mPort = in.readInt();
 
                 // TXT record key/value pairs.
@@ -379,6 +725,16 @@ public final class NsdServiceInfo implements Parcelable {
                     }
                     info.mTxtRecord.put(in.readString(), valueArray);
                 }
+                info.mNetwork = in.readParcelable(null, Network.class);
+                info.mInterfaceIndex = in.readInt();
+                int size = in.readInt();
+                for (int i = 0; i < size; i++) {
+                    info.mHostAddresses.add(InetAddressUtils.unparcelInetAddress(in));
+                }
+                info.mHostname = in.readString();
+                final long seconds = in.readLong();
+                info.setExpirationTime(seconds < 0 ? null : Instant.ofEpochSecond(seconds));
+                info.mPublicKey = in.createByteArray();
                 return info;
             }
 

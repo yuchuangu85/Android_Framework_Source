@@ -16,6 +16,8 @@
 
 package android.hardware.display;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -30,6 +32,7 @@ import java.util.Objects;
  * @hide
  */
 public final class WifiDisplay implements Parcelable {
+    private static final String UNKNOWN_MAC_ADDRESS = "00:00:00:00:00:00";
     private final String mDeviceAddress;
     private final String mDeviceName;
     private final String mDeviceAlias;
@@ -39,7 +42,7 @@ public final class WifiDisplay implements Parcelable {
 
     public static final WifiDisplay[] EMPTY_ARRAY = new WifiDisplay[0];
 
-    public static final Creator<WifiDisplay> CREATOR = new Creator<WifiDisplay>() {
+    public static final @android.annotation.NonNull Creator<WifiDisplay> CREATOR = new Creator<WifiDisplay>() {
         public WifiDisplay createFromParcel(Parcel in) {
             String deviceAddress = in.readString();
             String deviceName = in.readString();
@@ -76,6 +79,7 @@ public final class WifiDisplay implements Parcelable {
     /**
      * Gets the MAC address of the Wifi display device.
      */
+    @UnsupportedAppUsage
     public String getDeviceAddress() {
         return mDeviceAddress;
     }
@@ -83,6 +87,7 @@ public final class WifiDisplay implements Parcelable {
     /**
      * Gets the name of the Wifi display device.
      */
+    @UnsupportedAppUsage
     public String getDeviceName() {
         return mDeviceName;
     }
@@ -94,6 +99,7 @@ public final class WifiDisplay implements Parcelable {
      * provided by the user when renaming the device.
      * </p>
      */
+    @UnsupportedAppUsage
     public String getDeviceAlias() {
         return mDeviceAlias;
     }
@@ -101,6 +107,7 @@ public final class WifiDisplay implements Parcelable {
     /**
      * Returns true if device is available, false otherwise.
      */
+    @UnsupportedAppUsage
     public boolean isAvailable() {
         return mIsAvailable;
     }
@@ -108,6 +115,7 @@ public final class WifiDisplay implements Parcelable {
     /**
      * Returns true if device can be connected to (not in use), false otherwise.
      */
+    @UnsupportedAppUsage
     public boolean canConnect() {
         return mCanConnect;
     }
@@ -115,6 +123,7 @@ public final class WifiDisplay implements Parcelable {
     /**
      * Returns true if device has been remembered, false otherwise.
      */
+    @UnsupportedAppUsage
     public boolean isRemembered() {
         return mIsRemembered;
     }
@@ -128,7 +137,7 @@ public final class WifiDisplay implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         return o instanceof WifiDisplay && equals((WifiDisplay)o);
     }
 
@@ -136,6 +145,7 @@ public final class WifiDisplay implements Parcelable {
      * Returns true if the two displays have the same identity (address, name and alias).
      * This method does not compare the current status of the displays.
      */
+    @UnsupportedAppUsage
     public boolean equals(WifiDisplay other) {
         return other != null
                 && mDeviceAddress.equals(other.mDeviceAddress)
@@ -183,5 +193,10 @@ public final class WifiDisplay implements Parcelable {
         result += ", isAvailable " + mIsAvailable + ", canConnect " + mCanConnect
                 + ", isRemembered " + mIsRemembered;
         return result;
+    }
+
+    public WifiDisplay copy(boolean isDeviceAddressVisible) {
+        return new WifiDisplay(isDeviceAddressVisible ? mDeviceAddress : UNKNOWN_MAC_ADDRESS,
+                mDeviceName, mDeviceAlias, mIsAvailable, mCanConnect, mIsRemembered);
     }
 }

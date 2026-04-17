@@ -15,11 +15,19 @@
  */
 package android.provider;
 
+import android.annotation.IntDef;
 import android.annotation.WorkerThread;
 import android.content.Context;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
-import android.telecom.Log;
+import android.telecom.PhoneAccount;
+import android.telephony.PhoneNumberUtils;
+import android.text.TextUtils;
+import android.util.Log;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * <p>
@@ -152,6 +160,15 @@ public class BlockedNumberContract {
     /** A content:// style uri to the authority for the blocked number provider */
     public static final Uri AUTHORITY_URI = Uri.parse("content://" + AUTHORITY);
 
+    private static final String LOG_TAG = BlockedNumberContract.class.getSimpleName();
+    private static final boolean VERBOSE = android.util.Log.isLoggable(LOG_TAG,
+            android.util.Log.VERBOSE);
+
+    /**
+     * When generating a bug report, include the last X dialable digits when logging phone numbers.
+     */
+    private static final int NUM_DIALABLE_DIGITS_TO_LOG = "user".equals(Build.TYPE) ? 0 : 2;
+
     /**
      * Constants to interact with the blocked numbers list.
      */
@@ -220,6 +237,70 @@ public class BlockedNumberContract {
     public static final String RES_NUMBER_IS_BLOCKED = "blocked";
 
     /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(
+            prefix = { "STATUS_" },
+            value = {STATUS_NOT_BLOCKED, STATUS_BLOCKED_IN_LIST, STATUS_BLOCKED_RESTRICTED,
+                    STATUS_BLOCKED_UNKNOWN_NUMBER, STATUS_BLOCKED_PAYPHONE,
+                    STATUS_BLOCKED_NOT_IN_CONTACTS, STATUS_BLOCKED_UNAVAILABLE})
+    public @interface BlockStatus {}
+
+    /**
+     * Integer reason code used with {@link #RES_BLOCK_STATUS} to indicate that a call was not
+     * blocked.
+     * @hide
+     */
+    public static final int STATUS_NOT_BLOCKED = 0;
+
+    /**
+     * Integer reason code used with {@link #RES_BLOCK_STATUS} to indicate that a call was blocked
+     * because it is in the list of blocked numbers maintained by the provider.
+     * @hide
+     */
+    public static final int STATUS_BLOCKED_IN_LIST = 1;
+
+    /**
+     * Integer reason code used with {@link #RES_BLOCK_STATUS} to indicate that a call was blocked
+     * because it is from a restricted number.
+     * @hide
+     */
+    public static final int STATUS_BLOCKED_RESTRICTED = 2;
+
+    /**
+     * Integer reason code used with {@link #RES_BLOCK_STATUS} to indicate that a call was blocked
+     * because it is from an unknown number.
+     * @hide
+     */
+    public static final int STATUS_BLOCKED_UNKNOWN_NUMBER = 3;
+
+    /**
+     * Integer reason code used with {@link #RES_BLOCK_STATUS} to indicate that a call was blocked
+     * because it is from a pay phone.
+     * @hide
+     */
+    public static final int STATUS_BLOCKED_PAYPHONE = 4;
+
+    /**
+     * Integer reason code used with {@link #RES_BLOCK_STATUS} to indicate that a call was blocked
+     * because it is from a number not in the users contacts.
+     * @hide
+     */
+    public static final int STATUS_BLOCKED_NOT_IN_CONTACTS = 5;
+
+    /**
+     * Integer reason code used with {@link #RES_BLOCK_STATUS} to indicate that a call was blocked
+     * because it is from a number not available.
+     * @hide
+     */
+    public static final int STATUS_BLOCKED_UNAVAILABLE = 6;
+
+    /**
+     * Integer reason indicating whether a call was blocked, and if so why.
+     * @hide
+     */
+    public static final String RES_BLOCK_STATUS = "block_status";
+
+    /** @hide */
     public static final String RES_NUM_ROWS_DELETED = "num_deleted";
 
     /** @hide */
@@ -265,7 +346,10 @@ public class BlockedNumberContract {
         try {
             final Bundle res = context.getContentResolver().call(
                     AUTHORITY_URI, METHOD_IS_BLOCKED, phoneNumber, null);
-            return res != null && res.getBoolean(RES_NUMBER_IS_BLOCKED, false);
+            boolean isBlocked = res != null && res.getBoolean(RES_NUMBER_IS_BLOCKED, false);
+            Log.d(LOG_TAG, String.format("isBlocked: phoneNumber=%s, isBlocked=%b",
+                    piiHandle(phoneNumber), isBlocked));
+            return isBlocked;
         } catch (NullPointerException | IllegalArgumentException ex) {
             // The content resolver can throw an NPE or IAE; we don't want to crash Telecom if
             // either of these happen.
@@ -293,6 +377,7 @@ public class BlockedNumberContract {
      */
     @WorkerThread
     public static int unblock(Context context, String phoneNumber) {
+        Log.d(LOG_TAG, "unblock: phoneNumber=" + piiHandle(phoneNumber));
         final Bundle res = context.getContentResolver().call(
                 AUTHORITY_URI, METHOD_UNBLOCK, phoneNumber, null);
         return res.getInt(RES_NUM_ROWS_DELETED, 0);
@@ -374,6 +459,9 @@ public class BlockedNumberContract {
         /* Preference key for whether should show an emergency call notification. */
         public static final String ENHANCED_SETTING_KEY_SHOW_EMERGENCY_CALL_NOTIFICATION =
                 "show_emergency_call_notification";
+        /* Preference key of block unavailable calls setting. */
+        public static final String ENHANCED_SETTING_KEY_BLOCK_UNAVAILABLE =
+                "block_unavailable_calls_setting";
 
         /**
          * Notifies the provider that emergency services were contacted by the user.
@@ -384,6 +472,7 @@ public class BlockedNumberContract {
          */
         public static void notifyEmergencyContact(Context context) {
             try {
+                Log.i(LOG_TAG, "notifyEmergencyContact; caller=" + context.getOpPackageName());
                 context.getContentResolver().call(
                         AUTHORITY_URI, METHOD_NOTIFY_EMERGENCY_CONTACT, null, null);
             } catch (NullPointerException | IllegalArgumentException ex) {
@@ -398,6 +487,8 @@ public class BlockedNumberContract {
          * contacted recently at all, calling this method is a no-op.
          */
         public static void endBlockSuppression(Context context) {
+            String caller = context.getOpPackageName();
+            Log.i(LOG_TAG, "endBlockSuppression: caller=" + caller);
             context.getContentResolver().call(
                     AUTHORITY_URI, METHOD_END_BLOCK_SUPPRESSION, null, null);
         }
@@ -411,19 +502,28 @@ public class BlockedNumberContract {
          * @param context the context of the caller.
          * @param phoneNumber the number to check.
          * @param extras the extra attribute of the number.
-         * @return {@code true} if should block the number. {@code false} otherwise.
+         * @return result code indicating if the number should be blocked, and if so why.
+         *         Valid values are: {@link #STATUS_NOT_BLOCKED}, {@link #STATUS_BLOCKED_IN_LIST},
+         *         {@link #STATUS_BLOCKED_NOT_IN_CONTACTS}, {@link #STATUS_BLOCKED_PAYPHONE},
+         *         {@link #STATUS_BLOCKED_RESTRICTED}, {@link #STATUS_BLOCKED_UNKNOWN_NUMBER}.
          */
-        public static boolean shouldSystemBlockNumber(Context context, String phoneNumber,
+        public static int shouldSystemBlockNumber(Context context, String phoneNumber,
                 Bundle extras) {
             try {
+                String caller = context.getOpPackageName();
                 final Bundle res = context.getContentResolver().call(
                         AUTHORITY_URI, METHOD_SHOULD_SYSTEM_BLOCK_NUMBER, phoneNumber, extras);
-                return res != null && res.getBoolean(RES_NUMBER_IS_BLOCKED, false);
+                int blockResult = res != null ? res.getInt(RES_BLOCK_STATUS, STATUS_NOT_BLOCKED) :
+                        BlockedNumberContract.STATUS_NOT_BLOCKED;
+                Log.d(LOG_TAG,
+                        String.format("shouldSystemBlockNumber: number=%s, caller=%s, result=%s",
+                                piiHandle(phoneNumber), caller, blockStatusToString(blockResult)));
+                return blockResult;
             } catch (NullPointerException | IllegalArgumentException ex) {
                 // The content resolver can throw an NPE or IAE; we don't want to crash Telecom if
                 // either of these happen.
                 Log.w(null, "shouldSystemBlockNumber: provider not ready.");
-                return false;
+                return BlockedNumberContract.STATUS_NOT_BLOCKED;
             }
         }
 
@@ -433,8 +533,12 @@ public class BlockedNumberContract {
         public static BlockSuppressionStatus getBlockSuppressionStatus(Context context) {
             final Bundle res = context.getContentResolver().call(
                     AUTHORITY_URI, METHOD_GET_BLOCK_SUPPRESSION_STATUS, null, null);
-            return new BlockSuppressionStatus(res.getBoolean(RES_IS_BLOCKING_SUPPRESSED, false),
+            BlockSuppressionStatus blockSuppressionStatus = new BlockSuppressionStatus(
+                    res.getBoolean(RES_IS_BLOCKING_SUPPRESSED, false),
                     res.getLong(RES_BLOCKING_SUPPRESSED_UNTIL_TIMESTAMP, 0));
+            Log.d(LOG_TAG, String.format("getBlockSuppressionStatus: caller=%s, status=%s",
+                    context.getOpPackageName(), blockSuppressionStatus));
+            return blockSuppressionStatus;
         }
 
         /**
@@ -465,7 +569,8 @@ public class BlockedNumberContract {
          *        {@link #ENHANCED_SETTING_KEY_BLOCK_PRIVATE}
          *        {@link #ENHANCED_SETTING_KEY_BLOCK_PAYPHONE}
          *        {@link #ENHANCED_SETTING_KEY_BLOCK_UNKNOWN}
-         *        {@link #ENHANCED_SETTING_KEY_EMERGENCY_CALL_NOTIFICATION_SHOWING}
+         *        {@link #ENHANCED_SETTING_KEY_BLOCK_UNAVAILABLE}
+         *        {@link #ENHANCED_SETTING_KEY_SHOW_EMERGENCY_CALL_NOTIFICATION}
          * @return {@code true} if the setting is enabled. {@code false} otherwise.
          */
         public static boolean getEnhancedBlockSetting(Context context, String key) {
@@ -492,7 +597,8 @@ public class BlockedNumberContract {
          *        {@link #ENHANCED_SETTING_KEY_BLOCK_PRIVATE}
          *        {@link #ENHANCED_SETTING_KEY_BLOCK_PAYPHONE}
          *        {@link #ENHANCED_SETTING_KEY_BLOCK_UNKNOWN}
-         *        {@link #ENHANCED_SETTING_KEY_EMERGENCY_CALL_NOTIFICATION_SHOWING}
+         *        {@link #ENHANCED_SETTING_KEY_BLOCK_UNAVAILABLE}
+         *        {@link #ENHANCED_SETTING_KEY_SHOW_EMERGENCY_CALL_NOTIFICATION}
          * @param value the enabled statue of the setting to set.
          */
         public static void setEnhancedBlockSetting(Context context, String key, boolean value) {
@@ -501,6 +607,30 @@ public class BlockedNumberContract {
             extras.putBoolean(EXTRA_ENHANCED_SETTING_VALUE, value);
             context.getContentResolver().call(AUTHORITY_URI, METHOD_SET_ENHANCED_BLOCK_SETTING,
                     null, extras);
+        }
+
+        /**
+         * Converts a block status constant to a string equivalent for logging.
+         * @hide
+         */
+        public static String blockStatusToString(int blockStatus) {
+            switch (blockStatus) {
+                case STATUS_NOT_BLOCKED:
+                    return "not blocked";
+                case STATUS_BLOCKED_IN_LIST:
+                    return "blocked - in list";
+                case STATUS_BLOCKED_RESTRICTED:
+                    return "blocked - restricted";
+                case STATUS_BLOCKED_UNKNOWN_NUMBER:
+                    return "blocked - unknown";
+                case STATUS_BLOCKED_PAYPHONE:
+                    return "blocked - payphone";
+                case STATUS_BLOCKED_NOT_IN_CONTACTS:
+                    return "blocked - not in contacts";
+                case STATUS_BLOCKED_UNAVAILABLE:
+                    return "blocked - unavailable";
+            }
+            return "unknown";
         }
 
         /**
@@ -520,6 +650,100 @@ public class BlockedNumberContract {
                 this.isSuppressed = isSuppressed;
                 this.untilTimestampMillis = untilTimestampMillis;
             }
+
+            @Override
+            public String toString() {
+                return "[BlockSuppressionStatus; isSuppressed=" + isSuppressed + ", until="
+                        + untilTimestampMillis + "]";
+            }
         }
+    }
+
+    /**
+     * Generates an obfuscated string for a calling handle in {@link Uri} format, or a raw phone
+     * phone number in {@link String} format.
+     * @param pii The information to obfuscate.
+     * @return The obfuscated string.
+     */
+    private static String piiHandle(Object pii) {
+        if (pii == null || VERBOSE) {
+            return String.valueOf(pii);
+        }
+
+        StringBuilder sb = new StringBuilder();
+        if (pii instanceof Uri) {
+            Uri uri = (Uri) pii;
+            String scheme = uri.getScheme();
+
+            if (!TextUtils.isEmpty(scheme)) {
+                sb.append(scheme).append(":");
+            }
+
+            String textToObfuscate = uri.getSchemeSpecificPart();
+            if (PhoneAccount.SCHEME_TEL.equals(scheme)) {
+                obfuscatePhoneNumber(sb, textToObfuscate);
+            } else if (PhoneAccount.SCHEME_SIP.equals(scheme)) {
+                for (int i = 0; i < textToObfuscate.length(); i++) {
+                    char c = textToObfuscate.charAt(i);
+                    if (c != '@' && c != '.') {
+                        c = '*';
+                    }
+                    sb.append(c);
+                }
+            } else {
+                sb.append(pii(pii));
+            }
+        } else if (pii instanceof String) {
+            String number = (String) pii;
+            obfuscatePhoneNumber(sb, number);
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * Obfuscates a phone number, allowing NUM_DIALABLE_DIGITS_TO_LOG digits to be exposed for
+     * the phone number.
+     * @param sb String buffer to write obfuscated number to.
+     * @param phoneNumber The number to obfuscate.
+     */
+    private static void obfuscatePhoneNumber(StringBuilder sb, String phoneNumber) {
+        int numDigitsToObfuscate = getDialableCount(phoneNumber)
+                - NUM_DIALABLE_DIGITS_TO_LOG;
+        for (int i = 0; i < phoneNumber.length(); i++) {
+            char c = phoneNumber.charAt(i);
+            boolean isDialable = PhoneNumberUtils.isDialable(c);
+            if (isDialable) {
+                numDigitsToObfuscate--;
+            }
+            sb.append(isDialable && numDigitsToObfuscate >= 0 ? "*" : c);
+        }
+    }
+
+    /**
+     * Redact personally identifiable information for production users.
+     * If we are running in verbose mode, return the original string,
+     * and return "***" otherwise.
+     */
+    private static String pii(Object pii) {
+        if (pii == null || VERBOSE) {
+            return String.valueOf(pii);
+        }
+        return "***";
+    }
+
+    /**
+     * Determines the number of dialable characters in a string.
+     * @param toCount The string to count dialable characters in.
+     * @return The count of dialable characters.
+     */
+    private static int getDialableCount(String toCount) {
+        int numDialable = 0;
+        for (char c : toCount.toCharArray()) {
+            if (PhoneNumberUtils.isDialable(c)) {
+                numDialable++;
+            }
+        }
+        return numDialable;
     }
 }

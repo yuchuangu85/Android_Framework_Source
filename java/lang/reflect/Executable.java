@@ -738,7 +738,12 @@ public abstract class Executable extends AccessibleObject
 
     /** A cheap implementation for {@link Method#isDefault()}. */
     final boolean isDefaultMethodInternal() {
-        return (accessFlags & Modifier.DEFAULT) != 0;
+        // The intrinsic bits use `Modifier.DEFAULT`. However, we don't generate
+        // intrinsics for default methods. Therefore, we check that both
+        // `Modifier.DEFAULT` is set and `Modifier.INTRINSIC` unset.
+        final int kMask = Modifier.INTRINSIC | Modifier.DEFAULT;
+        final int kValue = Modifier.DEFAULT;
+        return (accessFlags & kMask) == kValue;
     }
 
     /** A cheap implementation for {@link Method#isBridge()}. */

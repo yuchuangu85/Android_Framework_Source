@@ -16,20 +16,26 @@
 
 package android.widget;
 
+import static android.view.accessibility.Flags.triStateChecked;
+
 import android.annotation.DrawableRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
+import android.graphics.BlendMode;
 import android.graphics.Canvas;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.Icon;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.RemotableViewMethod;
 import android.view.SoundEffectConstants;
 import android.view.ViewDebug;
 import android.view.ViewHierarchyEncoder;
@@ -38,6 +44,7 @@ import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.autofill.AutofillManager;
 import android.view.autofill.AutofillValue;
+import android.view.inspector.InspectableProperty;
 
 import com.android.internal.R;
 
@@ -59,20 +66,25 @@ public abstract class CompoundButton extends Button implements Checkable {
     private static final String LOG_TAG = CompoundButton.class.getSimpleName();
 
     private boolean mChecked;
+    @UnsupportedAppUsage
     private boolean mBroadcasting;
 
+    @UnsupportedAppUsage
     private Drawable mButtonDrawable;
     private ColorStateList mButtonTintList = null;
-    private PorterDuff.Mode mButtonTintMode = null;
+    private BlendMode mButtonBlendMode = null;
     private boolean mHasButtonTint = false;
-    private boolean mHasButtonTintMode = false;
+    private boolean mHasButtonBlendMode = false;
 
+    @UnsupportedAppUsage
     private OnCheckedChangeListener mOnCheckedChangeListener;
     private OnCheckedChangeListener mOnCheckedChangeWidgetListener;
 
     // Indicates whether the toggle state was set from resources or dynamically, so it can be used
     // to sanitize autofill requests.
     private boolean mCheckedFromResource = false;
+
+    private CharSequence mCustomStateDescription = null;
 
     private static final int[] CHECKED_STATE_SET = {
         R.attr.state_checked
@@ -95,6 +107,8 @@ public abstract class CompoundButton extends Button implements Checkable {
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, com.android.internal.R.styleable.CompoundButton, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, com.android.internal.R.styleable.CompoundButton,
+                attrs, a, defStyleAttr, defStyleRes);
 
         final Drawable d = a.getDrawable(com.android.internal.R.styleable.CompoundButton_button);
         if (d != null) {
@@ -102,9 +116,9 @@ public abstract class CompoundButton extends Button implements Checkable {
         }
 
         if (a.hasValue(R.styleable.CompoundButton_buttonTintMode)) {
-            mButtonTintMode = Drawable.parseTintMode(a.getInt(
-                    R.styleable.CompoundButton_buttonTintMode, -1), mButtonTintMode);
-            mHasButtonTintMode = true;
+            mButtonBlendMode = Drawable.parseBlendMode(a.getInt(
+                    R.styleable.CompoundButton_buttonTintMode, -1), mButtonBlendMode);
+            mHasButtonBlendMode = true;
         }
 
         if (a.hasValue(R.styleable.CompoundButton_buttonTint)) {
@@ -141,10 +155,49 @@ public abstract class CompoundButton extends Button implements Checkable {
         return handled;
     }
 
+    @InspectableProperty
     @ViewDebug.ExportedProperty
     @Override
     public boolean isChecked() {
         return mChecked;
+    }
+
+    /** @hide */
+    @NonNull
+    protected CharSequence getButtonStateDescription() {
+        if (isChecked()) {
+            return getResources().getString(R.string.checked);
+        } else {
+            return getResources().getString(R.string.not_checked);
+        }
+    }
+
+    /**
+     * This function is called when an instance or subclass sets the state description. Once this
+     * is called and the argument is not null, the app developer will be responsible for updating
+     * state description when checked state changes and we will not set state description
+     * in {@link #setChecked}. App developers can restore the default behavior by setting the
+     * argument to null. If {@link #setChecked} is called first and then setStateDescription is
+     * called, two state change events will be merged by event throttling and we can still get
+     * the correct state description.
+     *
+     * @param stateDescription The state description.
+     */
+    @Override
+    public void setStateDescription(@Nullable CharSequence stateDescription) {
+        mCustomStateDescription = stateDescription;
+        if (stateDescription == null) {
+            setDefaultStateDescription();
+        } else {
+            super.setStateDescription(stateDescription);
+        }
+    }
+
+    /** @hide **/
+    protected void setDefaultStateDescription() {
+        if (mCustomStateDescription == null) {
+            super.setStateDescription(getButtonStateDescription());
+        }
     }
 
     /**
@@ -158,11 +211,15 @@ public abstract class CompoundButton extends Button implements Checkable {
             mCheckedFromResource = false;
             mChecked = checked;
             refreshDrawableState();
-            notifyViewAccessibilityStateChangedIfNeeded(
-                    AccessibilityEvent.CONTENT_CHANGE_TYPE_UNDEFINED);
+            if (triStateChecked()) {
+                notifyViewAccessibilityStateChangedIfNeeded(
+                        AccessibilityEvent.CONTENT_CHANGE_TYPE_CHECKED);
+            }
 
             // Avoid infinite recursions if setChecked() is called from a listener
             if (mBroadcasting) {
+                // setStateDescription will not send out event if the description is unchanged.
+                setDefaultStateDescription();
                 return;
             }
 
@@ -180,6 +237,8 @@ public abstract class CompoundButton extends Button implements Checkable {
 
             mBroadcasting = false;
         }
+        // setStateDescription will not send out event if the description is unchanged.
+        setDefaultStateDescription();
     }
 
     /**
@@ -214,7 +273,7 @@ public abstract class CompoundButton extends Button implements Checkable {
          * @param buttonView The compound button view whose state has changed.
          * @param isChecked  The new checked state of buttonView.
          */
-        void onCheckedChanged(CompoundButton buttonView, boolean isChecked);
+        void onCheckedChanged(@NonNull CompoundButton buttonView, boolean isChecked);
     }
 
     /**
@@ -224,6 +283,7 @@ public abstract class CompoundButton extends Button implements Checkable {
      * @param resId the resource identifier of the drawable
      * @attr ref android.R.styleable#CompoundButton_button
      */
+    @RemotableViewMethod(asyncImpl = "setButtonDrawableAsync")
     public void setButtonDrawable(@DrawableRes int resId) {
         final Drawable d;
         if (resId != 0) {
@@ -232,6 +292,12 @@ public abstract class CompoundButton extends Button implements Checkable {
             d = null;
         }
         setButtonDrawable(d);
+    }
+
+    /** @hide **/
+    public Runnable setButtonDrawableAsync(@DrawableRes int resId) {
+        Drawable drawable = resId == 0 ? null : getContext().getDrawable(resId);
+        return () -> setButtonDrawable(drawable);
     }
 
     /**
@@ -278,9 +344,27 @@ public abstract class CompoundButton extends Button implements Checkable {
      * @see #setButtonDrawable(Drawable)
      * @see #setButtonDrawable(int)
      */
+    @InspectableProperty(name = "button")
     @Nullable
     public Drawable getButtonDrawable() {
         return mButtonDrawable;
+    }
+
+    /**
+     * Sets the button of this CompoundButton to the specified Icon.
+     *
+     * @param icon an Icon holding the desired button, or {@code null} to clear
+     *             the button
+     */
+    @RemotableViewMethod(asyncImpl = "setButtonIconAsync")
+    public void setButtonIcon(@Nullable Icon icon) {
+        setButtonDrawable(icon == null ? null : icon.loadDrawable(getContext()));
+    }
+
+    /** @hide **/
+    public Runnable setButtonIconAsync(@Nullable Icon icon) {
+        Drawable button = icon == null ? null : icon.loadDrawable(getContext());
+        return () -> setButtonDrawable(button);
     }
 
     /**
@@ -298,6 +382,7 @@ public abstract class CompoundButton extends Button implements Checkable {
      * @see #setButtonTintList(ColorStateList)
      * @see Drawable#setTintList(ColorStateList)
      */
+    @RemotableViewMethod
     public void setButtonTintList(@Nullable ColorStateList tint) {
         mButtonTintList = tint;
         mHasButtonTint = true;
@@ -310,6 +395,7 @@ public abstract class CompoundButton extends Button implements Checkable {
      * @attr ref android.R.styleable#CompoundButton_buttonTint
      * @see #setButtonTintList(ColorStateList)
      */
+    @InspectableProperty(name = "buttonTint")
     @Nullable
     public ColorStateList getButtonTintList() {
         return mButtonTintList;
@@ -327,8 +413,24 @@ public abstract class CompoundButton extends Button implements Checkable {
      * @see Drawable#setTintMode(PorterDuff.Mode)
      */
     public void setButtonTintMode(@Nullable PorterDuff.Mode tintMode) {
-        mButtonTintMode = tintMode;
-        mHasButtonTintMode = true;
+        setButtonTintBlendMode(tintMode != null ? BlendMode.fromValue(tintMode.nativeInt) : null);
+    }
+
+    /**
+     * Specifies the blending mode used to apply the tint specified by
+     * {@link #setButtonTintList(ColorStateList)}} to the button drawable. The
+     * default mode is {@link PorterDuff.Mode#SRC_IN}.
+     *
+     * @param tintMode the blending mode used to apply the tint, may be
+     *                 {@code null} to clear tint
+     * @attr ref android.R.styleable#CompoundButton_buttonTintMode
+     * @see #getButtonTintMode()
+     * @see Drawable#setTintBlendMode(BlendMode)
+     */
+    @RemotableViewMethod
+    public void setButtonTintBlendMode(@Nullable BlendMode tintMode) {
+        mButtonBlendMode = tintMode;
+        mHasButtonBlendMode = true;
 
         applyButtonTint();
     }
@@ -338,21 +440,35 @@ public abstract class CompoundButton extends Button implements Checkable {
      * @attr ref android.R.styleable#CompoundButton_buttonTintMode
      * @see #setButtonTintMode(PorterDuff.Mode)
      */
+    @InspectableProperty(name = "buttonTintMode")
     @Nullable
     public PorterDuff.Mode getButtonTintMode() {
-        return mButtonTintMode;
+        return mButtonBlendMode != null ? BlendMode.blendModeToPorterDuffMode(mButtonBlendMode) :
+                null;
+    }
+
+    /**
+     * @return the blending mode used to apply the tint to the button drawable
+     * @attr ref android.R.styleable#CompoundButton_buttonTintMode
+     * @see #setButtonTintBlendMode(BlendMode)
+     */
+    @InspectableProperty(name = "buttonBlendMode",
+            attributeId = R.styleable.CompoundButton_buttonTintMode)
+    @Nullable
+    public BlendMode getButtonTintBlendMode() {
+        return mButtonBlendMode;
     }
 
     private void applyButtonTint() {
-        if (mButtonDrawable != null && (mHasButtonTint || mHasButtonTintMode)) {
+        if (mButtonDrawable != null && (mHasButtonTint || mHasButtonBlendMode)) {
             mButtonDrawable = mButtonDrawable.mutate();
 
             if (mHasButtonTint) {
                 mButtonDrawable.setTintList(mButtonTintList);
             }
 
-            if (mHasButtonTintMode) {
-                mButtonDrawable.setTintMode(mButtonTintMode);
+            if (mHasButtonBlendMode) {
+                mButtonDrawable.setTintBlendMode(mButtonBlendMode);
             }
 
             // The drawable (or one of its children) may not have been
@@ -380,7 +496,12 @@ public abstract class CompoundButton extends Button implements Checkable {
     public void onInitializeAccessibilityNodeInfoInternal(AccessibilityNodeInfo info) {
         super.onInitializeAccessibilityNodeInfoInternal(info);
         info.setCheckable(true);
-        info.setChecked(mChecked);
+        if (triStateChecked()) {
+            info.setChecked(mChecked ? AccessibilityNodeInfo.CHECKED_STATE_TRUE :
+                    AccessibilityNodeInfo.CHECKED_STATE_FALSE);
+        } else {
+            info.setChecked(mChecked);
+        }
     }
 
     @Override
@@ -534,7 +655,7 @@ public abstract class CompoundButton extends Button implements Checkable {
         }
 
         @SuppressWarnings("hiding")
-        public static final Parcelable.Creator<SavedState> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<SavedState> CREATOR =
                 new Parcelable.Creator<SavedState>() {
             @Override
             public SavedState createFromParcel(Parcel in) {
@@ -574,11 +695,16 @@ public abstract class CompoundButton extends Button implements Checkable {
         stream.addProperty("checked", isChecked());
     }
 
-    @Override
-    public void onProvideAutofillStructure(ViewStructure structure, int flags) {
-        super.onProvideAutofillStructure(structure, flags);
 
-        structure.setDataIsSensitive(!mCheckedFromResource);
+    /** @hide */
+    @Override
+    protected void onProvideStructure(@NonNull ViewStructure structure,
+            @ViewStructureType int viewFor, int flags) {
+        super.onProvideStructure(structure, viewFor, flags);
+
+        if (viewFor == VIEW_STRUCTURE_FOR_AUTOFILL) {
+            structure.setDataIsSensitive(!mCheckedFromResource);
+        }
     }
 
     @Override

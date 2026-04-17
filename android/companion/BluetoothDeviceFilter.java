@@ -26,6 +26,8 @@ import static android.companion.BluetoothDeviceFilterUtils.patternToString;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.bluetooth.BluetoothDevice;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.ParcelUuid;
 import android.provider.OneTimeUseBuilder;
@@ -48,27 +50,20 @@ public final class BluetoothDeviceFilter implements DeviceFilter<BluetoothDevice
     private final List<ParcelUuid> mServiceUuids;
     private final List<ParcelUuid> mServiceUuidMasks;
 
-    private BluetoothDeviceFilter(
-            Pattern namePattern,
-            String address,
-            List<ParcelUuid> serviceUuids,
-            List<ParcelUuid> serviceUuidMasks) {
-        mNamePattern = namePattern;
-        mAddress = address;
-        mServiceUuids = CollectionUtils.emptyIfNull(serviceUuids);
-        mServiceUuidMasks = CollectionUtils.emptyIfNull(serviceUuidMasks);
+    private BluetoothDeviceFilter(Builder builder) {
+        mNamePattern = builder.mNamePattern;
+        mAddress = builder.mAddress;
+        mServiceUuids = CollectionUtils.emptyIfNull(builder.mServiceUuid);
+        mServiceUuidMasks = CollectionUtils.emptyIfNull(builder.mServiceUuidMask);
     }
 
     private BluetoothDeviceFilter(Parcel in) {
-        this(
-            patternFromString(in.readString()),
-            in.readString(),
-            readUuids(in),
-            readUuids(in));
-    }
-
-    private static List<ParcelUuid> readUuids(Parcel in) {
-        return in.readParcelableList(new ArrayList<>(), ParcelUuid.class.getClassLoader());
+        mNamePattern = patternFromString(in.readString());
+        mAddress = in.readString();
+        mServiceUuids = new ArrayList<>();
+        in.readTypedList(mServiceUuids, ParcelUuid.CREATOR);
+        mServiceUuidMasks = new ArrayList<>();
+        in.readTypedList(mServiceUuidMasks, ParcelUuid.CREATOR);
     }
 
     /** @hide */
@@ -99,6 +94,7 @@ public final class BluetoothDeviceFilter implements DeviceFilter<BluetoothDevice
 
     /** @hide */
     @Nullable
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public String getAddress() {
         return mAddress;
     }
@@ -119,12 +115,12 @@ public final class BluetoothDeviceFilter implements DeviceFilter<BluetoothDevice
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeString(patternToString(getNamePattern()));
         dest.writeString(mAddress);
-        dest.writeParcelableList(mServiceUuids, flags);
-        dest.writeParcelableList(mServiceUuidMasks, flags);
+        dest.writeTypedList(mServiceUuids, flags);
+        dest.writeTypedList(mServiceUuidMasks, flags);
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         BluetoothDeviceFilter that = (BluetoothDeviceFilter) o;
@@ -140,11 +136,21 @@ public final class BluetoothDeviceFilter implements DeviceFilter<BluetoothDevice
     }
 
     @Override
+    public String toString() {
+        return "BluetoothDeviceFilter{"
+                + "mNamePattern=" + mNamePattern
+                + ", mAddress='" + mAddress + '\''
+                + ", mServiceUuids=" + mServiceUuids
+                + ", mServiceUuidMasks=" + mServiceUuidMasks
+                + '}';
+    }
+
+    @Override
     public int describeContents() {
         return 0;
     }
 
-    public static final Creator<BluetoothDeviceFilter> CREATOR
+    public static final @android.annotation.NonNull Creator<BluetoothDeviceFilter> CREATOR
             = new Creator<BluetoothDeviceFilter>() {
         @Override
         public BluetoothDeviceFilter createFromParcel(Parcel in) {
@@ -204,13 +210,12 @@ public final class BluetoothDeviceFilter implements DeviceFilter<BluetoothDevice
             return this;
         }
 
-        /** @inheritDoc */
+        /** {@inheritDoc} */
         @Override
         @NonNull
         public BluetoothDeviceFilter build() {
             markUsed();
-            return new BluetoothDeviceFilter(
-                    mNamePattern, mAddress, mServiceUuid, mServiceUuidMask);
+            return new BluetoothDeviceFilter(this);
         }
     }
 }

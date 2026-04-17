@@ -17,11 +17,11 @@
 
 package android.media.effect;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.filterfw.core.Filter;
 import android.filterfw.core.FilterFactory;
 import android.filterfw.core.FilterFunction;
 import android.filterfw.core.Frame;
-import android.media.effect.EffectContext;
 
 /**
  * Effect subclass for effects based on a single Filter. Subclasses need only invoke the
@@ -44,6 +44,7 @@ public class SingleFilterEffect extends FilterEffect {
      * @param outputName The name of the output image port.
      * @param finalParameters Key-value pairs of final input port assignments.
      */
+    @UnsupportedAppUsage
     public SingleFilterEffect(EffectContext context,
                               String name,
                               Class filterClass,

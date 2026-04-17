@@ -16,14 +16,18 @@
 
 package android.security.keystore;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SystemApi;
 import android.annotation.TestApi;
 import android.app.KeyguardManager;
-import android.hardware.fingerprint.FingerprintManager;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.hardware.biometrics.BiometricManager;
+import android.hardware.biometrics.BiometricPrompt;
+import android.os.Build;
 import android.security.GateKeeper;
-import android.security.KeyStore;
 import android.text.TextUtils;
 
 import java.math.BigInteger;
@@ -31,7 +35,10 @@ import java.security.KeyPairGenerator;
 import java.security.Signature;
 import java.security.cert.Certificate;
 import java.security.spec.AlgorithmParameterSpec;
+import java.util.Collections;
 import java.util.Date;
+import java.util.HashSet;
+import java.util.Set;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -68,16 +75,18 @@ import javax.security.auth.x500.X500Principal;
  * {@link java.security.interfaces.ECPublicKey} or {@link java.security.interfaces.RSAPublicKey}
  * interfaces.
  *
- * <p>For asymmetric key pairs, a self-signed X.509 certificate will be also generated and stored in
- * the Android Keystore. This is because the {@link java.security.KeyStore} abstraction does not
- * support storing key pairs without a certificate. The subject, serial number, and validity dates
- * of the certificate can be customized in this spec. The self-signed certificate may be replaced at
- * a later time by a certificate signed by a Certificate Authority (CA).
+ * <p>For asymmetric key pairs, a X.509 certificate will be also generated and stored in the Android
+ * Keystore. This is because the {@link java.security.KeyStore} abstraction does not support storing
+ * key pairs without a certificate. The subject, serial number, and validity dates of the
+ * certificate can be customized in this spec. The certificate may be replaced at a later time by a
+ * certificate signed by a Certificate Authority (CA).
  *
- * <p>NOTE: If a private key is not authorized to sign the self-signed certificate, then the
- * certificate will be created with an invalid signature which will not verify. Such a certificate
- * is still useful because it provides access to the public key. To generate a valid signature for
- * the certificate the key needs to be authorized for all of the following:
+ * <p>NOTE: If attestation is not requested using {@link Builder#setAttestationChallenge(byte[])},
+ * generated certificate may be self-signed. If a private key is not authorized to sign the
+ * certificate, then the certificate will be created with an invalid signature which will not
+ * verify. Such a certificate is still useful because it provides access to the public key. To
+ * generate a valid signature for the certificate the key needs to be authorized for all of the
+ * following:
  * <ul>
  * <li>{@link KeyProperties#PURPOSE_SIGN},</li>
  * <li>operation without requiring the user to be authenticated (see
@@ -233,16 +242,123 @@ import javax.security.auth.x500.X500Principal;
  * keyStore.load(null);
  * key = (SecretKey) keyStore.getKey("key2", null);
  * }</pre>
+ *
+ * <p><h3 id="example:ecdh">Example: EC key for ECDH key agreement</h3>
+ * This example illustrates how to generate an elliptic curve key pair, used to establish a shared
+ * secret with another party using ECDH key agreement.
+ * <pre> {@code
+ * KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance(
+ *         KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore");
+ * keyPairGenerator.initialize(
+ *         new KeyGenParameterSpec.Builder(
+ *             "eckeypair",
+ *             KeyProperties.PURPOSE_AGREE_KEY)
+ *             .setAlgorithmParameterSpec(new ECGenParameterSpec("secp256r1"))
+ *             .build());
+ * KeyPair myKeyPair = keyPairGenerator.generateKeyPair();
+ *
+ * // Exchange public keys with server. A new ephemeral key MUST be used for every message.
+ * PublicKey serverEphemeralPublicKey; // Ephemeral key received from server.
+ *
+ * // Create a shared secret based on our private key and the other party's public key.
+ * KeyAgreement keyAgreement = KeyAgreement.getInstance("ECDH", "AndroidKeyStore");
+ * keyAgreement.init(myKeyPair.getPrivate());
+ * keyAgreement.doPhase(serverEphemeralPublicKey, true);
+ * byte[] sharedSecret = keyAgreement.generateSecret();
+ *
+ * // sharedSecret cannot safely be used as a key yet. We must run it through a key derivation
+ * // function with some other data: "salt" and "info". Salt is an optional random value,
+ * // omitted in this example. It's good practice to include both public keys and any other
+ * // key negotiation data in info. Here we use the public keys and a label that indicates
+ * // messages encrypted with this key are coming from the server.
+ * byte[] salt = {};
+ * ByteArrayOutputStream info = new ByteArrayOutputStream();
+ * info.write("ECDH secp256r1 AES-256-GCM-SIV\0".getBytes(StandardCharsets.UTF_8));
+ * info.write(myKeyPair.getPublic().getEncoded());
+ * info.write(serverEphemeralPublicKey.getEncoded());
+ *
+ * // This example uses the Tink library and the HKDF key derivation function.
+ * AesGcmSiv key = new AesGcmSiv(Hkdf.computeHkdf(
+ *         "HMACSHA256", sharedSecret, salt, info.toByteArray(), 32));
+ * byte[] associatedData = {};
+ * return key.decrypt(ciphertext, associatedData);
+ * }</pre>
+ *
+ * <p><h3>Example: ML-DSA key pair for signing</h3>
+ * This example illustrates how to generate an ML-DSA key pair in the Android KeyStore system under
+ * alias {@code key1} authorized to be used only for signing. The use of the public key is
+ * unrestricted.
+ * <p>The generated key pair will use the ML-DSA-65 parameter set if the {@code KeyPairGenerator} is
+ * instantiated with the family name {@code "ML-DSA"} or the parameter set name {@code "ML-DSA-65"}.
+ * On the other hand, the key pair will use the ML-DSA-87 parameter set only if the
+ * {@code KeyPairGenerator} is instantiated with the parameter set name {@code "ML-DSA-87"}.
+ * <p> In both cases, it is not required to set the {@code AlgorithmParameterSpec} or digest in the
+ * {@code KeyGenParameterSpec}. If the {@code AlgorithmParameterSpec} is set to a non-null value,
+ * then the value must match the algorithm name used to instantiate the {@code KeyPairGenerator}.
+ * Specifically, the algorithm name must be {@code "ML-DSA"} or {@code "ML-DSA-65"} if
+ * {@link java.security.spec.NamedParameterSpec#ML_DSA_65} is specified, or {@code "ML-DSA-87"} if
+ * {@link java.security.spec.NamedParameterSpec#ML_DSA_87} is specified.
+ *
+ * <p><h4>Case 1: ML-DSA-65</h4>
+ * <pre> {@code
+ * // KeyProperties.KEY_ALGORITHM_ML_DSA_65 can also be used here.
+ * KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance(
+ *         KeyProperties.KEY_ALGORITHM_ML_DSA, "AndroidKeyStore");
+ * keyPairGenerator.initialize(
+ *         new KeyGenParameterSpec.Builder("key1", KeyProperties.PURPOSE_SIGN).build());
+ * // NamedParameterSpec.ML_DSA_65 and KeyProperties.DIGEST_NONE can optionally be specified:
+ * // keyPairGenerator.initialize(
+ * //         new KeyGenParameterSpec.Builder("key1", KeyProperties.PURPOSE_SIGN)
+ * //                 .setAlgorithmParameterSpec(NamedParameterSpec.ML_DSA_65)
+ * //                 .setDigests(KeyProperties.DIGEST_NONE)
+ * //                 .build());
+ * KeyPair keyPair = keyPairGenerator.generateKeyPair();
+ * Signature signature = Signature.getInstance("ML-DSA");  // Or "ML-DSA-65"
+ * signature.initSign(keyPair.getPrivate());
+ * ...
+ *
+ * // The key pair can also be obtained from the Android Keystore any time as follows:
+ * KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
+ * keyStore.load(null);
+ * PrivateKey privateKey = (PrivateKey) keyStore.getKey("key1", null);
+ * PublicKey publicKey = keyStore.getCertificate("key1").getPublicKey();
+ * }</pre>
+ *
+ * <p><h4>Case 2: ML-DSA-87</h4>
+ * <pre> {@code
+ * KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance(
+ *         KeyProperties.KEY_ALGORITHM_ML_DSA_87, "AndroidKeyStore");
+ * keyPairGenerator.initialize(
+ *         new KeyGenParameterSpec.Builder("key1", KeyProperties.PURPOSE_SIGN).build());
+ * // NamedParameterSpec.ML_DSA_87 and KeyProperties.DIGEST_NONE can optionally be specified:
+ * // keyPairGenerator.initialize(
+ * //         new KeyGenParameterSpec.Builder("key1", KeyProperties.PURPOSE_SIGN)
+ * //                 .setAlgorithmParameterSpec(NamedParameterSpec.ML_DSA_87)
+ * //                 .setDigests(KeyProperties.DIGEST_NONE)
+ * //                 .build());
+ * KeyPair keyPair = keyPairGenerator.generateKeyPair();
+ * Signature signature = Signature.getInstance("ML-DSA");  // Or "ML-DSA-87"
+ * signature.initSign(keyPair.getPrivate());
+ * ...
+ *
+ * // The key pair can also be obtained from the Android Keystore any time as follows:
+ * KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
+ * keyStore.load(null);
+ * PrivateKey privateKey = (PrivateKey) keyStore.getKey("key1", null);
+ * PublicKey publicKey = keyStore.getCertificate("key1").getPublicKey();
+ * }</pre>
  */
 public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAuthArgs {
-
-    private static final X500Principal DEFAULT_CERT_SUBJECT = new X500Principal("CN=fake");
+    private static final X500Principal DEFAULT_ATTESTATION_CERT_SUBJECT =
+            new X500Principal("CN=Android Keystore Key");
+    private static final X500Principal DEFAULT_SELF_SIGNED_CERT_SUBJECT =
+            new X500Principal("CN=Fake");
     private static final BigInteger DEFAULT_CERT_SERIAL_NUMBER = new BigInteger("1");
     private static final Date DEFAULT_CERT_NOT_BEFORE = new Date(0L); // Jan 1 1970
     private static final Date DEFAULT_CERT_NOT_AFTER = new Date(2461449600000L); // Jan 1 2048
 
     private final String mKeystoreAlias;
-    private final int mUid;
+    private final @KeyProperties.Namespace int mNamespace;
     private final int mKeySize;
     private final AlgorithmParameterSpec mSpec;
     private final X500Principal mCertificateSubject;
@@ -254,27 +370,41 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
     private final Date mKeyValidityForConsumptionEnd;
     private final @KeyProperties.PurposeEnum int mPurposes;
     private final @KeyProperties.DigestEnum String[] mDigests;
+    private final @NonNull @KeyProperties.DigestEnum Set<String> mMgf1Digests;
     private final @KeyProperties.EncryptionPaddingEnum String[] mEncryptionPaddings;
     private final @KeyProperties.SignaturePaddingEnum String[] mSignaturePaddings;
     private final @KeyProperties.BlockModeEnum String[] mBlockModes;
     private final boolean mRandomizedEncryptionRequired;
     private final boolean mUserAuthenticationRequired;
     private final int mUserAuthenticationValidityDurationSeconds;
+    private final @KeyProperties.AuthEnum int mUserAuthenticationType;
     private final boolean mUserPresenceRequired;
     private final byte[] mAttestationChallenge;
+    private final boolean mDevicePropertiesAttestationIncluded;
+    private final int[] mAttestationIds;
     private final boolean mUniqueIdIncluded;
     private final boolean mUserAuthenticationValidWhileOnBody;
     private final boolean mInvalidatedByBiometricEnrollment;
     private final boolean mIsStrongBoxBacked;
     private final boolean mUserConfirmationRequired;
     private final boolean mUnlockedDeviceRequired;
+    private final boolean mCriticalToDeviceEncryption;
+    private final int mMaxUsageCount;
+    private final String mAttestKeyAlias;
+    private final long mBoundToSecureUserId;
+
+    /*
+     * ***NOTE***: All new fields MUST also be added to the following:
+     * ParcelableKeyGenParameterSpec class.
+     * The KeyGenParameterSpec.Builder constructor that takes a KeyGenParameterSpec
+     */
 
     /**
      * @hide should be built with Builder
      */
     public KeyGenParameterSpec(
             String keyStoreAlias,
-            int uid,
+            @KeyProperties.Namespace int namespace,
             int keySize,
             AlgorithmParameterSpec spec,
             X500Principal certificateSubject,
@@ -286,26 +416,38 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
             Date keyValidityForConsumptionEnd,
             @KeyProperties.PurposeEnum int purposes,
             @KeyProperties.DigestEnum String[] digests,
+            @KeyProperties.DigestEnum Set<String> mgf1Digests,
             @KeyProperties.EncryptionPaddingEnum String[] encryptionPaddings,
             @KeyProperties.SignaturePaddingEnum String[] signaturePaddings,
             @KeyProperties.BlockModeEnum String[] blockModes,
             boolean randomizedEncryptionRequired,
             boolean userAuthenticationRequired,
             int userAuthenticationValidityDurationSeconds,
+            @KeyProperties.AuthEnum int userAuthenticationType,
             boolean userPresenceRequired,
             byte[] attestationChallenge,
+            boolean devicePropertiesAttestationIncluded,
+            @NonNull int[] attestationIds,
             boolean uniqueIdIncluded,
             boolean userAuthenticationValidWhileOnBody,
             boolean invalidatedByBiometricEnrollment,
             boolean isStrongBoxBacked,
             boolean userConfirmationRequired,
-            boolean unlockedDeviceRequired) {
+            boolean unlockedDeviceRequired,
+            boolean criticalToDeviceEncryption,
+            int maxUsageCount,
+            String attestKeyAlias,
+            long boundToSecureUserId) {
         if (TextUtils.isEmpty(keyStoreAlias)) {
             throw new IllegalArgumentException("keyStoreAlias must not be empty");
         }
 
         if (certificateSubject == null) {
-            certificateSubject = DEFAULT_CERT_SUBJECT;
+            if (attestationChallenge == null) {
+                certificateSubject = DEFAULT_SELF_SIGNED_CERT_SUBJECT;
+            } else {
+                certificateSubject = DEFAULT_ATTESTATION_CERT_SUBJECT;
+            }
         }
         if (certificateNotBefore == null) {
             certificateNotBefore = DEFAULT_CERT_NOT_BEFORE;
@@ -322,7 +464,7 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
         }
 
         mKeystoreAlias = keyStoreAlias;
-        mUid = uid;
+        mNamespace = namespace;
         mKeySize = keySize;
         mSpec = spec;
         mCertificateSubject = certificateSubject;
@@ -334,6 +476,9 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
         mKeyValidityForConsumptionEnd = Utils.cloneIfNotNull(keyValidityForConsumptionEnd);
         mPurposes = purposes;
         mDigests = ArrayUtils.cloneIfNotEmpty(digests);
+        // No need to copy the input parameter because the Builder class passes in an immutable
+        // collection.
+        mMgf1Digests = mgf1Digests != null ? mgf1Digests : Collections.emptySet();
         mEncryptionPaddings =
                 ArrayUtils.cloneIfNotEmpty(ArrayUtils.nullToEmpty(encryptionPaddings));
         mSignaturePaddings = ArrayUtils.cloneIfNotEmpty(ArrayUtils.nullToEmpty(signaturePaddings));
@@ -342,13 +487,20 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
         mUserAuthenticationRequired = userAuthenticationRequired;
         mUserPresenceRequired = userPresenceRequired;
         mUserAuthenticationValidityDurationSeconds = userAuthenticationValidityDurationSeconds;
+        mUserAuthenticationType = userAuthenticationType;
         mAttestationChallenge = Utils.cloneIfNotNull(attestationChallenge);
+        mDevicePropertiesAttestationIncluded = devicePropertiesAttestationIncluded;
+        mAttestationIds = attestationIds;
         mUniqueIdIncluded = uniqueIdIncluded;
         mUserAuthenticationValidWhileOnBody = userAuthenticationValidWhileOnBody;
         mInvalidatedByBiometricEnrollment = invalidatedByBiometricEnrollment;
         mIsStrongBoxBacked = isStrongBoxBacked;
         mUserConfirmationRequired = userConfirmationRequired;
         mUnlockedDeviceRequired = unlockedDeviceRequired;
+        mCriticalToDeviceEncryption = criticalToDeviceEncryption;
+        mMaxUsageCount = maxUsageCount;
+        mAttestKeyAlias = attestKeyAlias;
+        mBoundToSecureUserId = boundToSecureUserId;
     }
 
     /**
@@ -364,10 +516,36 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
      * Returns the UID which will own the key. {@code -1} is an alias for the UID of the current
      * process.
      *
+     * @deprecated See deprecation message on {@link KeyGenParameterSpec.Builder#setUid(int)}.
+     *             Known namespaces will be translated to their legacy UIDs. Unknown
+     *             Namespaces will yield {@link IllegalStateException}.
+     *
      * @hide
      */
+    @UnsupportedAppUsage
+    @Deprecated
     public int getUid() {
-        return mUid;
+        try {
+            return KeyProperties.namespaceToLegacyUid(mNamespace);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException("getUid called on KeyGenParameterSpec with non legacy"
+                    + " keystore namespace.", e);
+        }
+    }
+
+    /**
+     * Returns the target namespace for the key.
+     * See {@link KeyGenParameterSpec.Builder#setNamespace(int)}.
+     *
+     * @return The numeric namespace as configured in the keystore2_key_contexts files of Android's
+     *         SEPolicy.
+     *         See <a href="https://source.android.com/security/keystore#access-control">
+     *             Keystore 2.0 access control</a>
+     * @hide
+     */
+    @SystemApi
+    public @KeyProperties.Namespace int getNamespace() {
+        return mNamespace;
     }
 
     /**
@@ -463,7 +641,7 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
 
     /**
      * Returns the set of digest algorithms (e.g., {@code SHA-256}, {@code SHA-384} with which the
-     * key can be used or {@code null} if not specified.
+     * key can be used.
      *
      * <p>See {@link KeyProperties}.{@code DIGEST} constants.
      *
@@ -488,6 +666,40 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
     @NonNull
     public boolean isDigestsSpecified() {
         return mDigests != null;
+    }
+
+    /**
+     * Returns the set of digests that can be used by the MGF1 mask generation function
+     * (e.g., {@code SHA-256}, {@code SHA-384}) with the key. Useful with the {@code RSA-OAEP}
+     * scheme.
+     * If not explicitly specified during key generation, the default {@code SHA-1} digest is
+     * used and may be specified when using the key.
+     *
+     * <p>See {@link KeyProperties}.{@code DIGEST} constants.
+     *
+     * @throws IllegalStateException if this set has not been specified.
+     *
+     * @see #isMgf1DigestsSpecified()
+     */
+    @NonNull
+    @FlaggedApi(android.security.Flags.FLAG_MGF1_DIGEST_SETTER_V2)
+    public @KeyProperties.DigestEnum Set<String> getMgf1Digests() {
+        if (mMgf1Digests.isEmpty()) {
+            throw new IllegalStateException("Mask generation function (MGF) not specified");
+        }
+        return new HashSet(mMgf1Digests);
+    }
+
+    /**
+     * Returns {@code true} if the set of digests for the MGF1 mask generation function,
+     * with which the key can be used, has been specified. Useful with the {@code RSA-OAEP} scheme.
+     *
+     * @see #getMgf1Digests()
+     */
+    @NonNull
+    @FlaggedApi(android.security.Flags.FLAG_MGF1_DIGEST_SETTER_V2)
+    public boolean isMgf1DigestsSpecified() {
+        return !mMgf1Digests.isEmpty();
     }
 
     /**
@@ -593,6 +805,22 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
     }
 
     /**
+     * Gets the modes of authentication that can authorize use of this key. This has effect only if
+     * user authentication is required (see {@link #isUserAuthenticationRequired()}).
+     *
+     * <p>This authorization applies only to secret key and private key operations. Public key
+     * operations are not restricted.
+     *
+     * @return integer representing the bitwse OR of all acceptable authentication types for the
+     *         key.
+     *
+     * @see #isUserAuthenticationRequired()
+     * @see Builder#setUserAuthenticationParameters(int, int)
+     */
+    public @KeyProperties.AuthEnum int getUserAuthenticationType() {
+        return mUserAuthenticationType;
+    }
+    /**
      * Returns {@code true} if the key is authorized to be used only if a test of user presence has
      * been performed between the {@code Signature.initSign()} and {@code Signature.sign()} calls.
      * It requires that the KeyStore implementation have a direct way to validate the user presence
@@ -636,10 +864,44 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
     }
 
     /**
+     * Returns {@code true} if attestation for the base device properties ({@link Build#BRAND},
+     * {@link Build#DEVICE}, {@link Build#MANUFACTURER}, {@link Build#MODEL}, {@link Build#PRODUCT})
+     * was requested to be added in the attestation certificate for the generated key.
+     *
+     * {@link javax.crypto.KeyGenerator#generateKey()} will throw
+     * {@link java.security.ProviderException} if device properties attestation fails or is not
+     * supported.
+     *
+     * @see Builder#setDevicePropertiesAttestationIncluded(boolean)
+     */
+    public boolean isDevicePropertiesAttestationIncluded() {
+        return mDevicePropertiesAttestationIncluded;
+    }
+
+    /**
+     * @hide
+     * Allows the caller to specify device IDs to be attested to in the certificate for the
+     * generated key pair. These values are the enums specified in
+     * {@link android.security.keystore.AttestationUtils}
+     *
+     * @see android.security.keystore.AttestationUtils#ID_TYPE_SERIAL
+     * @see android.security.keystore.AttestationUtils#ID_TYPE_IMEI
+     * @see android.security.keystore.AttestationUtils#ID_TYPE_MEID
+     * @see android.security.keystore.AttestationUtils#USE_INDIVIDUAL_ATTESTATION
+     *
+     * @return integer array representing the requested device IDs to attest.
+     */
+    @SystemApi
+    public @NonNull int[] getAttestationIds() {
+        return mAttestationIds.clone();
+    }
+
+    /**
      * @hide This is a system-only API
      *
      * Returns {@code true} if the attestation certificate will contain a unique ID field.
      */
+    @UnsupportedAppUsage
     public boolean isUniqueIdIncluded() {
         return mUniqueIdIncluded;
     }
@@ -662,9 +924,9 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
     }
 
     /**
-     * Returns {@code true} if the key is irreversibly invalidated when a new fingerprint is
-     * enrolled or all enrolled fingerprints are removed. This has effect only for keys that
-     * require fingerprint user authentication for every use.
+     * Returns {@code true} if the key is irreversibly invalidated when a new biometric is
+     * enrolled or all enrolled biometrics are removed. This has effect only for keys that
+     * require biometric user authentication for every use.
      *
      * @see #isUserAuthenticationRequired()
      * @see #getUserAuthenticationValidityDurationSeconds()
@@ -682,9 +944,7 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
     }
 
     /**
-     * Returns {@code true} if the screen must be unlocked for this key to be used for decryption or
-     * signing. Encryption and signature verification will still be available when the screen is
-     * locked.
+     * Returns {@code true} if the key is authorized to be used only while the device is unlocked.
      *
      * @see Builder#setUnlockedDeviceRequired(boolean)
      */
@@ -693,10 +953,53 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
     }
 
     /**
+     * Return the secure user id that this key should be bound to.
+     *
+     * Normally an authentication-bound key is tied to the secure user id of the current user
+     * (either the root SID from GateKeeper for auth-bound keys with a timeout, or the authenticator
+     * id of the current biometric set for keys requiring explicit biometric authorization).
+     * If this parameter is set (this method returning non-zero value), the key should be tied to
+     * the specified secure user id, overriding the logic above.
+     *
+     * This is only applicable when {@link #isUserAuthenticationRequired} is {@code true}
+     *
      * @hide
      */
     public long getBoundToSpecificSecureUserId() {
-        return GateKeeper.INVALID_SECURE_USER_ID;
+        return mBoundToSecureUserId;
+    }
+
+    /**
+     * Returns whether this key is critical to the device encryption flow.
+     *
+     * @see Builder#setCriticalToDeviceEncryption(boolean)
+     * @hide
+     */
+    public boolean isCriticalToDeviceEncryption() {
+        return mCriticalToDeviceEncryption;
+    }
+
+    /**
+     * Returns the maximum number of times the limited use key is allowed to be used or
+     * {@link KeyProperties#UNRESTRICTED_USAGE_COUNT} if there’s no restriction on the number of
+     * times the key can be used.
+     *
+     * @see Builder#setMaxUsageCount(int)
+     */
+    public int getMaxUsageCount() {
+        return mMaxUsageCount;
+    }
+
+    /**
+     * Returns the alias of the attestation key that will be used to sign the attestation
+     * certificate of the generated key.  Note that an attestation certificate will only be
+     * generated if an attestation challenge is set.
+     *
+     * @see Builder#setAttestKeyAlias(String)
+     */
+    @Nullable
+    public String getAttestKeyAlias() {
+        return mAttestKeyAlias;
     }
 
     /**
@@ -706,7 +1009,7 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
         private final String mKeystoreAlias;
         private @KeyProperties.PurposeEnum int mPurposes;
 
-        private int mUid = KeyStore.UID_SELF;
+        private @KeyProperties.Namespace int mNamespace = KeyProperties.NAMESPACE_APPLICATION;
         private int mKeySize = -1;
         private AlgorithmParameterSpec mSpec;
         private X500Principal mCertificateSubject;
@@ -717,20 +1020,30 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
         private Date mKeyValidityForOriginationEnd;
         private Date mKeyValidityForConsumptionEnd;
         private @KeyProperties.DigestEnum String[] mDigests;
+        private @NonNull @KeyProperties.DigestEnum Set<String> mMgf1Digests =
+                Collections.emptySet();
         private @KeyProperties.EncryptionPaddingEnum String[] mEncryptionPaddings;
         private @KeyProperties.SignaturePaddingEnum String[] mSignaturePaddings;
         private @KeyProperties.BlockModeEnum String[] mBlockModes;
         private boolean mRandomizedEncryptionRequired = true;
         private boolean mUserAuthenticationRequired;
-        private int mUserAuthenticationValidityDurationSeconds = -1;
+        private int mUserAuthenticationValidityDurationSeconds = 0;
+        private @KeyProperties.AuthEnum int mUserAuthenticationType =
+                KeyProperties.AUTH_BIOMETRIC_STRONG;
         private boolean mUserPresenceRequired = false;
         private byte[] mAttestationChallenge = null;
+        private boolean mDevicePropertiesAttestationIncluded = false;
+        private int[] mAttestationIds = new int[0];
         private boolean mUniqueIdIncluded = false;
         private boolean mUserAuthenticationValidWhileOnBody;
         private boolean mInvalidatedByBiometricEnrollment = true;
         private boolean mIsStrongBoxBacked = false;
         private boolean mUserConfirmationRequired;
         private boolean mUnlockedDeviceRequired = false;
+        private boolean mCriticalToDeviceEncryption = false;
+        private int mMaxUsageCount = KeyProperties.UNRESTRICTED_USAGE_COUNT;
+        private String mAttestKeyAlias = null;
+        private long mBoundToSecureUserId = GateKeeper.INVALID_SECURE_USER_ID;
 
         /**
          * Creates a new instance of the {@code Builder}.
@@ -739,12 +1052,6 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
          *        Android KeyStore. Must not be empty.
          * @param purposes set of purposes (e.g., encrypt, decrypt, sign) for which the key can be
          *        used. Attempts to use the key for any other purpose will be rejected.
-         *
-         *        <p>If the set of purposes for which the key can be used does not contain
-         *        {@link KeyProperties#PURPOSE_SIGN}, the self-signed certificate generated by
-         *        {@link KeyPairGenerator} of {@code AndroidKeyStore} provider will contain an
-         *        invalid signature. This is OK if the certificate is only used for obtaining the
-         *        public key from Android KeyStore.
          *
          *        <p>See {@link KeyProperties}.{@code PURPOSE} flags.
          */
@@ -765,7 +1072,7 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
          */
         public Builder(@NonNull KeyGenParameterSpec sourceSpec) {
             this(sourceSpec.getKeystoreAlias(), sourceSpec.getPurposes());
-            mUid = sourceSpec.getUid();
+            mNamespace = sourceSpec.getNamespace();
             mKeySize = sourceSpec.getKeySize();
             mSpec = sourceSpec.getAlgorithmParameterSpec();
             mCertificateSubject = sourceSpec.getCertificateSubject();
@@ -779,6 +1086,9 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
             if (sourceSpec.isDigestsSpecified()) {
                 mDigests = sourceSpec.getDigests();
             }
+            if (sourceSpec.isMgf1DigestsSpecified()) {
+                mMgf1Digests = sourceSpec.getMgf1Digests();
+            }
             mEncryptionPaddings = sourceSpec.getEncryptionPaddings();
             mSignaturePaddings = sourceSpec.getSignaturePaddings();
             mBlockModes = sourceSpec.getBlockModes();
@@ -786,30 +1096,77 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
             mUserAuthenticationRequired = sourceSpec.isUserAuthenticationRequired();
             mUserAuthenticationValidityDurationSeconds =
                 sourceSpec.getUserAuthenticationValidityDurationSeconds();
+            mUserAuthenticationType = sourceSpec.getUserAuthenticationType();
             mUserPresenceRequired = sourceSpec.isUserPresenceRequired();
             mAttestationChallenge = sourceSpec.getAttestationChallenge();
+            mDevicePropertiesAttestationIncluded =
+                    sourceSpec.isDevicePropertiesAttestationIncluded();
+            mAttestationIds = sourceSpec.getAttestationIds();
             mUniqueIdIncluded = sourceSpec.isUniqueIdIncluded();
             mUserAuthenticationValidWhileOnBody = sourceSpec.isUserAuthenticationValidWhileOnBody();
             mInvalidatedByBiometricEnrollment = sourceSpec.isInvalidatedByBiometricEnrollment();
+            mIsStrongBoxBacked = sourceSpec.isStrongBoxBacked();
+            mUserConfirmationRequired = sourceSpec.isUserConfirmationRequired();
+            mUnlockedDeviceRequired = sourceSpec.isUnlockedDeviceRequired();
+            mCriticalToDeviceEncryption = sourceSpec.isCriticalToDeviceEncryption();
+            mMaxUsageCount = sourceSpec.getMaxUsageCount();
+            mAttestKeyAlias = sourceSpec.getAttestKeyAlias();
+            mBoundToSecureUserId = sourceSpec.getBoundToSpecificSecureUserId();
         }
 
         /**
          * Sets the UID which will own the key.
          *
+         * Such cross-UID access is permitted to a few system UIDs and only to a few other UIDs
+         * (e.g., Wi-Fi, VPN) all of which are system.
+         *
          * @param uid UID or {@code -1} for the UID of the current process.
+         *
+         * @deprecated Setting the UID of the target namespace is based on a hardcoded
+         * hack in the Keystore service. This is no longer supported with Keystore 2.0/Android S.
+         * Instead, dedicated non UID based namespaces can be configured in SEPolicy using
+         * the keystore2_key_contexts files. The functionality of this method will be supported
+         * by mapping knows special UIDs, such as WIFI, to the newly configured SELinux based
+         * namespaces. Unknown UIDs will yield {@link IllegalArgumentException}.
          *
          * @hide
          */
+        @SystemApi
         @NonNull
+        @Deprecated
         public Builder setUid(int uid) {
-            mUid = uid;
+            mNamespace = KeyProperties.legacyUidToNamespace(uid);
+            return this;
+        }
+
+        /**
+         * Set the designated SELinux namespace that the key shall live in. The caller must
+         * have sufficient permissions to install a key in the given namespace. Namespaces
+         * can be created using SEPolicy. The keystore2_key_contexts files map numeric
+         * namespaces to SELinux labels, and SEPolicy can be used to grant access to these
+         * namespaces to the desired target context. This is the preferred way to share
+         * keys between system and vendor components, e.g., WIFI settings and WPA supplicant.
+         *
+         * @param namespace Numeric SELinux namespace as configured in keystore2_key_contexts
+         *         of Android's SEPolicy.
+         *         See <a href="https://source.android.com/security/keystore#access-control">
+         *             Keystore 2.0 access control</a>
+         * @return this Builder object.
+         *
+         * @hide
+         */
+        @SystemApi
+        @NonNull
+        public Builder setNamespace(@KeyProperties.Namespace int namespace) {
+            mNamespace = namespace;
             return this;
         }
 
         /**
          * Sets the size (in bits) of the key to be generated. For instance, for RSA keys this sets
          * the modulus size, for EC keys this selects a curve with a matching field size, and for
-         * symmetric keys this sets the size of the bitstring which is their key material.
+         * symmetric keys this sets the size of the bitstring which is their key material. For
+         * ML-DSA keys, the key size is ignored.
          *
          * <p>The default key size is specific to each key algorithm. If key size is not set
          * via this method, it should be looked up from the algorithm-specific parameters (if any)
@@ -842,7 +1199,7 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
         }
 
         /**
-         * Sets the subject used for the self-signed certificate of the generated key pair.
+         * Sets the subject used for the certificate of the generated key pair.
          *
          * <p>By default, the subject is {@code CN=fake}.
          */
@@ -856,7 +1213,9 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
         }
 
         /**
-         * Sets the serial number used for the self-signed certificate of the generated key pair.
+         * Sets the serial number used for the certificate of the generated key pair.
+         * To ensure compatibility with devices and certificate parsers, the value
+         * should be 20 bytes or shorter (see RFC 5280 section 4.1.2.2).
          *
          * <p>By default, the serial number is {@code 1}.
          */
@@ -870,8 +1229,7 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
         }
 
         /**
-         * Sets the start of the validity period for the self-signed certificate of the generated
-         * key pair.
+         * Sets the start of the validity period for the certificate of the generated key pair.
          *
          * <p>By default, this date is {@code Jan 1 1970}.
          */
@@ -885,8 +1243,7 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
         }
 
         /**
-         * Sets the end of the validity period for the self-signed certificate of the generated key
-         * pair.
+         * Sets the end of the validity period for the certificate of the generated key pair.
          *
          * <p>By default, this date is {@code Jan 1 2048}.
          */
@@ -960,11 +1317,22 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
          * the key can be used. Attempts to use the key with any other digest algorithm will be
          * rejected.
          *
-         * <p>This must be specified for signing/verification keys and RSA encryption/decryption
-         * keys used with RSA OAEP padding scheme because these operations involve a digest. For
-         * HMAC keys, the default is the digest associated with the key algorithm (e.g.,
-         * {@code SHA-256} for key algorithm {@code HmacSHA256}). HMAC keys cannot be authorized
-         * for more than one digest.
+         * <p>Digests must be specified for:
+         *
+         * <ul>
+         *   <li>RSA and EC signing/verification keys
+         *   <li>RSA encryption/decryption keys used with the RSA OAEP padding scheme
+         * </ul>
+         *
+         * <p>Digests can optionally be specified for:
+         *
+         * <ul>
+         *   <li>HMAC keys. If specified, there must be exactly one digest it must match the digest
+         *       associated with the key algorithm (e.g., {@code SHA-256} for key algorithm
+         *       {@code HmacSHA256}).
+         *   <li>ML-DSA signing/verification keys. If specified, there must be exactly one digest
+         *       and it must be {@link KeyProperties#DIGEST_NONE}.
+         * </ul>
          *
          * <p>For private keys used for TLS/SSL client or server authentication it is usually
          * necessary to authorize the use of no digest ({@link KeyProperties#DIGEST_NONE}). This is
@@ -976,6 +1344,33 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
         @NonNull
         public Builder setDigests(@KeyProperties.DigestEnum String... digests) {
             mDigests = ArrayUtils.cloneIfNotEmpty(digests);
+            return this;
+        }
+
+        /**
+         * Sets the set of hash functions (e.g., {@code SHA-256}, {@code SHA-384}) which could be
+         * used by the mask generation function MGF1 (which is used for certain operations with
+         * the key). Attempts to use the key with any other digest for the mask generation
+         * function will be rejected.
+         *
+         * <p>This can only be specified for signing/verification keys and RSA encryption/decryption
+         * keys used with RSA OAEP padding scheme because these operations involve a mask generation
+         * function (MGF1) with a digest.
+         * The default digest for MGF1 is {@code SHA-1}, which will be specified during key creation
+         * time if no digests have been explicitly provided.
+         * {@code null} may not be specified as a parameter to this method: It is not possible to
+         * disable MGF1 digest, a default must be present for when the caller tries to use it.
+         *
+         * <p>When using the key, the caller may not specify any digests that were not provided
+         * during key creation time. The caller may specify the default digest, {@code SHA-1}, if no
+         * digests were explicitly provided during key creation (but it is not necessary to do so).
+         *
+         * <p>See {@link KeyProperties}.{@code DIGEST} constants.
+         */
+        @NonNull
+        @FlaggedApi(android.security.Flags.FLAG_MGF1_DIGEST_SETTER_V2)
+        public Builder setMgf1Digests(@NonNull @KeyProperties.DigestEnum String... mgf1Digests) {
+            mMgf1Digests = Set.of(mgf1Digests);
             return this;
         }
 
@@ -1087,21 +1482,23 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
          * <li>The key can only be generated if secure lock screen is set up (see
          * {@link KeyguardManager#isDeviceSecure()}). Additionally, if the key requires that user
          * authentication takes place for every use of the key (see
-         * {@link #setUserAuthenticationValidityDurationSeconds(int)}), at least one fingerprint
-         * must be enrolled (see {@link FingerprintManager#hasEnrolledFingerprints()}).</li>
+         * {@link #setUserAuthenticationValidityDurationSeconds(int)}), at least one biometric
+         * must be enrolled (see {@link BiometricManager#canAuthenticate()}).</li>
          * <li>The use of the key must be authorized by the user by authenticating to this Android
          * device using a subset of their secure lock screen credentials such as
-         * password/PIN/pattern or fingerprint.
+         * password/PIN/pattern or biometric.
          * <a href="{@docRoot}training/articles/keystore.html#UserAuthentication">More
          * information</a>.
          * <li>The key will become <em>irreversibly invalidated</em> once the secure lock screen is
          * disabled (reconfigured to None, Swipe or other mode which does not authenticate the user)
          * or when the secure lock screen is forcibly reset (e.g., by a Device Administrator).
          * Additionally, if the key requires that user authentication takes place for every use of
-         * the key, it is also irreversibly invalidated once a new fingerprint is enrolled or once\
-         * no more fingerprints are enrolled, unless {@link
+         * the key, it is also irreversibly invalidated once a new biometric is enrolled or once\
+         * no more biometrics are enrolled, unless {@link
          * #setInvalidatedByBiometricEnrollment(boolean)} is used to allow validity after
-         * enrollment. Attempts to initialize cryptographic operations using such keys will throw
+         * enrollment, or {@code KeyProperties.AUTH_DEVICE_CREDENTIAL} is specified as part of
+         * the parameters to {@link #setUserAuthenticationParameters}.
+         * Attempts to initialize cryptographic operations using such keys will throw
          * {@link KeyPermanentlyInvalidatedException}.</li>
          * </ul>
          *
@@ -1110,7 +1507,7 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
          *
          * @see #setUserAuthenticationValidityDurationSeconds(int)
          * @see KeyguardManager#isDeviceSecure()
-         * @see FingerprintManager#hasEnrolledFingerprints()
+         * @see BiometricManager#canAuthenticate()
          */
         @NonNull
         public Builder setUserAuthenticationRequired(boolean required) {
@@ -1132,7 +1529,7 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
          * <p>This authorization applies only to secret key and private key operations. Public key
          * operations are not restricted.
          *
-         * @see {@link android.security.ConfirmationPrompter ConfirmationPrompter} class for
+         * See {@link android.security.ConfirmationPrompt} class for
          * more details about user confirmations.
          */
         @NonNull
@@ -1150,10 +1547,10 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
          * the key.
          *
          * <p>Cryptographic operations involving keys which require user authentication to take
-         * place for every operation can only use fingerprint authentication. This is achieved by
+         * place for every operation can only use biometric authentication. This is achieved by
          * initializing a cryptographic operation ({@link Signature}, {@link Cipher}, {@link Mac})
-         * with the key, wrapping it into a {@link FingerprintManager.CryptoObject}, invoking
-         * {@code FingerprintManager.authenticate} with {@code CryptoObject}, and proceeding with
+         * with the key, wrapping it into a {@link BiometricPrompt.CryptoObject}, invoking
+         * {@code BiometricPrompt.authenticate} with {@code CryptoObject}, and proceeding with
          * the cryptographic operation only if the authentication flow succeeds.
          *
          * <p>Cryptographic operations involving keys which are authorized to be used for a duration
@@ -1172,17 +1569,63 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
          *        for every use of the key.
          *
          * @see #setUserAuthenticationRequired(boolean)
-         * @see FingerprintManager
-         * @see FingerprintManager.CryptoObject
+         * @see BiometricPrompt
+         * @see BiometricPrompt.CryptoObject
          * @see KeyguardManager
+         * @deprecated See {@link #setUserAuthenticationParameters(int, int)}
          */
+        @Deprecated
         @NonNull
         public Builder setUserAuthenticationValidityDurationSeconds(
                 @IntRange(from = -1) int seconds) {
             if (seconds < -1) {
                 throw new IllegalArgumentException("seconds must be -1 or larger");
             }
-            mUserAuthenticationValidityDurationSeconds = seconds;
+            if (seconds == -1) {
+                return setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG);
+            }
+            return setUserAuthenticationParameters(seconds, KeyProperties.AUTH_DEVICE_CREDENTIAL
+                                                            | KeyProperties.AUTH_BIOMETRIC_STRONG);
+        }
+
+        /**
+         * Sets the duration of time (seconds) and authorization type for which this key is
+         * authorized to be used after the user is successfully authenticated. This has effect if
+         * the key requires user authentication for its use (see
+         * {@link #setUserAuthenticationRequired(boolean)}).
+         *
+         * <p>By default, if user authentication is required, it must take place for every use of
+         * the key.
+         *
+         * <p>These cryptographic operations will throw {@link UserNotAuthenticatedException} during
+         * initialization if the user needs to be authenticated to proceed. This situation can be
+         * resolved by the user authenticating with the appropriate biometric or credential as
+         * required by the key. See {@link BiometricPrompt.Builder#setAllowedAuthenticators(int)}
+         * and {@link BiometricManager.Authenticators}.
+         *
+         * <p>Once resolved, initializing a new cryptographic operation using this key (or any other
+         * key which is authorized to be used for a fixed duration of time after user
+         * authentication) should succeed provided the user authentication flow completed
+         * successfully.
+         *
+         * @param timeout duration in seconds or {@code 0} if user authentication must take place
+         *        for every use of the key.
+         * @param type set of authentication types which can authorize use of the key. See
+         *        {@link KeyProperties}.{@code AUTH} flags.
+         *
+         * @see #setUserAuthenticationRequired(boolean)
+         * @see BiometricPrompt
+         * @see BiometricPrompt.CryptoObject
+         * @see KeyguardManager
+         */
+        @NonNull
+        public Builder setUserAuthenticationParameters(@IntRange(from = 0) int timeout,
+                                                       @KeyProperties.AuthEnum int type) {
+            if (timeout < 0) {
+                throw new IllegalArgumentException("timeout must be 0 or larger");
+            }
+            mUserAuthenticationValidityDurationSeconds = timeout;
+            mUserAuthenticationType = type;
             return this;
         }
 
@@ -1226,12 +1669,14 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
          * key has purpose {@link android.security.keystore.KeyProperties#PURPOSE_SIGN}. If the key
          * does not have purpose {@link android.security.keystore.KeyProperties#PURPOSE_SIGN}, it is
          * not possible to use the key to sign a certificate, so the public key certificate will
-         * contain a dummy signature.
+         * contain a placeholder signature.
          *
          * <p>Symmetric keys, such as AES and HMAC keys, do not have public key certificates. If a
          * {@link #getAttestationChallenge()} returns non-null and the spec is used to generate a
          * symmetric (AES or HMAC) key, {@link javax.crypto.KeyGenerator#generateKey()} will throw
          * {@link java.security.InvalidAlgorithmParameterException}.
+         *
+         * <p>The challenge may be up to 128 bytes.
          */
         @NonNull
         public Builder setAttestationChallenge(byte[] attestationChallenge) {
@@ -1240,10 +1685,56 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
         }
 
         /**
+         * Sets whether to include the base device properties in the attestation certificate.
+         *
+         * <p>If {@code attestationChallenge} is not {@code null}, the public key certificate for
+         * this key pair will contain an extension that describes the details of the key's
+         * configuration and authorizations, including the device properties values (brand, device,
+         * manufacturer, model, product). These should be the same as in ({@link Build#BRAND},
+         * {@link Build#DEVICE}, {@link Build#MANUFACTURER}, {@link Build#MODEL},
+         * {@link Build#PRODUCT}). The attestation certificate chain can
+         * be retrieved with {@link java.security.KeyStore#getCertificateChain(String)}.
+         *
+         * <p> If {@code attestationChallenge} is {@code null}, the public key certificate for
+         * this key pair will not contain the extension with the requested attested values.
+         *
+         * <p> {@link javax.crypto.KeyGenerator#generateKey()} will throw
+         * {@link java.security.ProviderException} if device properties attestation fails or is not
+         * supported.
+         */
+        @NonNull
+        public Builder setDevicePropertiesAttestationIncluded(
+                boolean devicePropertiesAttestationIncluded) {
+            mDevicePropertiesAttestationIncluded = devicePropertiesAttestationIncluded;
+            return this;
+        }
+
+        /**
+         * @hide
+         * Sets which IDs to attest in the attestation certificate for the key. The acceptable
+         * values in this integer array are the enums specified in
+         * {@link android.security.keystore.AttestationUtils}
+         *
+         * @param attestationIds the array of ID types to attest to in the certificate.
+         *
+         * @see android.security.keystore.AttestationUtils#ID_TYPE_SERIAL
+         * @see android.security.keystore.AttestationUtils#ID_TYPE_IMEI
+         * @see android.security.keystore.AttestationUtils#ID_TYPE_MEID
+         * @see android.security.keystore.AttestationUtils#USE_INDIVIDUAL_ATTESTATION
+         */
+        @SystemApi
+        @NonNull
+        public Builder setAttestationIds(@NonNull int[] attestationIds) {
+            mAttestationIds = attestationIds;
+            return this;
+        }
+
+        /**
          * @hide Only system apps can use this method.
          *
          * Sets whether to include a temporary unique ID field in the attestation certificate.
          */
+        @UnsupportedAppUsage
         @TestApi
         @NonNull
         public Builder setUniqueIdIncluded(boolean uniqueIdIncluded) {
@@ -1257,16 +1748,16 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
          * {@link #setUserAuthenticationValidityDurationSeconds} and
          * {@link #setUserAuthenticationRequired}). Once the device has been removed from the
          * user's body, the key will be considered unauthorized and the user will need to
-         * re-authenticate to use it. For keys without an authentication validity period this
-         * parameter has no effect.
+         * re-authenticate to use it. If the device does not have an on-body sensor or the key does
+         * not have an authentication validity period, this parameter has no effect.
+         * <p>
+         * Since Android 12 (API level 31), this parameter has no effect even on devices that have
+         * an on-body sensor. A future version of Android may restore enforcement of this parameter.
+         * Meanwhile, it is recommended to not use it.
          *
-         * <p>Similarly, on devices that do not have an on-body sensor, this parameter will have no
-         * effect; the device will always be considered to be "on-body" and the key will therefore
-         * remain authorized until the validity period ends.
-         *
-         * @param remainsValid if {@code true}, and if the device supports on-body detection, key
-         * will be invalidated when the device is removed from the user's body or when the
-         * authentication validity expires, whichever occurs first.
+         * @param remainsValid if {@code true}, and if the device supports enforcement of this
+         * parameter, the key will be invalidated when the device is removed from the user's body or
+         * when the authentication validity expires, whichever occurs first.
          */
         @NonNull
         public Builder setUserAuthenticationValidWhileOnBody(boolean remainsValid) {
@@ -1275,20 +1766,20 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
         }
 
         /**
-         * Sets whether this key should be invalidated on fingerprint enrollment.  This
+         * Sets whether this key should be invalidated on biometric enrollment.  This
          * applies only to keys which require user authentication (see {@link
          * #setUserAuthenticationRequired(boolean)}) and if no positive validity duration has been
          * set (see {@link #setUserAuthenticationValidityDurationSeconds(int)}, meaning the key is
-         * valid for fingerprint authentication only.
+         * valid for biometric authentication only.
          *
          * <p>By default, {@code invalidateKey} is {@code true}, so keys that are valid for
-         * fingerprint authentication only are <em>irreversibly invalidated</em> when a new
-         * fingerprint is enrolled, or when all existing fingerprints are deleted.  That may be
+         * biometric authentication only are <em>irreversibly invalidated</em> when a new
+         * biometric is enrolled, or when all existing biometrics are deleted.  That may be
          * changed by calling this method with {@code invalidateKey} set to {@code false}.
          *
-         * <p>Invalidating keys on enrollment of a new finger or unenrollment of all fingers
+         * <p>Invalidating keys on enrollment of a new biometric or unenrollment of all biometrics
          * improves security by ensuring that an unauthorized person who obtains the password can't
-         * gain the use of fingerprint-authenticated keys by enrolling their own finger.  However,
+         * gain the use of biometric-authenticated keys by enrolling their own biometric.  However,
          * invalidating keys makes key-dependent operations impossible, requiring some fallback
          * procedure to authenticate the user and set up a new key.
          */
@@ -1308,15 +1799,152 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
         }
 
         /**
-         * Sets whether the keystore requires the screen to be unlocked before allowing decryption
-         * using this key. If this is set to {@code true}, any attempt to decrypt or sign using this
-         * key while the screen is locked will fail. A locked device requires a PIN, password,
-         * fingerprint, or other trusted factor to access. While the screen is locked, the key can
-         * still be used for encryption or signature verification.
+         * Sets whether this key is authorized to be used only while the device is unlocked.
+         * <p>
+         * The device is considered to be locked for a user when the user's apps are currently
+         * inaccessible and some form of lock screen authentication is required to regain access to
+         * them. For the full definition, see {@link KeyguardManager#isDeviceLocked()}.
+         * <p>
+         * Public key operations aren't restricted by {@code setUnlockedDeviceRequired(true)} and
+         * may be performed even while the device is locked. In Android 11 (API level 30) and lower,
+         * encryption and verification operations with symmetric keys weren't restricted either.
+         * <p>
+         * Keys that use {@code setUnlockedDeviceRequired(true)} can be imported and generated even
+         * while the device is locked, as long as the device has been unlocked at least once since
+         * the last reboot. However, such keys cannot be used (except for the unrestricted
+         * operations mentioned above) until the device is unlocked. Apps that need to encrypt data
+         * while the device is locked such that it can only be decrypted while the device is
+         * unlocked can generate a key and encrypt the data in software, import the key into
+         * Keystore using {@code setUnlockedDeviceRequired(true)}, and zeroize the original key.
+         * <p>
+         * {@code setUnlockedDeviceRequired(true)} is related to but distinct from
+         * {@link #setUserAuthenticationRequired(boolean) setUserAuthenticationRequired(true)}.
+         * {@code setUnlockedDeviceRequired(true)} requires that the device be unlocked, whereas
+         * {@code setUserAuthenticationRequired(true)} requires that a specific type of strong
+         * authentication has happened within a specific time period. They may be used together or
+         * separately; there are cases in which one requirement can be satisfied but not the other.
+         * <p>
+         * <b>Warning:</b> Be careful using {@code setUnlockedDeviceRequired(true)} on Android 14
+         * (API level 34) and lower, since the following bugs existed in Android 12 through 14:
+         * <ul>
+         *   <li>When the user didn't have a secure lock screen, unlocked-device-required keys
+         *   couldn't be generated, imported, or used.</li>
+         *   <li>When the user's secure lock screen was removed, all of that user's
+         *   unlocked-device-required keys were automatically deleted.</li>
+         *   <li>Unlocking the device with a non-strong biometric, such as face on many devices,
+         *   didn't re-authorize the use of unlocked-device-required keys.</li>
+         *   <li>Unlocking the device with a biometric didn't re-authorize the use of
+         *   unlocked-device-required keys in profiles that share their parent user's lock.</li>
+         * </ul>
+         * These issues are fixed in Android 15, so apps can avoid them by using
+         * {@code setUnlockedDeviceRequired(true)} only on Android 15 and higher.
+         * Apps that use both {@code setUnlockedDeviceRequired(true)} and
+         * {@link #setUserAuthenticationRequired(boolean) setUserAuthenticationRequired(true)}
+         * are unaffected by the first two issues, since the first two issues describe expected
+         * behavior for {@code setUserAuthenticationRequired(true)}.
          */
         @NonNull
         public Builder setUnlockedDeviceRequired(boolean unlockedDeviceRequired) {
             mUnlockedDeviceRequired = unlockedDeviceRequired;
+            return this;
+        }
+
+        /**
+         * Set whether this key is critical to the device encryption flow
+         *
+         * This is a special flag only available to system servers to indicate the current key
+         * is part of the device encryption flow. Setting this flag causes the key to not
+         * be cryptographically bound to the LSKF even if the key is otherwise authentication
+         * bound.
+         *
+         * @hide
+         */
+        public Builder setCriticalToDeviceEncryption(boolean critical) {
+            mCriticalToDeviceEncryption = critical;
+            return this;
+        }
+
+        /**
+         * Sets the maximum number of times the key is allowed to be used. After every use of the
+         * key, the use counter will decrease. This authorization applies only to secret key and
+         * private key operations. Public key operations are not restricted. For example, after
+         * successfully encrypting and decrypting data using methods such as
+         * {@link Cipher#doFinal()}, the use counter of the secret key will decrease. After
+         * successfully signing data using methods such as {@link Signature#sign()}, the use
+         * counter of the private key will decrease.
+         *
+         * When the use counter is depleted, the key will be marked for deletion by Android
+         * Keystore and any subsequent attempt to use the key will throw
+         * {@link KeyPermanentlyInvalidatedException}. There is no key to be loaded from the
+         * Android Keystore once the exhausted key is permanently deleted, as if the key never
+         * existed before.
+         *
+         * <p>By default, there is no restriction on the usage of key.
+         *
+         * <p>Some secure hardware may not support this feature at all, in which case it will
+         * be enforced in software, some secure hardware may support it but only with
+         * maxUsageCount = 1, and some secure hardware may support it with larger value
+         * of maxUsageCount.
+         *
+         * <p>The PackageManger feature flags:
+         * {@link android.content.pm.PackageManager#FEATURE_KEYSTORE_SINGLE_USE_KEY} and
+         * {@link android.content.pm.PackageManager#FEATURE_KEYSTORE_LIMITED_USE_KEY} can be used
+         * to check whether the secure hardware cannot enforce this feature, can only enforce it
+         * with maxUsageCount = 1, or can enforce it with larger value of maxUsageCount.
+         *
+         * @param maxUsageCount maximum number of times the key is allowed to be used or
+         *        {@link KeyProperties#UNRESTRICTED_USAGE_COUNT} if there is no restriction on the
+         *        usage.
+         */
+        @NonNull
+        public Builder setMaxUsageCount(int maxUsageCount) {
+            if (maxUsageCount == KeyProperties.UNRESTRICTED_USAGE_COUNT || maxUsageCount > 0) {
+                mMaxUsageCount = maxUsageCount;
+                return this;
+            }
+            throw new IllegalArgumentException("maxUsageCount is not valid");
+        }
+
+        /**
+         * Sets the alias of the attestation key that will be used to sign the attestation
+         * certificate for the generated key pair, if an attestation challenge is set with {@link
+         * #setAttestationChallenge}.  If an attestKeyAlias is set but no challenge, {@link
+         * java.security.KeyPairGenerator#initialize} will throw {@link
+         * java.security.InvalidAlgorithmParameterException}.
+         *
+         * <p>If the attestKeyAlias is set to null (the default), Android Keystore will select an
+         * appropriate system-provided attestation signing key.  If not null, the alias must
+         * reference an Android Keystore Key that was created with {@link
+         * android.security.keystore.KeyProperties#PURPOSE_ATTEST_KEY}, or key generation will throw
+         * {@link java.security.InvalidAlgorithmParameterException}.
+         *
+         * @param attestKeyAlias the alias of the attestation key to be used to sign the
+         *        attestation certificate.
+         */
+        @NonNull
+        public Builder setAttestKeyAlias(@Nullable String attestKeyAlias) {
+            mAttestKeyAlias = attestKeyAlias;
+            return this;
+        }
+
+        /**
+         * Set the secure user id that this key should be bound to.
+         *
+         * Normally an authentication-bound key is tied to the secure user id of the current user
+         * (either the root SID from GateKeeper for auth-bound keys with a timeout, or the
+         * authenticator id of the current biometric set for keys requiring explicit biometric
+         * authorization). If this parameter is set (this method returning non-zero value), the key
+         * should be tied to the specified secure user id, overriding the logic above.
+         *
+         * This is only applicable when {@link #setUserAuthenticationRequired} is set to
+         * {@code true}
+         *
+         * @see KeyGenParameterSpec#getBoundToSpecificSecureUserId()
+         * @hide
+         */
+        @NonNull
+        public Builder setBoundToSpecificSecureUserId(long secureUserId) {
+            mBoundToSecureUserId = secureUserId;
             return this;
         }
 
@@ -1327,7 +1955,7 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
         public KeyGenParameterSpec build() {
             return new KeyGenParameterSpec(
                     mKeystoreAlias,
-                    mUid,
+                    mNamespace,
                     mKeySize,
                     mSpec,
                     mCertificateSubject,
@@ -1339,20 +1967,28 @@ public final class KeyGenParameterSpec implements AlgorithmParameterSpec, UserAu
                     mKeyValidityForConsumptionEnd,
                     mPurposes,
                     mDigests,
+                    mMgf1Digests,
                     mEncryptionPaddings,
                     mSignaturePaddings,
                     mBlockModes,
                     mRandomizedEncryptionRequired,
                     mUserAuthenticationRequired,
                     mUserAuthenticationValidityDurationSeconds,
+                    mUserAuthenticationType,
                     mUserPresenceRequired,
                     mAttestationChallenge,
+                    mDevicePropertiesAttestationIncluded,
+                    mAttestationIds,
                     mUniqueIdIncluded,
                     mUserAuthenticationValidWhileOnBody,
                     mInvalidatedByBiometricEnrollment,
                     mIsStrongBoxBacked,
                     mUserConfirmationRequired,
-                    mUnlockedDeviceRequired);
+                    mUnlockedDeviceRequired,
+                    mCriticalToDeviceEncryption,
+                    mMaxUsageCount,
+                    mAttestKeyAlias,
+                    mBoundToSecureUserId);
         }
     }
 }

@@ -16,6 +16,11 @@
 
 package android.text.style;
 
+import static com.android.text.flags.Flags.FLAG_TTS_SPAN_DURATION;
+
+import android.annotation.FlaggedApi;
+import android.annotation.IntRange;
+import android.annotation.NonNull;
 import android.os.Parcel;
 import android.os.PersistableBundle;
 import android.text.ParcelableSpan;
@@ -37,6 +42,7 @@ import java.util.Locale;
  * The inner classes are there for convenience and provide builders for each
  * TtsSpan type.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class TtsSpan implements ParcelableSpan {
     private final String mType;
     private final PersistableBundle mArgs;
@@ -103,13 +109,25 @@ public class TtsSpan implements ParcelableSpan {
 
     /**
      * The text associated with this span is a time, consisting of a number of
-     * hours and minutes, specified with {@link #ARG_HOURS} and
-     * {@link #ARG_MINUTES}.
+     * hours, minutes, and seconds specified with {@link #ARG_HOURS}, {@link #ARG_MINUTES}, and
+     * {@link #ARG_SECONDS}.
      * Also accepts the arguments {@link #ARG_GENDER},
      * {@link #ARG_ANIMACY}, {@link #ARG_MULTIPLICITY} and
-     * {@link #ARG_CASE}.
+     * {@link #ARG_CASE}. This is different from {@link #TYPE_DURATION}. This should be used to
+     * convey a particular moment in time, such as a clock time, while {@link #TYPE_DURATION} should
+     * be used to convey an interval of time.
      */
     public static final String TYPE_TIME = "android.type.time";
+
+    /**
+     * The text associated with this span is a duration, consisting of a number of
+     * hours, minutes, and seconds specified with {@link #ARG_HOURS},
+     * {@link #ARG_MINUTES}, and {@link #ARG_SECONDS}. This is different from {@link #TYPE_TIME}.
+     * This should be used to convey an interval of time, while {@link #TYPE_TIME} should be used to
+     * convey a particular moment in time, such as a clock time.
+     */
+    @FlaggedApi(FLAG_TTS_SPAN_DURATION)
+    public static final String TYPE_DURATION = "android.type.duration";
 
     /**
      * The text associated with this span is a date. At least one of the
@@ -295,18 +313,29 @@ public class TtsSpan implements ParcelableSpan {
     public static final String ARG_UNIT = "android.arg.unit";
 
     /**
-     * Argument used to specify the hours of a time. The hours should be
-     * provided as an integer in the range from 0 up to and including 24.
-     * Can be used with {@link #TYPE_TIME}.
+     * Argument used to specify the hours of a time or duration. The hours should be
+     * provided as an integer in the range from 0 up to and including 24 for
+     * {@link #TYPE_TIME}.
+     * Can be used with {@link #TYPE_TIME} or {@link #TYPE_DURATION}.
      */
     public static final String ARG_HOURS = "android.arg.hours";
 
     /**
-     * Argument used to specify the minutes of a time. The hours should be
-     * provided as an integer in the range from 0 up to and including 59.
-     * Can be used with {@link #TYPE_TIME}.
+     * Argument used to specify the minutes of a time or duration. The minutes should be
+     * provided as an integer in the range from 0 up to and including 59 for
+     * {@link #TYPE_TIME}.
+     * Can be used with {@link #TYPE_TIME} or {@link #TYPE_DURATION}.
      */
     public static final String ARG_MINUTES = "android.arg.minutes";
+
+    /**
+     * Argument used to specify the seconds of a time or duration. The seconds should be
+     * provided as an integer in the range from 0 up to and including 59 for
+     * {@link #TYPE_TIME}.
+     * Can be used with {@link #TYPE_TIME} or {@link #TYPE_DURATION}.
+     */
+    @FlaggedApi(FLAG_TTS_SPAN_DURATION)
+    public static final String ARG_SECONDS = "android.arg.seconds";
 
     /**
      * Argument used to specify the weekday of a date. The value should be
@@ -1082,7 +1111,7 @@ public class TtsSpan implements ParcelableSpan {
          * Sets the {@link #ARG_UNIT} argument.
          * @param unit The unit of the measure.
          * @return This instance.
-         * @see TtsSpan.ARG_UNIT
+         * @see TtsSpan#ARG_UNIT
          */
         public MeasureBuilder setUnit(String unit) {
             return setStringArgument(TtsSpan.ARG_UNIT, unit);
@@ -1118,7 +1147,7 @@ public class TtsSpan implements ParcelableSpan {
          * @return This instance.
          * @see #ARG_HOURS
          */
-        public TimeBuilder setHours(int hours) {
+        public TimeBuilder setHours(@IntRange(from = 0, to = 24) int hours) {
             return setIntArgument(TtsSpan.ARG_HOURS, hours);
         }
 
@@ -1129,10 +1158,71 @@ public class TtsSpan implements ParcelableSpan {
          * @return This instance.
          * @see #ARG_MINUTES
          */
-        public TimeBuilder setMinutes(int minutes) {
+        public TimeBuilder setMinutes(@IntRange(from = 0, to = 59) int minutes) {
             return setIntArgument(TtsSpan.ARG_MINUTES, minutes);
         }
+
+        /**
+         * Sets the {@link #ARG_SECONDS} argument.
+         * @param seconds The value to be set for seconds.
+         * @return This instance.
+         */
+        @FlaggedApi(FLAG_TTS_SPAN_DURATION)
+        @NonNull
+        public TimeBuilder setSeconds(@IntRange(from = 0, to = 59) int seconds) {
+            return setIntArgument(TtsSpan.ARG_SECONDS, seconds);
+        }
     }
+
+    /**
+     * A builder for TtsSpans of type {@link #TYPE_DURATION}.
+     */
+    @FlaggedApi(FLAG_TTS_SPAN_DURATION)
+    public static class DurationBuilder
+            extends SemioticClassBuilder<DurationBuilder> {
+
+        /**
+         * Creates a builder for a TtsSpan of type {@link #TYPE_DURATION}.
+         */
+        @FlaggedApi(FLAG_TTS_SPAN_DURATION)
+        public DurationBuilder() {
+            super(TtsSpan.TYPE_DURATION);
+        }
+
+        /**
+         * Sets the {@link #ARG_HOURS} argument.
+         * @param hours The value to be set for hours.
+         * @return This instance.
+         */
+        @FlaggedApi(FLAG_TTS_SPAN_DURATION)
+        @NonNull
+        public DurationBuilder setHours(int hours) {
+            return setIntArgument(TtsSpan.ARG_HOURS, hours);
+        }
+
+        /**
+         * Sets the {@link #ARG_MINUTES} argument.
+         * @param minutes The value to be set for minutes.
+         * @return This instance.
+         */
+        @FlaggedApi(FLAG_TTS_SPAN_DURATION)
+        @NonNull
+        public DurationBuilder setMinutes(int minutes) {
+            return setIntArgument(TtsSpan.ARG_MINUTES, minutes);
+        }
+
+        /**
+         * Sets the {@link #ARG_SECONDS} argument.
+         * @param seconds The value to be set for seconds.
+         * @return This instance.
+         */
+        @FlaggedApi(FLAG_TTS_SPAN_DURATION)
+        @NonNull
+        public DurationBuilder setSeconds(int seconds) {
+            return setIntArgument(TtsSpan.ARG_SECONDS, seconds);
+        }
+    }
+
 
     /**
      * A builder for TtsSpans of type {@link #TYPE_DATE}.

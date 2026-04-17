@@ -16,9 +16,11 @@
 
 package android.net.wifi.p2p;
 
-import android.os.Parcelable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.net.wifi.util.Environment;
+import android.os.Build;
 import android.os.Parcel;
-import android.net.wifi.p2p.WifiP2pDevice;
+import android.os.Parcelable;
 import android.text.TextUtils;
 
 import java.util.ArrayList;
@@ -30,7 +32,7 @@ import java.util.HashMap;
  * A class representing a Wi-Fi P2p device list.
  *
  * Note that the operations are not thread safe.
- * {@see WifiP2pManager}
+ * @see WifiP2pManager
  */
 public class WifiP2pDeviceList implements Parcelable {
 
@@ -70,7 +72,10 @@ public class WifiP2pDeviceList implements Parcelable {
         }
     }
 
-    /** Clear the list @hide */
+    /**
+     * Clear the list
+     * @hide
+     */
     public boolean clear() {
         if (mDevices.isEmpty()) return false;
         mDevices.clear();
@@ -83,12 +88,16 @@ public class WifiP2pDeviceList implements Parcelable {
      * @param device to be updated
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void update(WifiP2pDevice device) {
         updateSupplicantDetails(device);
         mDevices.get(device.deviceAddress).status = device.status;
     }
 
-    /** Only updates details fetched from the supplicant @hide */
+    /**
+     * Only updates details fetched from the supplicant
+     * @hide
+     */
     public void updateSupplicantDetails(WifiP2pDevice device) {
         validateDevice(device);
         WifiP2pDevice d = mDevices.get(device.deviceAddress);
@@ -100,6 +109,10 @@ public class WifiP2pDeviceList implements Parcelable {
             d.deviceCapability = device.deviceCapability;
             d.groupCapability = device.groupCapability;
             d.wfdInfo = device.wfdInfo;
+            if (Environment.isSdkAtLeastB()) {
+                d.setPairingBootStrappingMethods(device.getPairingBootStrappingMethods());
+                d.dirInfo = device.dirInfo;
+            }
             return;
         }
         //Not found, add a new one
@@ -146,12 +159,16 @@ public class WifiP2pDeviceList implements Parcelable {
      * @return WifiP2pDevice device removed, or null if none removed
      * @hide
      */
+    @UnsupportedAppUsage
     public WifiP2pDevice remove(String deviceAddress) {
         validateDeviceAddress(deviceAddress);
         return mDevices.remove(deviceAddress);
     }
 
-    /** Returns true if any device the list was removed @hide */
+    /**
+     * Returns true if any device the list was removed
+     * @hide
+     */
     public boolean remove(WifiP2pDeviceList list) {
         boolean ret = false;
         for (WifiP2pDevice d : list.mDevices.values()) {
@@ -197,7 +214,7 @@ public class WifiP2pDeviceList implements Parcelable {
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<WifiP2pDeviceList> CREATOR =
+    public static final @android.annotation.NonNull Creator<WifiP2pDeviceList> CREATOR =
         new Creator<WifiP2pDeviceList>() {
             public WifiP2pDeviceList createFromParcel(Parcel in) {
                 WifiP2pDeviceList deviceList = new WifiP2pDeviceList();

@@ -16,6 +16,7 @@
 
 package android.drm;
 
+import android.annotation.NonNull;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
@@ -37,6 +38,8 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -44,7 +47,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * The main programming interface for the DRM framework. An application must instantiate this class
  * to access DRM agents through the DRM framework.
  *
+ * @deprecated Please use {@link android.media.MediaDrm}
  */
+@Deprecated
 public class DrmManagerClient implements AutoCloseable {
     /**
      * Indicates that a request was successful or that no error occurred.
@@ -55,7 +60,7 @@ public class DrmManagerClient implements AutoCloseable {
      */
     public static final int ERROR_UNKNOWN = -2000;
 
-    /** {@hide} */
+    /** @hide */
     public static final int INVALID_SESSION = -1;
 
     HandlerThread mInfoThread;
@@ -178,7 +183,7 @@ public class DrmManagerClient implements AutoCloseable {
     }
 
     /**
-     * {@hide}
+     * @hide
      */
     public static void notify(
             Object thisReference, int uniqueId, int infoType, String message) {
@@ -370,6 +375,17 @@ public class DrmManagerClient implements AutoCloseable {
     }
 
     /**
+     * Retrieves information about all the DRM plug-ins (agents) that are
+     * registered with the DRM framework.
+     *
+     * @return List of all the DRM plug-ins (agents) that are registered with
+     *         the DRM framework.
+     */
+    public @NonNull Collection<DrmSupportInfo> getAvailableDrmSupportInfo() {
+        return Arrays.asList(_getAllSupportInfo(mUniqueId));
+    }
+
+    /**
      * Retrieves constraint information for rights-protected content.
      *
      * @param path Path to the content from which you are retrieving DRM constraints.
@@ -463,7 +479,7 @@ public class DrmManagerClient implements AutoCloseable {
      *
      * @param engineFilePath File path to the plug-in file to be installed.
      *
-     * {@hide}
+     * @hide
      */
     public void installDrmEngine(String engineFilePath) {
         if (null == engineFilePath || engineFilePath.equals("")) {
@@ -735,7 +751,7 @@ public class DrmManagerClient implements AutoCloseable {
 
     /**
      * Removes all the rights information of every DRM plug-in (agent) associated with
-     * the DRM framework. Will be used during a master reset.
+     * the DRM framework.
      *
      * @return ERROR_NONE for success; ERROR_UNKNOWN for failure.
      */
@@ -831,6 +847,7 @@ public class DrmManagerClient implements AutoCloseable {
      *     content://media/<table_name>/<row_index> (or)
      *     file://sdcard/test.mp4
      *     http://test.com/test.mp4
+     *     https://test.com/test.mp4
      *
      * Here <table_name> shall be "video" or "audio" or "images"
      * <row_index> the index of the content in given table
@@ -843,7 +860,7 @@ public class DrmManagerClient implements AutoCloseable {
                     scheme.equals(ContentResolver.SCHEME_FILE)) {
                 path = uri.getPath();
 
-            } else if (scheme.equals("http")) {
+            } else if (scheme.equals("http") || scheme.equals("https")) {
                 path = uri.toString();
 
             } else if (scheme.equals(ContentResolver.SCHEME_CONTENT)) {

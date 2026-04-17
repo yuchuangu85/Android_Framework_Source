@@ -15,29 +15,37 @@
  */
 package android.net.wifi.p2p;
 
-import java.util.Collection;
-import java.util.Map;
-
+import android.annotation.NonNull;
+import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.LruCache;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 
 
 /**
  * A class representing a Wi-Fi P2p group list
  *
- * {@see WifiP2pManager}
+ * @see WifiP2pManager
  * @hide
  */
-public class WifiP2pGroupList implements Parcelable {
+@SystemApi
+public final class WifiP2pGroupList implements Parcelable {
 
     private static final int CREDENTIAL_MAX_NUM             =   32;
 
+    @UnsupportedAppUsage
     private final LruCache<Integer, WifiP2pGroup> mGroups;
     private final GroupDeleteListener mListener;
 
     private boolean isClearCalled = false;
 
+    /** @hide */
     public interface GroupDeleteListener {
         public void onDeleteGroup(int netId);
     }
@@ -48,6 +56,7 @@ public class WifiP2pGroupList implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public WifiP2pGroupList(WifiP2pGroupList source, GroupDeleteListener listener) {
         mListener = listener;
         mGroups = new LruCache<Integer, WifiP2pGroup>(CREDENTIAL_MAX_NUM) {
@@ -68,12 +77,11 @@ public class WifiP2pGroupList implements Parcelable {
     }
 
     /**
-     * Return the list of p2p group.
-     *
-     * @return the list of p2p group.
+     * Get the list of P2P groups.
      */
-    public Collection<WifiP2pGroup> getGroupList() {
-        return mGroups.snapshot().values();
+    @NonNull
+    public List<WifiP2pGroup> getGroupList() {
+        return new ArrayList<>(mGroups.snapshot().values());
     }
 
     /**
@@ -131,8 +139,12 @@ public class WifiP2pGroupList implements Parcelable {
         if (deviceAddress == null) return -1;
 
         final Collection<WifiP2pGroup> groups = mGroups.snapshot().values();
-        for (WifiP2pGroup grp: groups) {
-            if (deviceAddress.equalsIgnoreCase(grp.getOwner().deviceAddress)) {
+        for (WifiP2pGroup grp : groups) {
+            WifiP2pDevice groupOwner = grp.getOwner();
+            if (groupOwner == null) {
+                continue;
+            }
+            if (deviceAddress.equalsIgnoreCase(groupOwner.deviceAddress)) {
                 // update cache ordered.
                 mGroups.get(grp.getNetworkId());
                 return grp.getNetworkId();
@@ -156,9 +168,13 @@ public class WifiP2pGroupList implements Parcelable {
         }
 
         final Collection<WifiP2pGroup> groups = mGroups.snapshot().values();
-        for (WifiP2pGroup grp: groups) {
-            if (deviceAddress.equalsIgnoreCase(grp.getOwner().deviceAddress) &&
-                    ssid.equals(grp.getNetworkName())) {
+        for (WifiP2pGroup grp : groups) {
+            WifiP2pDevice groupOwner = grp.getOwner();
+            if (groupOwner == null) {
+                continue;
+            }
+            if (deviceAddress.equalsIgnoreCase(groupOwner.deviceAddress)
+                    && ssid.equals(grp.getNetworkName())) {
                 // update cache ordered.
                 mGroups.get(grp.getNetworkId());
                 return grp.getNetworkId();
@@ -177,10 +193,14 @@ public class WifiP2pGroupList implements Parcelable {
      */
     public String getOwnerAddr(int netId) {
         WifiP2pGroup grp = mGroups.get(netId);
-        if (grp != null) {
-            return grp.getOwner().deviceAddress;
+        if (grp == null) {
+            return null;
         }
-        return null;
+        WifiP2pDevice groupOwner = grp.getOwner();
+        if (groupOwner == null) {
+            return null;
+        }
+        return groupOwner.deviceAddress;
     }
 
     /**
@@ -202,6 +222,7 @@ public class WifiP2pGroupList implements Parcelable {
         return false;
     }
 
+    @Override
     public String toString() {
         StringBuffer sbuf = new StringBuffer();
 
@@ -213,12 +234,14 @@ public class WifiP2pGroupList implements Parcelable {
     }
 
     /** Implement the Parcelable interface */
+    @Override
     public int describeContents() {
         return 0;
     }
 
     /** Implement the Parcelable interface */
-    public void writeToParcel(Parcel dest, int flags) {
+    @Override
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
         final Collection<WifiP2pGroup> groups = mGroups.snapshot().values();
         dest.writeInt(groups.size());
         for(WifiP2pGroup group : groups) {
@@ -227,7 +250,7 @@ public class WifiP2pGroupList implements Parcelable {
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<WifiP2pGroupList> CREATOR =
+    public static final @NonNull Creator<WifiP2pGroupList> CREATOR =
         new Creator<WifiP2pGroupList>() {
             public WifiP2pGroupList createFromParcel(Parcel in) {
                 WifiP2pGroupList grpList = new WifiP2pGroupList();

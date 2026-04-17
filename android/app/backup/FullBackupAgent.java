@@ -23,7 +23,7 @@ import java.io.IOException;
  * Simple concrete class that merely provides the default BackupAgent full backup/restore
  * implementations for applications that do not supply their own.
  * 
- * {@hide}
+ * @hide
  */
 
 public class FullBackupAgent extends BackupAgent {

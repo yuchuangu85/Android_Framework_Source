@@ -18,9 +18,11 @@ package android.widget;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.StyleRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.util.AttributeSet;
 import android.view.ContextThemeWrapper;
 import android.view.Gravity;
@@ -564,6 +566,7 @@ public class ActionMenuView extends LinearLayout implements MenuBuilder.ItemInvo
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public boolean isOverflowReserved() {
         return mReserveOverflow;
     }
@@ -655,6 +658,7 @@ public class ActionMenuView extends LinearLayout implements MenuBuilder.ItemInvo
      * Must be called before the first call to getMenu()
      * @hide
      */
+    @UnsupportedAppUsage
     public void setMenuCallbacks(MenuPresenter.Callback pcb, MenuBuilder.Callback mcb) {
         mActionMenuPresenterCallback = pcb;
         mMenuBuilderCallback = mcb;
@@ -664,6 +668,7 @@ public class ActionMenuView extends LinearLayout implements MenuBuilder.ItemInvo
      * Returns the current menu or null if one has not yet been configured.
      * @hide Internal use only for action bar integration
      */
+    @UnsupportedAppUsage
     public MenuBuilder peekMenu() {
         return mMenu;
     }
@@ -697,6 +702,7 @@ public class ActionMenuView extends LinearLayout implements MenuBuilder.ItemInvo
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public boolean isOverflowMenuShowPending() {
         return mPresenter != null && mPresenter.isOverflowMenuShowPending();
     }
@@ -714,6 +720,7 @@ public class ActionMenuView extends LinearLayout implements MenuBuilder.ItemInvo
      * @hide Private LinearLayout (superclass) API. Un-hide if LinearLayout API is made public.
      */
     @Override
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected boolean hasDividerBeforeChildAt(int childIndex) {
         if (childIndex == 0) {
             return false;
@@ -736,6 +743,7 @@ public class ActionMenuView extends LinearLayout implements MenuBuilder.ItemInvo
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void setExpandedActionViewsExclusive(boolean exclusive) {
         mPresenter.setExpandedActionViewsExclusive(exclusive);
     }
@@ -783,6 +791,7 @@ public class ActionMenuView extends LinearLayout implements MenuBuilder.ItemInvo
 
     /** @hide */
     public interface ActionMenuChildView {
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public boolean needsDividerBefore();
         public boolean needsDividerAfter();
     }
@@ -790,25 +799,31 @@ public class ActionMenuView extends LinearLayout implements MenuBuilder.ItemInvo
     public static class LayoutParams extends LinearLayout.LayoutParams {
         /** @hide */
         @ViewDebug.ExportedProperty(category = "layout")
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public boolean isOverflowButton;
 
         /** @hide */
         @ViewDebug.ExportedProperty(category = "layout")
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public int cellsUsed;
 
         /** @hide */
         @ViewDebug.ExportedProperty(category = "layout")
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public int extraPixels;
 
         /** @hide */
         @ViewDebug.ExportedProperty(category = "layout")
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public boolean expandable;
 
         /** @hide */
         @ViewDebug.ExportedProperty(category = "layout")
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public boolean preventEdgeOffset;
 
         /** @hide */
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public boolean expanded;
 
         public LayoutParams(Context c, AttributeSet attrs) {

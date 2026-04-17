@@ -28,7 +28,7 @@ import static java.lang.annotation.RetentionPolicy.SOURCE;
  * Denotes that an integer parameter, field or method return value is expected
  * to be an animator resource reference (e.g. {@link android.R.animator#fade_in}).
  *
- * {@hide}
+ * @hide
  */
 @Documented
 @Retention(SOURCE)

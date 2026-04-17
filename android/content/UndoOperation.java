@@ -16,6 +16,8 @@
 
 package android.content;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -34,6 +36,7 @@ public abstract class UndoOperation<DATA> implements Parcelable {
      * @param owner Who owns the data being modified by this undo state; must be
      * returned by {@link UndoManager#getOwner(String, Object) UndoManager.getOwner}.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public UndoOperation(UndoOwner owner) {
         mOwner = owner;
     }
@@ -41,6 +44,7 @@ public abstract class UndoOperation<DATA> implements Parcelable {
     /**
      * Construct from a Parcel.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected UndoOperation(Parcel src, ClassLoader loader) {
     }
 

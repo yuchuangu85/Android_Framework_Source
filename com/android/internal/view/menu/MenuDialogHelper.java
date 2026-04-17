@@ -18,6 +18,7 @@ package com.android.internal.view.menu;
 
 import android.app.AlertDialog;
 import android.app.Dialog;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.DialogInterface;
 import android.os.IBinder;
 import android.view.KeyEvent;
@@ -36,6 +37,7 @@ public class MenuDialogHelper implements MenuHelper, DialogInterface.OnKeyListen
     ListMenuPresenter mPresenter;
     private MenuPresenter.Callback mPresenterCallback;
     
+    @UnsupportedAppUsage
     public MenuDialogHelper(MenuBuilder menu) {
         mMenu = menu;
     }
@@ -45,6 +47,7 @@ public class MenuDialogHelper implements MenuHelper, DialogInterface.OnKeyListen
      * 
      * @param windowToken Optional token to assign to the window.
      */
+    @UnsupportedAppUsage
     public void show(IBinder windowToken) {
         // Many references to mMenu, create local reference
         final MenuBuilder menu = mMenu;
@@ -132,6 +135,7 @@ public class MenuDialogHelper implements MenuHelper, DialogInterface.OnKeyListen
      * 
      * @see Dialog#dismiss()
      */
+    @UnsupportedAppUsage
     @Override
     public void dismiss() {
         if (mDialog != null) {

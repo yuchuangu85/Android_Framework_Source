@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -32,16 +32,16 @@ import java.util.Enumeration;
 // Android-changed: Stubbed the implementation.  Android doesn't support SecurityManager.
 // See comments in java.lang.SecurityManager for details.
 /**
- * Legacy security code; do not use.
+ * Android doesn't support {@link SecurityManager}. Do not use this class.
  */
 public abstract class Policy {
 
     public static final PermissionCollection UNSUPPORTED_EMPTY_COLLECTION =
-                        new UnsupportedEmptyCollection();
+            new UnsupportedEmptyCollection();
 
     public static Policy getPolicy()
     {
-      return null;
+        return null;
     }
 
     public static void setPolicy(Policy p)
@@ -49,23 +49,23 @@ public abstract class Policy {
     }
 
     public static Policy getInstance(String type, Policy.Parameters params)
-                throws NoSuchAlgorithmException {
-      return null;
+            throws NoSuchAlgorithmException {
+        return null;
     }
 
     public static Policy getInstance(String type,
-                                Policy.Parameters params,
-                                String provider)
-                throws NoSuchProviderException, NoSuchAlgorithmException {
-      return null;
+            Policy.Parameters params,
+            String provider)
+            throws NoSuchProviderException, NoSuchAlgorithmException {
+        return null;
     }
 
 
     public static Policy getInstance(String type,
-                                Policy.Parameters params,
-                                Provider provider)
-                throws NoSuchAlgorithmException {
-      return null;
+            Policy.Parameters params,
+            Provider provider)
+            throws NoSuchAlgorithmException {
+        return null;
     }
 
     public Provider getProvider() {
@@ -97,7 +97,7 @@ public abstract class Policy {
     public static interface Parameters { }
 
     private static class UnsupportedEmptyCollection
-        extends PermissionCollection {
+            extends PermissionCollection {
 
         public UnsupportedEmptyCollection() {
         }

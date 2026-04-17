@@ -174,7 +174,7 @@ import java.util.ArrayList;
      *               STATUS_ON_SIM_SENT, STATUS_ON_SIM_UNSENT)
      * @return true for success
      * @deprecated Use android.telephony.SmsManager.
-     * {@hide}
+     * @hide
      */
     @Deprecated
     public final boolean copyMessageToSim(byte[] smsc, byte[] pdu, int status) {
@@ -187,7 +187,7 @@ import java.util.ArrayList;
      * @param messageIndex is the record index of the message on SIM
      * @return true for success
      * @deprecated Use android.telephony.SmsManager.
-     * {@hide}
+     * @hide
      */
     @Deprecated
     public final boolean deleteMessageFromSim(int messageIndex) {
@@ -204,7 +204,7 @@ import java.util.ArrayList;
      * @param pdu the raw PDU to store
      * @return true for success
      * @deprecated Use android.telephony.SmsManager.
-     * {@hide}
+     * @hide
      */
     @Deprecated
     public final boolean updateMessageOnSim(int messageIndex, int newStatus, byte[] pdu) {
@@ -215,7 +215,7 @@ import java.util.ArrayList;
      * Retrieves all messages currently stored on SIM.
      * @return <code>ArrayList</code> of <code>SmsMessage</code> objects
      * @deprecated Use android.telephony.SmsManager.
-     * {@hide}
+     * @hide
      */
     @Deprecated
     public final ArrayList<android.telephony.SmsMessage> getAllMessagesFromSim() {

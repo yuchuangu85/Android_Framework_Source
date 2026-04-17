@@ -37,6 +37,7 @@ import android.graphics.drawable.Drawable;
  *
  *  <p>Supplied to ImageDecoder via {@link ImageDecoder#setPostProcessor setPostProcessor}.</p>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface PostProcessor {
     /**
      *  Do any processing after (for example) decoding.

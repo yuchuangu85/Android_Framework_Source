@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -61,14 +61,15 @@
  */
 package java.time.format;
 
-import android.icu.impl.ICUData;
-import android.icu.impl.ICUResourceBundle;
-import android.icu.util.UResourceBundle;
+import android.icu.text.DateFormatSymbols;
+import android.icu.util.ULocale;
 
 import static java.time.temporal.ChronoField.AMPM_OF_DAY;
 import static java.time.temporal.ChronoField.DAY_OF_WEEK;
 import static java.time.temporal.ChronoField.ERA;
 import static java.time.temporal.ChronoField.MONTH_OF_YEAR;
+
+import com.android.icu.text.ExtendedDateFormatSymbols;
 
 import java.time.chrono.Chronology;
 import java.time.chrono.IsoChronology;
@@ -113,6 +114,9 @@ class DateTimeTextProvider {
         }
     };
 
+    // Singleton instance
+    private static final DateTimeTextProvider INSTANCE = new DateTimeTextProvider();
+
     DateTimeTextProvider() {}
 
     /**
@@ -121,7 +125,7 @@ class DateTimeTextProvider {
      * @return the provider, not null
      */
     static DateTimeTextProvider getInstance() {
-        return new DateTimeTextProvider();
+        return INSTANCE;
     }
 
     /**
@@ -350,25 +354,40 @@ class DateTimeTextProvider {
 
         if (field == MONTH_OF_YEAR) {
             for (TextStyle textStyle : TextStyle.values()) {
-                Map<String, Integer> displayNames = CalendarDataUtility.retrieveJavaTimeFieldValueNames(
-                        "gregory", Calendar.MONTH, textStyle.toCalendarStyle(), locale);
                 Map<Long, String> map = new HashMap<>();
-                if (displayNames != null) {
-                    for (Entry<String, Integer> entry : displayNames.entrySet()) {
-                        map.put((long) (entry.getValue() + 1), entry.getKey());
-                    }
-
-                } else {
-                    // Narrow names may have duplicated names, such as "J" for January, Jun, July.
-                    // Get names one by one in that case.
+                // Narrow names may have duplicated names, such as "J" for January, June, July.
+                // Get names one by one in that case.
+                if ((textStyle.equals(TextStyle.NARROW) ||
+                        textStyle.equals(TextStyle.NARROW_STANDALONE))) {
                     for (int month = Calendar.JANUARY; month <= Calendar.DECEMBER; month++) {
                         String name;
                         name = CalendarDataUtility.retrieveJavaTimeFieldValueName(
-                                "gregory", Calendar.MONTH, month, textStyle.toCalendarStyle(), locale);
+                                "gregory", Calendar.MONTH,
+                                month, textStyle.toCalendarStyle(), locale);
                         if (name == null) {
                             break;
                         }
-                        map.put((long) (month + 1), name);
+                        map.put((month + 1L), name);
+                    }
+                } else {
+                    Map<String, Integer> displayNames = CalendarDataUtility.retrieveJavaTimeFieldValueNames(
+                            "gregory", Calendar.MONTH, textStyle.toCalendarStyle(), locale);
+                    if (displayNames != null) {
+                        for (Entry<String, Integer> entry : displayNames.entrySet()) {
+                            map.put((long)(entry.getValue() + 1), entry.getKey());
+                        }
+                    } else {
+                        // Although probability is very less, but if other styles have duplicate names.
+                        // Get names one by one in that case.
+                        for (int month = Calendar.JANUARY; month <= Calendar.DECEMBER; month++) {
+                            String name;
+                            name = CalendarDataUtility.retrieveJavaTimeFieldValueName(
+                                    "gregory", Calendar.MONTH, month, textStyle.toCalendarStyle(), locale);
+                            if (name == null) {
+                                break;
+                            }
+                            map.put((month + 1L), name);
+                        }
                     }
                 }
                 if (!map.isEmpty()) {
@@ -380,25 +399,40 @@ class DateTimeTextProvider {
 
         if (field == DAY_OF_WEEK) {
             for (TextStyle textStyle : TextStyle.values()) {
-                Map<String, Integer> displayNames = CalendarDataUtility.retrieveJavaTimeFieldValueNames(
-                        "gregory", Calendar.DAY_OF_WEEK, textStyle.toCalendarStyle(), locale);
                 Map<Long, String> map = new HashMap<>();
-                if (displayNames != null) {
-                    for (Entry<String, Integer> entry : displayNames.entrySet()) {
-                        map.put((long)toWeekDay(entry.getValue()), entry.getKey());
-                    }
-
-                } else {
-                    // Narrow names may have duplicated names, such as "S" for Sunday and Saturday.
-                    // Get names one by one in that case.
+                // Narrow names may have duplicated names, such as "S" for Sunday and Saturday.
+                // Get names one by one in that case.
+                if ((textStyle.equals(TextStyle.NARROW) ||
+                        textStyle.equals(TextStyle.NARROW_STANDALONE))) {
                     for (int wday = Calendar.SUNDAY; wday <= Calendar.SATURDAY; wday++) {
                         String name;
                         name = CalendarDataUtility.retrieveJavaTimeFieldValueName(
-                            "gregory", Calendar.DAY_OF_WEEK, wday, textStyle.toCalendarStyle(), locale);
+                                "gregory", Calendar.DAY_OF_WEEK,
+                                wday, textStyle.toCalendarStyle(), locale);
                         if (name == null) {
                             break;
                         }
                         map.put((long)toWeekDay(wday), name);
+                    }
+                } else {
+                    Map<String, Integer> displayNames = CalendarDataUtility.retrieveJavaTimeFieldValueNames(
+                            "gregory", Calendar.DAY_OF_WEEK, textStyle.toCalendarStyle(), locale);
+                    if (displayNames != null) {
+                        for (Entry<String, Integer> entry : displayNames.entrySet()) {
+                            map.put((long)toWeekDay(entry.getValue()), entry.getKey());
+                        }
+                    } else {
+                        // Although probability is very less, but if other styles have duplicate names.
+                        // Get names one by one in that case.
+                        for (int wday = Calendar.SUNDAY; wday <= Calendar.SATURDAY; wday++) {
+                            String name;
+                            name = CalendarDataUtility.retrieveJavaTimeFieldValueName(
+                                    "gregory", Calendar.DAY_OF_WEEK, wday, textStyle.toCalendarStyle(), locale);
+                            if (name == null) {
+                                break;
+                            }
+                            map.put((long)toWeekDay(wday), name);
+                        }
                     }
                 }
                 if (!map.isEmpty()) {
@@ -430,33 +464,63 @@ class DateTimeTextProvider {
         }
 
         if (field == IsoFields.QUARTER_OF_YEAR) {
-            // Android-changed: Use ICU resources.
-            ICUResourceBundle rb = (ICUResourceBundle) UResourceBundle
-                    .getBundleInstance(ICUData.ICU_BASE_NAME, locale);
-            ICUResourceBundle quartersRb = rb.getWithFallback("calendar/gregorian/quarters");
-            ICUResourceBundle formatRb = quartersRb.getWithFallback("format");
-            ICUResourceBundle standaloneRb = quartersRb.getWithFallback("stand-alone");
-            styleMap.put(TextStyle.FULL, extractQuarters(formatRb, "wide"));
-            styleMap.put(TextStyle.FULL_STANDALONE, extractQuarters(standaloneRb, "wide"));
-            styleMap.put(TextStyle.SHORT, extractQuarters(formatRb, "abbreviated"));
-            styleMap.put(TextStyle.SHORT_STANDALONE, extractQuarters(standaloneRb, "abbreviated"));
-            styleMap.put(TextStyle.NARROW, extractQuarters(formatRb, "narrow"));
-            styleMap.put(TextStyle.NARROW_STANDALONE, extractQuarters(standaloneRb, "narrow"));
+            // BEGIN Android-changed: Use ICU resources.
+            /*
+            // The order of keys must correspond to the TextStyle.values() order.
+            final String[] keys = {
+                "QuarterNames",
+                "standalone.QuarterNames",
+                "QuarterAbbreviations",
+                "standalone.QuarterAbbreviations",
+                "QuarterNarrows",
+                "standalone.QuarterNarrows",
+            };
+            for (int i = 0; i < keys.length; i++) {
+                String[] names = getLocalizedResource(keys[i], locale);
+                if (names != null) {
+                    Map<Long, String> map = new HashMap<>();
+                    for (int q = 0; q < names.length; q++) {
+                        map.put((long) (q + 1), names[q]);
+                    }
+                    styleMap.put(TextStyle.values()[i], map);
+                }
+            }
+            */
+            ULocale uLocale = ULocale.forLocale(locale);
+            // TODO: Figure why we forced Gregorian calendar in the first patch in
+            // https://r.android.com/311224
+            uLocale.setKeywordValue("calendar", "gregorian");
+            ExtendedDateFormatSymbols extendedDfs = ExtendedDateFormatSymbols.getInstance(uLocale);
+            DateFormatSymbols dfs = extendedDfs.getDateFormatSymbols();
+            styleMap.put(TextStyle.FULL, extractQuarters(
+                    dfs.getQuarters(DateFormatSymbols.FORMAT, DateFormatSymbols.WIDE)));
+            styleMap.put(TextStyle.FULL_STANDALONE, extractQuarters(
+                    dfs.getQuarters(DateFormatSymbols.STANDALONE, DateFormatSymbols.WIDE)));
+            styleMap.put(TextStyle.SHORT, extractQuarters(
+                    dfs.getQuarters(DateFormatSymbols.FORMAT, DateFormatSymbols.ABBREVIATED)));
+            styleMap.put(TextStyle.SHORT_STANDALONE, extractQuarters(
+                    dfs.getQuarters(DateFormatSymbols.STANDALONE, DateFormatSymbols.ABBREVIATED)));
+            styleMap.put(TextStyle.NARROW, extractQuarters(
+                    extendedDfs.getNarrowQuarters(DateFormatSymbols.FORMAT)));
+            styleMap.put(TextStyle.NARROW_STANDALONE, extractQuarters(
+                    extendedDfs.getNarrowQuarters(DateFormatSymbols.STANDALONE)));
+
+            // END Android-changed: Use ICU resources.
             return new LocaleStore(styleMap);
         }
 
         return "";  // null marker for map
     }
 
-    // Android-added: extractQuarters to extract Map of quarter names from ICU resource bundle.
-    private static Map<Long, String> extractQuarters(ICUResourceBundle rb, String key) {
-        String[] names = rb.getWithFallback(key).getStringArray();
+    // BEGIN Android-added: Extracts a Map of quarter names.
+    private static Map<Long, String> extractQuarters(String[] quarters) {
         Map<Long, String> map = new HashMap<>();
-        for (int q = 0; q < names.length; q++) {
-            map.put((long) (q + 1), names[q]);
+        for (int q = 0; q < quarters.length; q++) {
+            map.put((long) (q + 1), quarters[q]);
         }
         return map;
     }
+    // END Android-added: Extracts a Map of quarter names.
 
     /**
      * Helper method to create an immutable entry.
@@ -469,7 +533,25 @@ class DateTimeTextProvider {
         return new SimpleImmutableEntry<>(text, field);
     }
 
-    // Android-removed: unused helper method getLocalizedResource.
+    // BEGIN Android-removed: Android uses ICU resources and has no LocaleProviderAdapter.
+    /**
+     * Returns the localized resource of the given key and locale, or null
+     * if no localized resource is available.
+     *
+     * @param key  the key of the localized resource, not null
+     * @param locale  the locale, not null
+     * @return the localized resource, or null if not available
+     * @throws NullPointerException if key or locale is null
+     */
+    // @SuppressWarnings("unchecked")
+    // static <T> T getLocalizedResource(String key, Locale locale) {
+    //     LocaleResources lr = LocaleProviderAdapter.getResourceBundleBased()
+    //                                 .getLocaleResources(
+    //                                     CalendarDataUtility.findRegionOverride(locale));
+    //     ResourceBundle rb = lr.getJavaTimeFormatData();
+    //     return rb.containsKey(key) ? (T) rb.getObject(key) : null;
+    // }
+    // END Android-removed: Android uses ICU resources and has no LocaleProviderAdapter.
 
     /**
      * Stores the text for a single locale.

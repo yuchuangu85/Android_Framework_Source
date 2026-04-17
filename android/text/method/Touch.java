@@ -25,6 +25,7 @@ import android.view.MotionEvent;
 import android.view.ViewConfiguration;
 import android.widget.TextView;
 
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class Touch {
     private Touch() { }
 

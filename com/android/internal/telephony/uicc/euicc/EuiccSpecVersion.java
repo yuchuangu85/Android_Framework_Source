@@ -16,12 +16,11 @@
 
 package com.android.internal.telephony.uicc.euicc;
 
-import android.telephony.Rlog;
-
 import com.android.internal.telephony.uicc.asn1.Asn1Decoder;
 import com.android.internal.telephony.uicc.asn1.Asn1Node;
 import com.android.internal.telephony.uicc.asn1.InvalidAsn1DataException;
 import com.android.internal.telephony.uicc.asn1.TagNotFoundException;
+import com.android.telephony.Rlog;
 
 import java.util.Arrays;
 

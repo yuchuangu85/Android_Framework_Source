@@ -16,10 +16,7 @@
 
 package android.preference;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.preference.Preference.OnPreferenceChangeInternalListener;
@@ -29,6 +26,10 @@ import android.widget.Adapter;
 import android.widget.BaseAdapter;
 import android.widget.FrameLayout;
 import android.widget.ListView;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * An adapter that returns the {@link Preference} contained in this group.
@@ -49,7 +50,14 @@ import android.widget.ListView;
  * @see PreferenceCategoryAdapter
  *
  * @hide
+ *
+ * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+ *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+ *      Preference Library</a> for consistent behavior across all devices. For more information on
+ *      using the AndroidX Preference Library see
+ *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
  */
+@Deprecated
 public class PreferenceGroupAdapter extends BaseAdapter
         implements OnPreferenceChangeInternalListener {
     
@@ -208,6 +216,7 @@ public class PreferenceGroupAdapter extends BaseAdapter
         return mPreferenceList.size();
     }
 
+    @UnsupportedAppUsage
     public Preference getItem(int position) {
         if (position < 0 || position >= getCount()) return null;
         return mPreferenceList.get(position);

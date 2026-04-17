@@ -16,14 +16,31 @@
 
 package android.hardware.display;
 
+import android.annotation.FloatRange;
+import android.annotation.IntDef;
+import android.annotation.Nullable;
+import android.companion.virtual.IVirtualDevice;
+import android.graphics.Point;
 import android.hardware.SensorManager;
+import android.hardware.input.HostUsiVersion;
 import android.os.Handler;
 import android.os.PowerManager;
 import android.util.IntArray;
 import android.util.SparseArray;
+import android.util.SparseIntArray;
 import android.view.Display;
 import android.view.DisplayInfo;
 import android.view.SurfaceControl;
+import android.view.SurfaceControl.RefreshRateRange;
+import android.view.SurfaceControl.Transaction;
+import android.window.DisplayWindowPolicyController;
+import android.window.ScreenCaptureInternal;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * Display manager local system service interface.
@@ -31,11 +48,30 @@ import android.view.SurfaceControl;
  * @hide Only for use within the system server.
  */
 public abstract class DisplayManagerInternal {
+
+    @IntDef(prefix = {"REFRESH_RATE_LIMIT_"}, value = {
+            REFRESH_RATE_LIMIT_HIGH_BRIGHTNESS_MODE
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface RefreshRateLimitType {
+    }
+
+    /** Refresh rate should be limited when High Brightness Mode is active. */
+    public static final int REFRESH_RATE_LIMIT_HIGH_BRIGHTNESS_MODE = 1;
+
     /**
      * Called by the power manager to initialize power management facilities.
      */
     public abstract void initPowerManagement(DisplayPowerCallbacks callbacks,
             Handler handler, SensorManager sensorManager);
+
+    /**
+     * Called by the VirtualDeviceManagerService to create a VirtualDisplay owned by a
+     * VirtualDevice.
+     */
+    public abstract int createVirtualDisplay(VirtualDisplayConfig config,
+            IVirtualDisplayCallback callback, IVirtualDevice virtualDevice,
+            DisplayWindowPolicyController dwpc, String packageName, int ownerUid);
 
     /**
      * Called by the power manager to request a new power state.
@@ -44,22 +80,77 @@ public abstract class DisplayManagerInternal {
      * begins adjusting the power state to match what was requested.
      * </p>
      *
+     * @param groupId The identifier for the display group being requested to change power state
      * @param request The requested power state.
-     * @param waitForNegativeProximity If true, issues a request to wait for
+     * @param waitForNegativeProximity If {@code true}, issues a request to wait for
      * negative proximity before turning the screen back on, assuming the screen
      * was turned off by the proximity sensor.
-     * @return True if display is ready, false if there are important changes that must
-     * be made asynchronously (such as turning the screen on), in which case the caller
-     * should grab a wake lock, watch for {@link DisplayPowerCallbacks#onStateChanged()}
-     * then try the request again later until the state converges.
+     * @return {@code true} if display group is ready, {@code false} if there are important
+     * changes that must be made asynchronously (such as turning the screen on), in which case
+     * the caller should grab a wake lock, watch for {@link DisplayPowerCallbacks#onStateChanged}
+     * then try the request again later until the state converges. If the provided {@code groupId}
+     * cannot be found then {@code true} will be returned.
      */
-    public abstract boolean requestPowerState(DisplayPowerRequest request,
+    public abstract boolean requestPowerState(int groupId, DisplayPowerRequest request,
             boolean waitForNegativeProximity);
 
     /**
-     * Returns true if the proximity sensor screen-off function is available.
+     * Returns {@code true} if the proximity sensor screen-off function is available for the given
+     * display.
      */
-    public abstract boolean isProximitySensorAvailable();
+    public abstract boolean isProximitySensorAvailable(int displayId);
+
+    /**
+     * Registers a display group listener which will be informed of the addition, removal, or change
+     * of display groups.
+     *
+     * @param listener The listener to register.
+     */
+    public abstract void registerDisplayGroupListener(DisplayGroupListener listener);
+
+    /**
+     * Unregisters a display group listener which will be informed of the addition, removal, or
+     * change of display groups.
+     *
+     * @param listener The listener to unregister.
+     */
+    public abstract void unregisterDisplayGroupListener(DisplayGroupListener listener);
+
+    /**
+     * Screenshot for internal system-only use such as rotation, etc. This method includes secure
+     * layers and the result should never be exposed to non-system applications. This method does
+     * not apply any rotation and provides the output in natural orientation.
+     *
+     * @param displayId The display id to take the screenshot of.
+     * @return The buffer or null if we have failed.
+     */
+    public abstract ScreenCaptureInternal.ScreenshotHardwareBuffer systemScreenshot(int displayId);
+
+    /**
+     * Captures a screenshot of the specified display for internal system use.
+     *
+     * <p>This method allows for more granular control over the screenshot process
+     * compared to {@link #systemScreenshot(int)}.
+     *
+     * @param displayId The display id to take the screenshot of.
+     * @param argsBuilder A {@link ScreenCaptureInternal.DisplayCaptureArgs.Builder}
+     *                    to specify screenshot parameters.
+     * @param callback A {@link ScreenCaptureInternal.ScreenCaptureListener} to receive
+     *                 the screenshot result or an error.
+     */
+    public abstract void systemScreenshot(
+            int displayId,
+            ScreenCaptureInternal.DisplayCaptureArgs.Builder argsBuilder,
+            ScreenCaptureInternal.ScreenCaptureListener callback);
+
+    /**
+     * General screenshot functionality that excludes secure layers and applies appropriate rotation
+     * that the device is currently in.
+     *
+     * @param displayId The display id to take the screenshot of.
+     * @return The buffer or null if we have failed.
+     */
+    public abstract ScreenCaptureInternal.ScreenshotHardwareBuffer userScreenshot(int displayId);
 
     /**
      * Returns information about the specified logical display.
@@ -69,6 +160,24 @@ public abstract class DisplayManagerInternal {
      * returned object must be treated as immutable.
      */
     public abstract DisplayInfo getDisplayInfo(int displayId);
+
+    /**
+     * Returns a set of DisplayInfo, for the states that may be assumed by either the given display,
+     * or any other display within that display's group.
+     *
+     * @param displayId The logical display id to fetch DisplayInfo for.
+     */
+    public abstract Set<DisplayInfo> getPossibleDisplayInfo(int displayId);
+
+    /**
+     * Returns the position of the display's projection.
+     *
+     * @param displayId The logical display id.
+     * @return The x, y coordinates of the display, or null if the display does not exist. The
+     * return object must be treated as immutable.
+     */
+    @Nullable
+    public abstract Point getDisplayPosition(int displayId);
 
     /**
      * Registers a display transaction listener to provide the client a chance to
@@ -93,7 +202,7 @@ public abstract class DisplayManagerInternal {
      * to the display information synchronously so that applications will immediately
      * observe the new state.
      *
-     * NOTE: This method must be the only entry point by which the window manager
+     * <p>NOTE: This method must be the only entry point by which the window manager
      * influences the logical configuration of displays.
      *
      * @param displayId The logical display id.
@@ -115,8 +224,11 @@ public abstract class DisplayManagerInternal {
     /**
      * Called by the window manager to perform traversals while holding a
      * surface flinger transaction.
+     * @param t The default transaction.
+     * @param displayTransactions The transactions mapped by display id.
      */
-    public abstract void performTraversal(SurfaceControl.Transaction t);
+    public abstract void performTraversal(Transaction t,
+            SparseArray<SurfaceControl.Transaction> displayTransactions);
 
     /**
      * Tells the display manager about properties of the display that depend on the windows on it.
@@ -140,11 +252,21 @@ public abstract class DisplayManagerInternal {
      * has a preference.
      * @param requestedModeId The preferred mode id for the top-most visible window that has a
      * preference.
+     * @param requestedMinRefreshRate The preferred lowest refresh rate for the top-most visible
+     *                                window that has a preference.
+     * @param requestedMaxRefreshRate The preferred highest refresh rate for the top-most visible
+     *                                window that has a preference.
+     * @param requestedMinimalPostProcessing The preferred minimal post processing setting for the
+     * display. This is true when there is at least one visible window that wants minimal post
+     * processing on.
+     * @param disableHdrConversion The preferred HDR conversion setting for the window.
      * @param inTraversal True if called from WindowManagerService during a window traversal
-     * prior to call to performTraversalInTransactionFromWindowManager.
+     * prior to call to performTraversal.
      */
     public abstract void setDisplayProperties(int displayId, boolean hasContent,
-            float requestedRefreshRate, int requestedModeId, boolean inTraversal);
+            float requestedRefreshRate, int requestedModeId, float requestedMinRefreshRate,
+            float requestedMaxRefreshRate, boolean requestedMinimalPostProcessing,
+            boolean disableHdrConversion, boolean inTraversal);
 
     /**
      * Applies an offset to the contents of a display, for example to avoid burn-in.
@@ -160,6 +282,23 @@ public abstract class DisplayManagerInternal {
     public abstract void setDisplayOffsets(int displayId, int x, int y);
 
     /**
+     * Disables scaling for a display.
+     *
+     * @param displayId The logical display id to disable scaling for.
+     * @param disableScaling {@code true} to disable scaling,
+     * {@code false} to use the default scaling behavior of the logical display.
+     */
+    public abstract void setDisplayScalingDisabled(int displayId, boolean disableScaling);
+
+    /**
+     * Sets whether the display should be optimized for power.
+     *
+     * @param displayId The logical display id.
+     * @param enabled {@code true} to enable power optimization, {@code false} otherwise.
+     */
+    public abstract void setPowerOptimization(int displayId, boolean enabled);
+
+    /**
      * Provide a list of UIDs that are present on the display and are allowed to access it.
      *
      * @param displayAccessUIDs Mapping displayId -> int array of UIDs.
@@ -167,17 +306,24 @@ public abstract class DisplayManagerInternal {
     public abstract void setDisplayAccessUIDs(SparseArray<IntArray> displayAccessUIDs);
 
     /**
-     * Check if specified UID's content is present on display and should be granted access to it.
-     *
-     * @param uid UID to be checked.
-     * @param displayId id of the display where presence of the content is checked.
-     * */
-    public abstract boolean isUidPresentOnDisplay(int uid, int displayId);
-
-    /**
      * Persist brightness slider events and ambient brightness stats.
      */
     public abstract void persistBrightnessTrackerState();
+
+    /**
+     * Sets a maximum brightness cap for the display.
+     *
+     * <p>A cap of {@code 1f} will remove the cap.
+     *
+     * @param displayId id of the display to cap the maximum brightness for
+     * @param cap the brightness cap between {@code 0f} and {@code 1f}
+     * @param reason reason for capping brightness. Using the same reason again for a display
+     *     replaces the previous cap
+     */
+    public abstract void setBrightnessCap(
+            int displayId,
+            @FloatRange(from = 0f, to = 1f) float cap,
+            @BrightnessInfo.BrightnessMaxReason int reason);
 
     /**
      * Notifies the display manager that resource overlays have changed.
@@ -185,16 +331,274 @@ public abstract class DisplayManagerInternal {
     public abstract void onOverlayChanged();
 
     /**
+     * Get the attributes available for display color sampling.
+     * @param displayId id of the display to collect the sample from.
+     *
+     * @return The attributes the display supports, or null if sampling is not supported.
+     */
+    @Nullable
+    public abstract DisplayedContentSamplingAttributes getDisplayedContentSamplingAttributes(
+            int displayId);
+
+    /**
+     * Enable or disable the collection of color samples.
+     *
+     * @param displayId id of the display to collect the sample from.
+     * @param componentMask a bitmask of the color channels to collect samples for, or zero for all
+     *                      available.
+     * @param maxFrames maintain a ringbuffer of the last maxFrames.
+     * @param enable True to enable, False to disable.
+     *
+     * @return True if sampling was enabled, false if failure.
+     */
+    public abstract boolean setDisplayedContentSamplingEnabled(
+            int displayId, boolean enable, int componentMask, int maxFrames);
+
+    /**
+     * Accesses the color histogram statistics of displayed frames on devices that support sampling.
+     *
+     * @param displayId id of the display to collect the sample from
+     * @param maxFrames limit the statistics to the last maxFrames number of frames.
+     * @param timestamp discard statistics that were collected prior to timestamp, where timestamp
+     *                  is given as CLOCK_MONOTONIC.
+     * @return The statistics representing a histogram of the color distribution of the frames
+     *         displayed on-screen, or null if sampling is not supported.
+    */
+    @Nullable
+    public abstract DisplayedContentSample getDisplayedContentSample(
+            int displayId, long maxFrames, long timestamp);
+
+    /**
+     * Temporarily ignore proximity-sensor-based display behavior until there is a change
+     * to the proximity sensor state. This allows the display to turn back on even if something
+     * is obstructing the proximity sensor.
+     */
+    public abstract void ignoreProximitySensorUntilChanged();
+
+    /**
+     * Sets the persistent connection preference for a given display. This preference
+     * determines whether to show a dialog, mirror, or use desktop mode automatically.
+     *
+     * @param uniqueId The unique ID of the display.
+     * @param preference The integer constant for the new preference to save.
+     * @hide
+     */
+    public abstract void setConnectionPreference(String uniqueId, int preference);
+
+    /**
+     * Retrieves the saved connection preference for a given display.
+     *
+     * @param uniqueId The unique ID of the display.
+     * @return The integer constant for the saved preference.
+     * @hide
+     */
+    public abstract int getConnectionPreference(String uniqueId);
+
+    /**
+     * Returns the refresh rate switching type.
+     */
+    @DisplayManager.SwitchingType
+    public abstract int getRefreshRateSwitchingType();
+
+    /**
+     * TODO: b/191384041 - Replace this with getRefreshRateLimitations()
+     * Return the refresh rate restriction for the specified display and sensor pairing. If the
+     * specified sensor is identified as an associated sensor in the specified display's
+     * display-device-config file, then return any refresh rate restrictions that it might define.
+     * If no restriction is specified, or the sensor is not associated with the display, then null
+     * will be returned.
+     *
+     * @param displayId The display to check against.
+     * @param name The name of the sensor.
+     * @param type The type of sensor.
+     *
+     * @return The min/max refresh-rate restriction as a pair of floats, or {@code null} if not
+     * restricted.
+     */
+    public abstract RefreshRateRange getRefreshRateForDisplayAndSensor(
+            int displayId, String name, String type);
+
+    /**
+     * Returns a list of various refresh rate limitations for the specified display.
+     *
+     * @param displayId The display to get limitations for.
+     *
+     * @return a list of {@link RefreshRateLimitation}s describing the various limits.
+     */
+    public abstract List<RefreshRateLimitation> getRefreshRateLimitations(int displayId);
+
+    /**
+     * For the given displayId, updates if WindowManager is responsible for mirroring on that
+     * display. If {@code false}, then SurfaceFlinger performs no layer mirroring to the
+     * given display.
+     * Only used for mirroring started from MediaProjection.
+     */
+    public abstract void setWindowManagerMirroring(int displayId, boolean isMirroring);
+
+    /**
+     * Returns the default size of the surface associated with the display, or null if the surface
+     * is not provided for layer mirroring by SurfaceFlinger. Size is rotated to reflect the current
+     * display device orientation.
+     * Used for mirroring from MediaProjection, or a physical display based on display flags.
+     */
+    public abstract Point getDisplaySurfaceDefaultSize(int displayId);
+
+    /**
+     * Get a new displayId which represents the display you want to mirror. If mirroring is not
+     * enabled on the display, {@link Display#INVALID_DISPLAY} will be returned.
+     *
+     * @param displayId The id of the display.
+     * @return The displayId that should be mirrored or INVALID_DISPLAY if mirroring is not enabled.
+     */
+    public abstract int getDisplayIdToMirror(int displayId);
+
+    /**
+     * Receives early interactivity changes from power manager.
+     *
+     * @param interactive The interactive state that the device is moving into.
+     */
+    public abstract void onEarlyInteractivityChange(boolean interactive);
+
+    /**
+     * Get {@link DisplayWindowPolicyController} associated to the {@link DisplayInfo#displayId}
+     *
+     * @param displayId The id of the display.
+     * @return The associated {@link DisplayWindowPolicyController}.
+     */
+    public abstract DisplayWindowPolicyController getDisplayWindowPolicyController(int displayId);
+
+    /**
+     * Get DisplayPrimaries from SF for a particular display.
+     */
+    public abstract SurfaceControl.DisplayPrimaries getDisplayNativePrimaries(int displayId);
+
+    /**
+     * Get the version of the Universal Stylus Initiative (USI) Protocol supported by the display.
+     * @param displayId The id of the display.
+     * @return The USI version, or null if not supported
+     */
+    @Nullable
+    public abstract HostUsiVersion getHostUsiVersion(int displayId);
+
+    /**
+     * Get the ALS data for a particular display.
+     *
+     * @param displayId The id of the display.
+     * @return {@link AmbientLightSensorData}
+     */
+    @Nullable
+    public abstract AmbientLightSensorData getAmbientLightSensorData(int displayId);
+
+    /**
+     * Get all available DisplayGroupIds.
+     */
+    public abstract IntArray getDisplayGroupIds();
+
+
+    /**
+     * Get all display ids belonging to the display group with given id.
+     */
+    public abstract int[] getDisplayIdsForGroup(int groupId);
+
+    /**
+     * Get the mapping of display group ids to the display ids that belong to them.
+     */
+    public abstract SparseArray<int[]> getDisplayIdsByGroupsIds();
+
+    /**
+     * Get the mapping of display ids to the group ids to which they belong.
+     */
+    public abstract SparseIntArray getGroupIdsByDisplayIds();
+
+    /**
+     * Get all available display ids.
+     */
+    public abstract int[] getDisplayIds(boolean includeDisabled);
+
+    /**
+     * Get group id for given display id
+     */
+    public abstract int getGroupIdForDisplay(int displayId);
+
+    /**
+     * Called upon presentation started/ended on the display.
+     * @param displayId the id of the display where presentation started.
+     * @param isShown whether presentation is shown.
+     */
+    public abstract void onPresentation(int displayId, boolean isShown);
+
+    /**
+     * Called upon the usage of stylus.
+     */
+    public abstract void stylusGestureStarted(long eventTime);
+
+    /**
+     * Called by {@link com.android.server.wm.ContentRecorder} to verify whether
+     * the display is allowed to mirror primary display's content.
+     * @param displayId the id of the display where we mirror to.
+     * @return true if the mirroring dialog is confirmed (display is enabled), or
+     * {@link com.android.server.display.ExternalDisplayPolicy#ENABLE_ON_CONNECT}
+     * system property is enabled.
+     */
+    public abstract boolean isDisplayReadyForMirroring(int displayId);
+
+    /**
+     * Called by {@link com.android.server.wm.WindowManagerService} to notify whether a display
+     * should be in the topology.
+     * @param displayId The logical ID of the display
+     * @param inTopology Whether the display should be in the topology. This being true does not
+     *                   guarantee that the display will be in the topology - Display Manager might
+     *                   also check other parameters.
+     */
+    public abstract void onDisplayBelongToTopologyChanged(int displayId, boolean inTopology);
+
+    /**
+     * Called by {@link  com.android.server.display.DisplayBackupHelper} when backup files were
+     * restored and are ready to be reloaded.
+     */
+    public abstract void reloadTopologies(int userId);
+
+
+    /**
+     * Used by the window manager to override the per-display screen brightness based on the
+     * current foreground activity.
+     *
+     * <p>The key of the array is the displayId. If a displayId is missing from the array, this is
+     * equivalent to clearing any existing brightness overrides for that display.
+     *
+     * <p>This method must only be called by the window manager.
+     */
+    public abstract void setScreenBrightnessOverrideFromWindowManager(
+            SparseArray<DisplayBrightnessOverrideRequest> brightnessOverrides);
+
+    /**
+     * Gets the flags set for the supplied DisplayGroupId
+     */
+    public abstract long getDisplayGroupFlags(int groupId);
+
+    /**
+     * Describes a request for overriding the brightness of a single display.
+     */
+    public static class DisplayBrightnessOverrideRequest {
+        // An override of the screen brightness.
+        // Set to PowerManager.BRIGHTNESS_INVALID if there's no override.
+        public float brightness = PowerManager.BRIGHTNESS_INVALID_FLOAT;
+
+        // Tag used to identify the app window requesting the brightness override.
+        public CharSequence tag;
+    }
+
+    /**
      * Describes the requested power state of the display.
      *
-     * This object is intended to describe the general characteristics of the
+     * <p>This object is intended to describe the general characteristics of the
      * power state, such as whether the screen should be on or off and the current
      * brightness controls leaving the DisplayPowerController to manage the
      * details of how the transitions between states should occur.  The goal is for
      * the PowerManagerService to focus on the global power state and not
      * have to micro-manage screen off animations, auto-brightness and other effects.
      */
-    public static final class DisplayPowerRequest {
+    public static class DisplayPowerRequest {
         // Policy: Turn screen off as if the user pressed the power button
         // including playing a screen off animation if applicable.
         public static final int POLICY_OFF = 0;
@@ -205,27 +609,33 @@ public abstract class DisplayManagerInternal {
         public static final int POLICY_DIM = 2;
         // Policy: Make the screen bright as usual.
         public static final int POLICY_BRIGHT = 3;
-        // Policy: Keep the screen and display optimized for VR mode.
-        public static final int POLICY_VR = 4;
+        // The maximum policy constant. Useful for iterating through all constants in tests.
+        public static final int POLICY_MAX = POLICY_BRIGHT;
 
         // The basic overall policy to apply: off, doze, dim or bright.
         public int policy;
+
+        // The reason behind the current policy.
+        @Display.StateReason
+        public int policyReason;
 
         // If true, the proximity sensor overrides the screen state when an object is
         // nearby, turning it off temporarily until the object is moved away.
         public boolean useProximitySensor;
 
-        // An override of the screen brightness. Set to -1 is used if there's no override.
-        public int screenBrightnessOverride;
+        // A global override of the screen brightness, applied to all displays.
+        // Set to PowerManager.BRIGHTNESS_INVALID if there's no override.
+        public float screenBrightnessOverride;
+
+        // Tag used to identify the reason for the global brightness override.
+        public CharSequence screenBrightnessOverrideTag;
 
         // An override of the screen auto-brightness adjustment factor in the range -1 (dimmer) to
         // 1 (brighter). Set to Float.NaN if there's no override.
         public float screenAutoBrightnessAdjustmentOverride;
 
-        // If true, enables automatic brightness control.
-        public boolean useAutoBrightness;
-
-        // If true, scales the brightness to half of desired.
+        // If true, scales the brightness to a fraction of desired (as defined by
+        // screenLowPowerBrightnessFactor).
         public boolean lowPowerMode;
 
         // The factor to adjust the screen brightness in low power mode in the range
@@ -246,19 +656,24 @@ public abstract class DisplayManagerInternal {
         public boolean blockScreenOn;
 
         // Overrides the policy for adjusting screen brightness and state while dozing.
-        public int dozeScreenBrightness;
         public int dozeScreenState;
+        public float dozeScreenBrightness;
+        public int dozeScreenStateReason;
+
+        // Override that makes display use normal brightness while dozing.
+        public boolean useNormalBrightnessForDoze;
 
         public DisplayPowerRequest() {
             policy = POLICY_BRIGHT;
+            policyReason = Display.STATE_REASON_DEFAULT_POLICY;
             useProximitySensor = false;
-            screenBrightnessOverride = -1;
-            useAutoBrightness = false;
+            screenBrightnessOverride = PowerManager.BRIGHTNESS_INVALID_FLOAT;
             screenAutoBrightnessAdjustmentOverride = Float.NaN;
             screenLowPowerBrightnessFactor = 0.5f;
             blockScreenOn = false;
-            dozeScreenBrightness = PowerManager.BRIGHTNESS_DEFAULT;
+            dozeScreenBrightness = PowerManager.BRIGHTNESS_INVALID_FLOAT;
             dozeScreenState = Display.STATE_UNKNOWN;
+            dozeScreenStateReason = Display.STATE_REASON_UNKNOWN;
         }
 
         public DisplayPowerRequest(DisplayPowerRequest other) {
@@ -269,15 +684,12 @@ public abstract class DisplayManagerInternal {
             return policy == POLICY_BRIGHT || policy == POLICY_DIM;
         }
 
-        public boolean isVr() {
-            return policy == POLICY_VR;
-        }
-
         public void copyFrom(DisplayPowerRequest other) {
             policy = other.policy;
+            policyReason = other.policyReason;
             useProximitySensor = other.useProximitySensor;
             screenBrightnessOverride = other.screenBrightnessOverride;
-            useAutoBrightness = other.useAutoBrightness;
+            screenBrightnessOverrideTag = other.screenBrightnessOverrideTag;
             screenAutoBrightnessAdjustmentOverride = other.screenAutoBrightnessAdjustmentOverride;
             screenLowPowerBrightnessFactor = other.screenLowPowerBrightnessFactor;
             blockScreenOn = other.blockScreenOn;
@@ -285,10 +697,12 @@ public abstract class DisplayManagerInternal {
             boostScreenBrightness = other.boostScreenBrightness;
             dozeScreenBrightness = other.dozeScreenBrightness;
             dozeScreenState = other.dozeScreenState;
+            dozeScreenStateReason = other.dozeScreenStateReason;
+            useNormalBrightnessForDoze = other.useNormalBrightnessForDoze;
         }
 
         @Override
-        public boolean equals(Object o) {
+        public boolean equals(@Nullable Object o) {
             return o instanceof DisplayPowerRequest
                     && equals((DisplayPowerRequest)o);
         }
@@ -297,8 +711,9 @@ public abstract class DisplayManagerInternal {
             return other != null
                     && policy == other.policy
                     && useProximitySensor == other.useProximitySensor
-                    && screenBrightnessOverride == other.screenBrightnessOverride
-                    && useAutoBrightness == other.useAutoBrightness
+                    && floatEquals(screenBrightnessOverride, other.screenBrightnessOverride)
+                    && Objects.equals(screenBrightnessOverrideTag,
+                            other.screenBrightnessOverrideTag)
                     && floatEquals(screenAutoBrightnessAdjustmentOverride,
                             other.screenAutoBrightnessAdjustmentOverride)
                     && screenLowPowerBrightnessFactor
@@ -306,8 +721,10 @@ public abstract class DisplayManagerInternal {
                     && blockScreenOn == other.blockScreenOn
                     && lowPowerMode == other.lowPowerMode
                     && boostScreenBrightness == other.boostScreenBrightness
-                    && dozeScreenBrightness == other.dozeScreenBrightness
-                    && dozeScreenState == other.dozeScreenState;
+                    && floatEquals(dozeScreenBrightness, other.dozeScreenBrightness)
+                    && dozeScreenState == other.dozeScreenState
+                    && dozeScreenStateReason == other.dozeScreenStateReason
+                    && useNormalBrightnessForDoze == other.useNormalBrightnessForDoze;
         }
 
         private boolean floatEquals(float f1, float f2) {
@@ -324,7 +741,6 @@ public abstract class DisplayManagerInternal {
             return "policy=" + policyToString(policy)
                     + ", useProximitySensor=" + useProximitySensor
                     + ", screenBrightnessOverride=" + screenBrightnessOverride
-                    + ", useAutoBrightness=" + useAutoBrightness
                     + ", screenAutoBrightnessAdjustmentOverride="
                     + screenAutoBrightnessAdjustmentOverride
                     + ", screenLowPowerBrightnessFactor=" + screenLowPowerBrightnessFactor
@@ -332,7 +748,10 @@ public abstract class DisplayManagerInternal {
                     + ", lowPowerMode=" + lowPowerMode
                     + ", boostScreenBrightness=" + boostScreenBrightness
                     + ", dozeScreenBrightness=" + dozeScreenBrightness
-                    + ", dozeScreenState=" + Display.stateToString(dozeScreenState);
+                    + ", dozeScreenState=" + Display.stateToString(dozeScreenState)
+                    + ", dozeScreenStateReason="
+                            + Display.stateReasonToString(dozeScreenStateReason)
+                    + ", useNormalBrightnessForDoze=" + useNormalBrightnessForDoze;
         }
 
         public static String policyToString(int policy) {
@@ -345,8 +764,6 @@ public abstract class DisplayManagerInternal {
                     return "DIM";
                 case POLICY_BRIGHT:
                     return "BRIGHT";
-                case POLICY_VR:
-                    return "VR";
                 default:
                     return Integer.toString(policy);
             }
@@ -360,10 +777,21 @@ public abstract class DisplayManagerInternal {
         void onStateChanged();
         void onProximityPositive();
         void onProximityNegative();
-        void onDisplayStateChange(int state); // one of the Display state constants
+        void onDisplayStateChange(boolean allInactive, boolean allOff);
 
-        void acquireSuspendBlocker();
-        void releaseSuspendBlocker();
+        /**
+         * Acquires a suspend blocker with a specified label.
+         *
+         * @param id A logging label for the acquisition.
+         */
+        void acquireSuspendBlocker(String id);
+
+        /**
+         * Releases a suspend blocker with a specified label.
+         *
+         * @param id A logging label for the release.
+         */
+        void releaseSuspendBlocker(String id);
     }
 
     /**
@@ -372,6 +800,202 @@ public abstract class DisplayManagerInternal {
      * update the position of its surfaces as part of the same transaction.
      */
     public interface DisplayTransactionListener {
-        void onDisplayTransaction();
+        void onDisplayTransaction(Transaction t);
+    }
+
+    /**
+     * Called when there are changes to {@link com.android.server.display.DisplayGroup
+     * DisplayGroups}.
+     */
+    public interface DisplayGroupListener {
+        /**
+         * A new display group with the provided {@code groupId} was added.
+         *
+         * <ol>
+         *     <li>The {@code groupId} is applied to all appropriate {@link Display displays}.
+         *     <li>This method is called.
+         *     <li>{@link android.hardware.display.DisplayManager.DisplayListener DisplayListeners}
+         *     are informed of any corresponding changes.
+         * </ol>
+         */
+        void onDisplayGroupAdded(int groupId);
+
+        /**
+         * The display group with the provided {@code groupId} was removed.
+         *
+         * <ol>
+         *     <li>All affected {@link Display displays} have their group IDs updated appropriately.
+         *     <li>{@link android.hardware.display.DisplayManager.DisplayListener DisplayListeners}
+         *     are informed of any corresponding changes.
+         *     <li>This method is called.
+         * </ol>
+         */
+        void onDisplayGroupRemoved(int groupId);
+
+        /**
+         * The display group with the provided {@code groupId} has changed.
+         *
+         * <ol>
+         *     <li>All affected {@link Display displays} have their group IDs updated appropriately.
+         *     <li>{@link android.hardware.display.DisplayManager.DisplayListener DisplayListeners}
+         *     are informed of any corresponding changes.
+         *     <li>This method is called.
+         * </ol>
+         */
+        void onDisplayGroupChanged(int groupId);
+    }
+
+    /**
+     * Describes a limitation on a display's refresh rate. Includes the allowed refresh rate
+     * range as well as information about when it applies, such as high-brightness-mode.
+     */
+    public static final class RefreshRateLimitation {
+        @RefreshRateLimitType
+        public int type;
+
+        /** The range the that refresh rate should be limited to. */
+        public RefreshRateRange range;
+
+        public RefreshRateLimitation(@RefreshRateLimitType int type, float min, float max) {
+            this(type, new RefreshRateRange(min, max));
+        }
+
+        public RefreshRateLimitation(@RefreshRateLimitType int type, RefreshRateRange range) {
+            this.type = type;
+            this.range = range;
+        }
+
+        @Override
+        public String toString() {
+            return "RefreshRateLimitation(" + type + ": " + range + ")";
+        }
+    }
+
+    /**
+     * Class to provide Ambient sensor data using the API
+     * {@link DisplayManagerInternal#getAmbientLightSensorData(int)}
+     */
+    public static final class AmbientLightSensorData {
+        public String sensorName;
+        public String sensorType;
+
+        public AmbientLightSensorData(String name, String type) {
+            sensorName = name;
+            sensorType = type;
+        }
+
+        @Override
+        public String toString() {
+            return "AmbientLightSensorData(" + sensorName + ", " + sensorType + ")";
+        }
+    }
+
+    /**
+     * Associate a internal display to a {@link DisplayOffloader}.
+     *
+     * @param displayId the id of the internal display.
+     * @param displayOffloader the {@link DisplayOffloader} that controls offloading ops of internal
+     *                         display whose id is displayId.
+     * @return a {@link DisplayOffloadSession} associated with given displayId and displayOffloader.
+     */
+    public abstract DisplayOffloadSession registerDisplayOffloader(
+            int displayId, DisplayOffloader displayOffloader);
+
+    /** The callbacks that controls the entry & exit of display offloading. */
+    public interface DisplayOffloader {
+        /**
+         * Start display offload.
+         *
+         * @param displayState display state at time of offload request.
+         * @return {@code true} on success, {@code false} otherwise.
+         */
+        boolean startOffload(@Display.DisplayState int displayState);
+
+        void stopOffload();
+
+        /**
+         * Called when {@link DisplayOffloadSession} tries to block screen turning on.
+         *
+         * @param unblocker a {@link Runnable} executed upon all work required before screen turning
+         *                  on is done.
+         */
+        void onBlockingScreenOn(Runnable unblocker);
+
+        /**
+         * Called while display is turning to screen state other than state ON to notify that any
+         * pending work from the previous blockScreenOn call should have been cancelled.
+         */
+        void cancelBlockScreenOn();
+
+        /** Whether auto brightness update in doze is allowed */
+        boolean allowAutoBrightnessInDoze();
+    }
+
+    /** A session token that associates a internal display with a {@link DisplayOffloader}. */
+    public interface DisplayOffloadSession {
+        /** Provide the display state to use in place of state DOZE. */
+        void setDozeStateOverride(int displayState);
+
+        /** Whether the session is active. */
+        boolean isActive();
+
+        /** Whether auto brightness update in doze is allowed */
+        boolean allowAutoBrightnessInDoze();
+
+        /**
+         * Update the brightness from the offload chip.
+         * @param brightness The brightness value between {@link PowerManager#BRIGHTNESS_MIN} and
+         *                   {@link PowerManager#BRIGHTNESS_MAX}, or
+         *                   {@link PowerManager#BRIGHTNESS_INVALID_FLOAT} which removes
+         *                   the brightness from offload. Other values will be ignored.
+         */
+        void updateBrightness(float brightness);
+
+        /**
+         * Called while display is turning to state ON to leave a small period for displayoffload
+         * session to finish some work.
+         *
+         * @param unblocker a {@link Runnable} used by displayoffload session to notify
+         *                  {@link DisplayManager} that it can continue turning screen on.
+         */
+        boolean blockScreenOn(Runnable unblocker);
+
+        /**
+         * Called while display is turning to screen state other than state ON to notify that any
+         * pending work from the previous blockScreenOn call should have been cancelled.
+         */
+        void cancelBlockScreenOn();
+
+        /**
+         * Get the brightness levels used to determine automatic brightness based on lux levels.
+         * @param mode The auto-brightness mode
+         *             (AutomaticBrightnessController.AutomaticBrightnessMode)
+         * @return The brightness levels for the specified mode. The values are between
+         * {@link PowerManager#BRIGHTNESS_MIN} and {@link PowerManager#BRIGHTNESS_MAX}.
+         */
+        float[] getAutoBrightnessLevels(int mode);
+
+        /**
+         * Get the lux levels used to determine automatic brightness.
+         * @param mode The auto-brightness mode
+         *             (AutomaticBrightnessController.AutomaticBrightnessMode)
+         * @return The lux levels for the specified mode
+         */
+        float[] getAutoBrightnessLuxLevels(int mode);
+
+        /**
+         * @return The current brightness setting
+         */
+        float getBrightness();
+
+        /**
+         * @return The brightness value that is used when the device is in doze
+         */
+        float getDozeBrightness();
+
+        /** Returns whether displayoffload supports the given display state. */
+        static boolean isSupportedOffloadState(int displayState) {
+            return Display.isSuspendedState(displayState);
+        }
     }
 }

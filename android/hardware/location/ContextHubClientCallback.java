@@ -15,6 +15,7 @@
  */
 package android.hardware.location;
 
+import android.annotation.NonNull;
 import android.annotation.SystemApi;
 
 import java.util.concurrent.Executor;
@@ -66,7 +67,12 @@ public class ContextHubClientCallback {
     public void onNanoAppAborted(ContextHubClient client, long nanoAppId, int abortCode) {}
 
     /**
-     * Callback invoked when a nanoapp is loaded at the attached Context Hub.
+     * Callback invoked when a nanoapp is dynamically loaded at the attached Context Hub through
+     * the {@link android.hardware.location.ContextHubManager}.
+     *
+     * NOTE: This callback is <b>not</b> invoked for a nanoapp that is loaded internally by CHRE
+     * (e.g. nanoapps that are preloaded by the system). To check the availability of these
+     * nanoapps, use the {@link ContextHubManager#queryNanoApps(ContextHubInfo)} API.
      *
      * @param client the client that is associated with this callback
      * @param nanoAppId the ID of the nanoapp that had been loaded
@@ -74,7 +80,8 @@ public class ContextHubClientCallback {
     public void onNanoAppLoaded(ContextHubClient client, long nanoAppId) {}
 
     /**
-     * Callback invoked when a nanoapp is unloaded from the attached Context Hub.
+     * Callback invoked when a nanoapp is dynamically unloaded from the attached Context Hub through
+     * the {@link android.hardware.location.ContextHubManager}.
      *
      * @param client the client that is associated with this callback
      * @param nanoAppId the ID of the nanoapp that had been unloaded
@@ -82,7 +89,8 @@ public class ContextHubClientCallback {
     public void onNanoAppUnloaded(ContextHubClient client, long nanoAppId) {}
 
     /**
-     * Callback invoked when a nanoapp is enabled at the attached Context Hub.
+     * Callback invoked when a nanoapp is dynamically enabled at the attached Context Hub through
+     * the {@link android.hardware.location.ContextHubManager}.
      *
      * @param client the client that is associated with this callback
      * @param nanoAppId the ID of the nanoapp that had been enabled
@@ -90,10 +98,41 @@ public class ContextHubClientCallback {
     public void onNanoAppEnabled(ContextHubClient client, long nanoAppId) {}
 
     /**
-     * Callback invoked when a nanoapp is disabled at the attached Context Hub.
+     * Callback invoked when a nanoapp is dynamically disabled at the attached Context Hub through
+     * the {@link android.hardware.location.ContextHubManager}.
      *
      * @param client the client that is associated with this callback
      * @param nanoAppId the ID of the nanoapp that had been disabled
      */
     public void onNanoAppDisabled(ContextHubClient client, long nanoAppId) {}
+
+    /**
+     * Callback invoked when a {@link ContextHubClient}'s authorization to communicate with a
+     * nanoapp changes. This typically happens as a result of the app that created the
+     * {@link ContextHubClient} gaining or losing the permissions required to communicate with a
+     * nanoapp.
+     *
+     * An example of the connection callbacks looks like:
+     * 1) {@link ContextHubClient} sends message to nanoapp and holds required permissions
+     * 2) {@link ContextHubClient} loses required permissions
+     * 3) Callback invoked with the nanoapp ID and
+     *    {@link ContextHubManager#AUTHORIZATION_DENIED_GRACE_PERIOD}
+     * 4) {@link ContextHubClient} performs any cleanup required with the nanoapp
+     * 5) Callback invoked with the nanoapp ID and {@link ContextHubManager#AUTHORIZATION_DENIED}.
+     *    At this point, any further attempts of communication between the nanoapp and the
+     *    {@link ContextHubClient} will be dropped by the contexthub and a security exception will
+     *    be thrown when calling {@link ContextHubClient#sendMessageToNanoApp}. The
+     *    {@link ContextHubClient} should assume no communciation can happen again until
+     *    {@link ContextHubManager#AUTHORIZATION_GRANTED} is received.
+     *
+     * @param client the client that is associated with this callback
+     * @param nanoAppId the ID of the nanoapp associated with the new
+     * authorization state
+     * @param authorization the authorization state denoting the ability of the
+     * client to communicate with the nanoapp
+     */
+    public void onClientAuthorizationChanged(
+            @NonNull ContextHubClient client,
+            long nanoAppId,
+            @ContextHubManager.AuthorizationState int authorization) {}
 }

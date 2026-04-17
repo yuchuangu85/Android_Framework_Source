@@ -16,24 +16,53 @@
 
 package android.nfc.cardemulation;
 
+import android.Manifest;
+import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.RequiresFeature;
+import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.annotation.SystemApi;
+import android.annotation.UserHandleAware;
+import android.annotation.UserIdInt;
 import android.app.Activity;
-import android.app.ActivityThread;
+import android.app.role.RoleManager;
 import android.content.ComponentName;
 import android.content.Context;
-import android.content.pm.IPackageManager;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.nfc.ComponentNameAndUser;
+import android.nfc.Constants;
+import android.nfc.Flags;
 import android.nfc.INfcCardEmulation;
+import android.nfc.INfcEventCallback;
 import android.nfc.NfcAdapter;
+import android.os.Build;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.provider.Settings.SettingNotFoundException;
+import android.se.omapi.Reader;
+import android.telephony.SubscriptionManager;
+import android.util.ArrayMap;
 import android.util.Log;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.concurrent.Executor;
+import java.util.regex.Pattern;
 
 /**
  * This class can be used to query the state of
@@ -48,17 +77,29 @@ import java.util.List;
  * on the device.
  */
 public final class CardEmulation {
+    // TODO(b/395959119) Get this from ApduServiceInfo so we don't have to maintain it in two code
+    // locations.
+    private static final Pattern AID_PATTERN = Pattern.compile("[0-9A-Fa-f]{10,32}\\*?\\#?");
+    private static final Pattern PLPF_PATTERN =
+            Pattern.compile("[0-9A-Fa-f]{2,}[0-9A-Fa-f,\\?,\\*\\.]*");
     static final String TAG = "CardEmulation";
 
     /**
      * Activity action: ask the user to change the default
      * card emulation service for a certain category. This will
-     * show a dialog that asks the user whether he wants to
+     * show a dialog that asks the user whether they want to
      * replace the current default service with the service
      * identified with the ComponentName specified in
      * {@link #EXTRA_SERVICE_COMPONENT}, for the category
-     * specified in {@link #EXTRA_CATEGORY}
+     * specified in {@link #EXTRA_CATEGORY}. There is an optional
+     * extra field using {@link Intent#EXTRA_USER} to specify
+     * the {@link UserHandle} of the user that owns the app.
+     *
+     * @deprecated Please use {@link android.app.role.RoleManager#createRequestRoleIntent(String)}
+     * with {@link android.app.role.RoleManager#ROLE_WALLET} parameter
+     * and {@link Activity#startActivityForResult(Intent, int)} instead.
      */
+    @Deprecated
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_CHANGE_DEFAULT =
             "android.nfc.cardemulation.action.ACTION_CHANGE_DEFAULT";
@@ -109,7 +150,7 @@ public final class CardEmulation {
      *
      * <p>In this mode, when using ISO-DEP card emulation with {@link HostApduService}
      *    or {@link OffHostApduService}, whenever an Application ID (AID) of this category
-     *    is selected, the user is asked which service he wants to use to handle
+     *    is selected, the user is asked which service they want to use to handle
      *    the transaction, even if there is only one matching service.
      */
     public static final int SELECTION_MODE_ALWAYS_ASK = 1;
@@ -124,6 +165,131 @@ public final class CardEmulation {
      *    that service will be invoked directly.
      */
     public static final int SELECTION_MODE_ASK_IF_CONFLICT = 2;
+    /**
+     * Route to Device Host (DH).
+     */
+    @FlaggedApi(Flags.FLAG_NFC_OVERRIDE_RECOVER_ROUTING_TABLE)
+    public static final int PROTOCOL_AND_TECHNOLOGY_ROUTE_DH = 0;
+    /**
+     * Route to eSE.
+     */
+    @FlaggedApi(Flags.FLAG_NFC_OVERRIDE_RECOVER_ROUTING_TABLE)
+    public static final int PROTOCOL_AND_TECHNOLOGY_ROUTE_ESE = 1;
+    /**
+     * Route to UICC.
+     */
+    @FlaggedApi(Flags.FLAG_NFC_OVERRIDE_RECOVER_ROUTING_TABLE)
+    public static final int PROTOCOL_AND_TECHNOLOGY_ROUTE_UICC = 2;
+
+    /**
+     * Route to the default value in config file.
+     */
+    @FlaggedApi(Flags.FLAG_NFC_OVERRIDE_RECOVER_ROUTING_TABLE)
+    public static final int PROTOCOL_AND_TECHNOLOGY_ROUTE_DEFAULT = 3;
+
+    /**
+     * Route to T4T NDEF-NCEE emulation.
+     * @see android.nfc.T4tNdefNfcee
+     */
+    @FlaggedApi(com.android.nfc.module.flags.Flags.FLAG_OEM_EXTENSION_25Q4)
+    public static final int PROTOCOL_AND_TECHNOLOGY_ROUTE_NDEF_NFCEE = 4;
+    /**
+     * Route unset.
+     */
+    @FlaggedApi(Flags.FLAG_NFC_OVERRIDE_RECOVER_ROUTING_TABLE)
+    public static final int PROTOCOL_AND_TECHNOLOGY_ROUTE_UNSET = -1;
+
+    /**
+     * Status code returned when {@link #setServiceEnabledForCategoryOther(ComponentName, boolean)}
+     * succeeded.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_NFC_SET_SERVICE_ENABLED_FOR_CATEGORY_OTHER)
+    public static final int SET_SERVICE_ENABLED_STATUS_OK = 0;
+
+    /**
+     * Status code returned when {@link #setServiceEnabledForCategoryOther(ComponentName, boolean)}
+     * failed due to the unsupported feature.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_NFC_SET_SERVICE_ENABLED_FOR_CATEGORY_OTHER)
+    public static final int SET_SERVICE_ENABLED_STATUS_FAILURE_FEATURE_UNSUPPORTED = 1;
+
+    /**
+     * Status code returned when {@link #setServiceEnabledForCategoryOther(ComponentName, boolean)}
+     * failed due to the invalid service.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_NFC_SET_SERVICE_ENABLED_FOR_CATEGORY_OTHER)
+    public static final int SET_SERVICE_ENABLED_STATUS_FAILURE_INVALID_SERVICE = 2;
+
+    /**
+     * Status code returned when {@link #setServiceEnabledForCategoryOther(ComponentName, boolean)}
+     * failed due to the service is already set to the requested status.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_NFC_SET_SERVICE_ENABLED_FOR_CATEGORY_OTHER)
+    public static final int SET_SERVICE_ENABLED_STATUS_FAILURE_ALREADY_SET = 3;
+
+    /**
+     * Status code returned when {@link #setServiceEnabledForCategoryOther(ComponentName, boolean)}
+     * failed due to unknown error.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_NFC_SET_SERVICE_ENABLED_FOR_CATEGORY_OTHER)
+    public static final int SET_SERVICE_ENABLED_STATUS_FAILURE_UNKNOWN_ERROR = 4;
+
+    /**
+     * Status code returned by {@link #setServiceEnabledForCategoryOther(ComponentName, boolean)}
+     * @hide
+     */
+    @IntDef(prefix = "SET_SERVICE_ENABLED_STATUS_", value = {
+            SET_SERVICE_ENABLED_STATUS_OK,
+            SET_SERVICE_ENABLED_STATUS_FAILURE_FEATURE_UNSUPPORTED,
+            SET_SERVICE_ENABLED_STATUS_FAILURE_INVALID_SERVICE,
+            SET_SERVICE_ENABLED_STATUS_FAILURE_ALREADY_SET,
+            SET_SERVICE_ENABLED_STATUS_FAILURE_UNKNOWN_ERROR
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface SetServiceEnabledStatusCode {}
+
+    /**
+     * Property name used to indicate that an application wants to allow associated services
+     * to share the same AID routing priority when this application is the role holder. Wallet role
+     * holder can either:
+     * <li> Set "android:value" to "true". This will allow any package signed by the same
+     * certificate to request for role holder priority.</li>
+     * <li> Set "android:value" to some other package name. This will only allow this package to
+     * request for role holder priority (can be signed by different certificates).</li>
+     * <p>
+     * Example:
+     * <pre>
+     *     {@code
+     *     <application>
+     *       ...
+     *       <property android:name="android.nfc.cardemulation.PROPERTY_ALLOW_SHARED_ROLE_PRIORITY"
+     *         android:value="true"/>
+     *     </application>
+     *     }
+     * </pre>
+     * <pre>
+     *     {@code
+     *     <service>
+     *       ...
+     *       <property android:name="android.nfc.cardemulation.PROPERTY_ALLOW_SHARED_ROLE_PRIORITY"
+     *         android:value="com.org.example"/>
+     *     </service>
+     *     }
+     * </pre>
+     */
+    @FlaggedApi(Flags.FLAG_NFC_ASSOCIATED_ROLE_SERVICES)
+    public static final String PROPERTY_ALLOW_SHARED_ROLE_PRIORITY =
+            "android.nfc.cardemulation.PROPERTY_ALLOW_SHARED_ROLE_PRIORITY";
 
     static boolean sIsInitialized = false;
     static HashMap<Context, CardEmulation> sCardEmus = new HashMap<Context, CardEmulation>();
@@ -150,18 +316,13 @@ public final class CardEmulation {
             throw new UnsupportedOperationException();
         }
         if (!sIsInitialized) {
-            IPackageManager pm = ActivityThread.getPackageManager();
+            PackageManager pm = context.getPackageManager();
             if (pm == null) {
                 Log.e(TAG, "Cannot get PackageManager");
                 throw new UnsupportedOperationException();
             }
-            try {
-                if (!pm.hasSystemFeature(PackageManager.FEATURE_NFC_HOST_CARD_EMULATION, 0)) {
-                    Log.e(TAG, "This device does not support card emulation");
-                    throw new UnsupportedOperationException();
-                }
-            } catch (RemoteException e) {
-                Log.e(TAG, "PackageManager query failed.");
+            if (!pm.hasSystemFeature(PackageManager.FEATURE_NFC_HOST_CARD_EMULATION)) {
+                Log.e(TAG, "This device does not support card emulation");
                 throw new UnsupportedOperationException();
             }
             sIsInitialized = true;
@@ -200,23 +361,9 @@ public final class CardEmulation {
      * <p class="note">Requires the {@link android.Manifest.permission#NFC} permission.
      */
     public boolean isDefaultServiceForCategory(ComponentName service, String category) {
-        try {
-            return sService.isDefaultServiceForCategory(mContext.getUserId(), service, category);
-        } catch (RemoteException e) {
-            // Try one more time
-            recoverService();
-            if (sService == null) {
-                Log.e(TAG, "Failed to recover CardEmulationService.");
-                return false;
-            }
-            try {
-                return sService.isDefaultServiceForCategory(mContext.getUserId(), service,
-                        category);
-            } catch (RemoteException ee) {
-                Log.e(TAG, "Failed to recover CardEmulationService.");
-                return false;
-            }
-        }
+        return callServiceReturn(() ->
+            sService.isDefaultServiceForCategory(
+                mContext.getUser().getIdentifier(), service, category), false);
     }
 
     /**
@@ -231,42 +378,43 @@ public final class CardEmulation {
      * <p class="note">Requires the {@link android.Manifest.permission#NFC} permission.
      */
     public boolean isDefaultServiceForAid(ComponentName service, String aid) {
-        try {
-            return sService.isDefaultServiceForAid(mContext.getUserId(), service, aid);
-        } catch (RemoteException e) {
-            // Try one more time
-            recoverService();
-            if (sService == null) {
-                Log.e(TAG, "Failed to recover CardEmulationService.");
-                return false;
-            }
-            try {
-                return sService.isDefaultServiceForAid(mContext.getUserId(), service, aid);
-            } catch (RemoteException ee) {
-                Log.e(TAG, "Failed to reach CardEmulationService.");
-                return false;
-            }
-        }
+        return callServiceReturn(() ->
+            sService.isDefaultServiceForAid(
+                mContext.getUser().getIdentifier(), service, aid), false);
     }
 
     /**
+     * <p>
      * Returns whether the user has allowed AIDs registered in the
      * specified category to be handled by a service that is preferred
      * by the foreground application, instead of by a pre-configured default.
      *
      * Foreground applications can set such preferences using the
      * {@link #setPreferredService(Activity, ComponentName)} method.
+     * <p class="note">
+     * Starting with {@link Build.VERSION_CODES#VANILLA_ICE_CREAM}, this method will always
+     * return true.
      *
      * @param category The category, e.g. {@link #CATEGORY_PAYMENT}
      * @return whether AIDs in the category can be handled by a service
      *         specified by the foreground app.
      */
+    @SuppressWarnings("NonUserGetterCalled")
     public boolean categoryAllowsForegroundPreference(String category) {
+        Context contextAsUser = mContext.createContextAsUser(
+                UserHandle.of(UserHandle.myUserId()), 0);
+
+        RoleManager roleManager = contextAsUser.getSystemService(RoleManager.class);
+        if (roleManager.isRoleAvailable(RoleManager.ROLE_WALLET)) {
+            return true;
+        }
+
         if (CATEGORY_PAYMENT.equals(category)) {
             boolean preferForeground = false;
             try {
-                preferForeground = Settings.Secure.getInt(mContext.getContentResolver(),
-                        Settings.Secure.NFC_PAYMENT_FOREGROUND) != 0;
+                preferForeground = Settings.Secure.getInt(
+                        contextAsUser.getContentResolver(),
+                        Constants.SETTINGS_SECURE_NFC_PAYMENT_FOREGROUND) != 0;
             } catch (SettingNotFoundException e) {
             }
             return preferForeground;
@@ -282,17 +430,22 @@ public final class CardEmulation {
      * <p>{@link #SELECTION_MODE_PREFER_DEFAULT} the user has requested a default
      *    service for this category, which will be preferred.
      * <p>{@link #SELECTION_MODE_ALWAYS_ASK} the user has requested to be asked
-     *    every time what service he would like to use in this category.
+     *    every time what service they would like to use in this category.
      * <p>{@link #SELECTION_MODE_ASK_IF_CONFLICT} the user will only be asked
      *    to pick a service if there is a conflict.
+     *
+     * <p class="note">
+     * Starting with {@link Build.VERSION_CODES#VANILLA_ICE_CREAM}, the default service defined
+     * by the holder of {@link android.app.role.RoleManager#ROLE_WALLET} and is category agnostic.
+     *
      * @param category The category, for example {@link #CATEGORY_PAYMENT}
      * @return the selection mode for the passed in category
      */
     public int getSelectionModeForCategory(String category) {
         if (CATEGORY_PAYMENT.equals(category)) {
-            String defaultComponent = Settings.Secure.getString(mContext.getContentResolver(),
-                    Settings.Secure.NFC_PAYMENT_DEFAULT_COMPONENT);
-            if (defaultComponent != null) {
+            boolean paymentRegistered = callServiceReturn(() ->
+                    sService.isDefaultPaymentRegistered(), false);
+            if (paymentRegistered) {
                 return SELECTION_MODE_PREFER_DEFAULT;
             } else {
                 return SELECTION_MODE_ALWAYS_ASK;
@@ -300,6 +453,214 @@ public final class CardEmulation {
         } else {
             return SELECTION_MODE_ASK_IF_CONFLICT;
         }
+    }
+    /**
+     * Sets whether when this service becomes the preferred service, if the NFC stack
+     * should enable observe mode or disable observe mode. The default is to not enable observe
+     * mode when a service either the foreground default service or the default payment service so
+     * not calling this method will preserve that behavior.
+     *
+     * @param service The component name of the service
+     * @param enable Whether the service should default to observe mode or not
+     * @return whether the change was successful.
+     */
+    public boolean setShouldDefaultToObserveModeForService(@NonNull ComponentName service,
+            boolean enable) {
+        return callServiceReturn(() ->
+            sService.setShouldDefaultToObserveModeForService(
+                mContext.getUser().getIdentifier(), service, enable), false);
+    }
+
+    /**
+     * Sets whether the device must have its screen on for the service to be activated. This API
+     * overrides the {@code android:requireDeviceScreenOn} attribute declared in the service's
+     * manifest.
+     *
+     * @param service The component name of the service
+     * @param enable Whether the service should only be activated when the device's screen is on
+     * @throws IllegalArgumentException If the provided service has not been registered
+     */
+    @FlaggedApi(com.android.nfc.module.flags.Flags.FLAG_SCREEN_STATE_ATTRIBUTE_TOGGLE)
+    public void setRequireDeviceScreenOnForService(@NonNull ComponentName service,
+            boolean enable) {
+        callService(() ->
+                sService.setRequireDeviceScreenOnForService(
+                        mContext.getUser().getIdentifier(), service, enable));
+    }
+
+    /**
+     * Checks whether the device must have its screen on for the service to be activated.
+     *
+     * @param service The component name of the service
+     * @return True if the device must have its screen on for the service to be activated, false
+     * otherwise
+     * @throws IllegalArgumentException If the provided service has not been registered
+     */
+    @FlaggedApi(com.android.nfc.module.flags.Flags.FLAG_SCREEN_STATE_ATTRIBUTE_TOGGLE)
+    public boolean isDeviceScreenOnRequiredForService(@NonNull ComponentName service) {
+        return callServiceReturn(() ->
+                sService.isDeviceScreenOnRequiredForService(
+                        mContext.getUser().getIdentifier(), service), false);
+    }
+
+    /**
+     * Sets whether the device must be unlocked for the service to be activated. This API overrides
+     * the {@code android:requireDeviceUnlock} attribute declared in the service's manifest.
+     *
+     * @param service The component name of the service
+     * @param enable Whether the service should only be activated when the device is unlocked
+     * @throws IllegalArgumentException If the provided service has not been registered
+     */
+    @FlaggedApi(com.android.nfc.module.flags.Flags.FLAG_SCREEN_STATE_ATTRIBUTE_TOGGLE)
+    public void setRequireDeviceUnlockForService(@NonNull ComponentName service,
+            boolean enable) {
+        callService(() ->
+                sService.setRequireDeviceUnlockForService(
+                        mContext.getUser().getIdentifier(), service, enable));
+    }
+
+    /**
+     * Checks whether the device must be unlocked for the service to be activated.
+     *
+     * @param service The component name of the service
+     * @return True if the device must be unlocked for the service to be activated, false otherwise
+     * @throws IllegalArgumentException If the provided service has not been registered
+     */
+    @FlaggedApi(com.android.nfc.module.flags.Flags.FLAG_SCREEN_STATE_ATTRIBUTE_TOGGLE)
+    public boolean isDeviceUnlockRequiredForService(@NonNull ComponentName service) {
+        return callServiceReturn(() ->
+                sService.isDeviceUnlockRequiredForService(
+                        mContext.getUser().getIdentifier(), service), false);
+    }
+
+    /**
+     * Register a polling loop filter (PLF) for a HostApduService and indicate whether it should
+     * auto-transact or not.  The PLF can be sequence of an
+     * even number of at least 2 hexadecimal numbers (0-9, A-F or a-f), representing a series of
+     * bytes. When non-standard polling loop frame matches this sequence exactly, it may be
+     * delivered to {@link HostApduService#processPollingFrames(List)}.  If auto-transact
+     * is set to true and this service is currently preferred or there are no other services
+     * registered for this filter then observe mode will also be disabled.
+     * @param service The HostApduService to register the filter for
+     * @param pollingLoopFilter The filter to register
+     * @param autoTransact true to have the NFC stack automatically disable observe mode and allow
+     *         transactions to proceed when this filter matches, false otherwise
+     * @return true if the filter was registered, false otherwise
+     * @throws IllegalArgumentException if the passed in string doesn't parse to at least one byte
+     */
+    public boolean registerPollingLoopFilterForService(@NonNull ComponentName service,
+            @NonNull String pollingLoopFilter, boolean autoTransact) {
+        final String pollingLoopFilterV = validatePollingLoopFilter(pollingLoopFilter);
+        return callServiceReturn(() ->
+            sService.registerPollingLoopFilterForService(
+                mContext.getUser().getIdentifier(), service, pollingLoopFilterV, autoTransact),
+            false);
+    }
+
+    /**
+     * Unregister a polling loop filter (PLF) for a HostApduService. If the PLF had previously been
+     * registered via {@link #registerPollingLoopFilterForService(ComponentName, String, boolean)}
+     * for this service it will be removed.
+     * @param service The HostApduService to unregister the filter for
+     * @param pollingLoopFilter The filter to unregister
+     * @return true if the filter was removed, false otherwise
+     * @throws IllegalArgumentException if the passed in string doesn't parse to at least one byte
+     */
+    public boolean removePollingLoopFilterForService(@NonNull ComponentName service,
+            @NonNull String pollingLoopFilter) {
+        final String pollingLoopFilterV = validatePollingLoopFilter(pollingLoopFilter);
+        return callServiceReturn(() ->
+            sService.removePollingLoopFilterForService(
+                mContext.getUser().getIdentifier(), service, pollingLoopFilterV), false);
+    }
+
+    /**
+     * Retrieve all the polling loop filters registered for a {@link HostApduService}.
+     *
+     * @param service The HostApduService to retrieve the filter for
+     * @return List of polling loop filters, will be empty if there are none registered.
+     * @throws IllegalArgumentException if the service is not valid.
+     * @see #registerPollingLoopFilterForService(ComponentName, String, boolean)
+     */
+    @NonNull
+    @FlaggedApi(com.android.nfc.module.flags.Flags.FLAG_GET_POLLING_LOOP_FILTERS)
+    public List<String> getPollingLoopFiltersForService(@NonNull ComponentName service) {
+        return callServiceReturn(() ->
+                        sService.getPollingLoopFiltersForService(
+                                mContext.getUser().getIdentifier(), service),
+                List.of());
+    }
+
+    /**
+     * Register a polling loop pattern filter (PLPF) for a HostApduService and indicate whether it
+     * should auto-transact or not. The pattern may include the characters 0-9 and A-F as well as
+     * the regular expression operators `.`, `?` and `*` after the first byte. When the beginning of
+     * a non-standard
+     * polling loop frame matches this sequence exactly, it may be delivered to
+     * {@link HostApduService#processPollingFrames(List)}. If auto-transact is set to true and this
+     * service is currently preferred or there are no other services registered for this filter
+     * then observe mode will also be disabled.
+     *
+     * @param service The HostApduService to register the filter for
+     * @param pollingLoopPatternFilter The pattern filter to register, must to be compatible with
+     *         {@link java.util.regex.Pattern#compile(String)} and only contain hexadecimal numbers
+     *         and `.`, `?` and `*` operators
+     * @param autoTransact true to have the NFC stack automatically disable observe mode and allow
+     *         transactions to proceed when this filter matches, false otherwise
+     * @return true if the filter was registered, false otherwise
+     * @throws IllegalArgumentException if the filter contains elements other than hexadecimal
+     *         numbers and `.`, `?` and `*` operators
+     * @throws java.util.regex.PatternSyntaxException if the regex syntax is invalid
+     */
+    public boolean registerPollingLoopPatternFilterForService(@NonNull ComponentName service,
+            @NonNull String pollingLoopPatternFilter, boolean autoTransact) {
+        final String pollingLoopPatternFilterV =
+            validatePollingLoopPatternFilter(pollingLoopPatternFilter);
+        return callServiceReturn(() ->
+            sService.registerPollingLoopPatternFilterForService(
+                mContext.getUser().getIdentifier(), service, pollingLoopPatternFilterV,
+                autoTransact),
+            false);
+    }
+
+    /**
+     * Unregister a polling loop pattern filter (PLPF) for a HostApduService. If the PLF had
+     * previously been registered via
+     * {@link #registerPollingLoopFilterForService(ComponentName, String, boolean)} for this
+     * service it will be removed.
+     * @param service The HostApduService to unregister the filter for
+     * @param pollingLoopPatternFilter The filter to unregister, must to be compatible with
+     *         {@link java.util.regex.Pattern#compile(String)} and only contain hexadecimal numbers
+     *         and`.`, `?` and `*` operators
+     * @return true if the filter was removed, false otherwise
+     * @throws IllegalArgumentException if the filter containst elements other than hexadecimal
+     *         numbers and `.`, `?` and `*` operators
+     * @throws java.util.regex.PatternSyntaxException if the regex syntax is invalid
+     */
+    public boolean removePollingLoopPatternFilterForService(@NonNull ComponentName service,
+            @NonNull String pollingLoopPatternFilter) {
+        final String pollingLoopPatternFilterV =
+            validatePollingLoopPatternFilter(pollingLoopPatternFilter);
+        return callServiceReturn(() ->
+            sService.removePollingLoopPatternFilterForService(
+                mContext.getUser().getIdentifier(), service, pollingLoopPatternFilterV), false);
+    }
+
+    /**
+     * Retrieve all the polling loop pattern filters registered for a {@link HostApduService}.
+     *
+     * @param service The HostApduService to retrieve the filter for
+     * @return List of polling loop pattern filters, will be empty if there are none registered.
+     * @throws IllegalArgumentException if the service is not valid.
+     * @see #registerPollingLoopPatternFilterForService(ComponentName, String, boolean)
+     */
+    @NonNull
+    @FlaggedApi(com.android.nfc.module.flags.Flags.FLAG_GET_POLLING_LOOP_FILTERS)
+    public List<String> getPollingLoopPatternFiltersForService(@NonNull ComponentName service) {
+        return callServiceReturn(() ->
+                        sService.getPollingLoopPatternFiltersForService(
+                                mContext.getUser().getIdentifier(), service),
+                List.of());
     }
 
     /**
@@ -324,24 +685,96 @@ public final class CardEmulation {
      */
     public boolean registerAidsForService(ComponentName service, String category,
             List<String> aids) {
-        AidGroup aidGroup = new AidGroup(aids, category);
-        try {
-            return sService.registerAidGroupForService(mContext.getUserId(), service, aidGroup);
-        } catch (RemoteException e) {
-            // Try one more time
-            recoverService();
-            if (sService == null) {
-                Log.e(TAG, "Failed to recover CardEmulationService.");
-                return false;
-            }
-            try {
-                return sService.registerAidGroupForService(mContext.getUserId(), service,
-                        aidGroup);
-            } catch (RemoteException ee) {
-                Log.e(TAG, "Failed to reach CardEmulationService.");
-                return false;
-            }
+        final AidGroup aidGroup = new AidGroup(aids, category);
+        return callServiceReturn(() ->
+            sService.registerAidGroupForService(
+                mContext.getUser().getIdentifier(), service, aidGroup), false);
+    }
+
+    /**
+     * Unsets the off-host Secure Element for the given service.
+     *
+     * <p>Note that this will only remove Secure Element that was dynamically
+     * set using the {@link #setOffHostForService(ComponentName, String)}
+     * and resets it to a value that was statically assigned using manifest.
+     *
+     * <p>Note that you can only unset off-host SE for a service that
+     * is running under the same UID as the caller of this API. Typically
+     * this means you need to call this from the same
+     * package as the service itself, though UIDs can also
+     * be shared between packages using shared UIDs.
+     *
+     * @param service The component name of the service
+     * @return whether the registration was successful.
+     */
+    @RequiresPermission(android.Manifest.permission.NFC)
+    @NonNull
+    public boolean unsetOffHostForService(@NonNull ComponentName service) {
+        return callServiceReturn(() ->
+            sService.unsetOffHostForService(
+                mContext.getUser().getIdentifier(), service), false);
+    }
+
+    /**
+     * Sets the off-host Secure Element for the given service.
+     *
+     * <p>If off-host SE was initially set (either statically
+     * through the manifest, or dynamically by using this API),
+     * it will be replaced with this one. All AIDs registered by
+     * this service will be re-routed to this Secure Element if
+     * successful. AIDs that was statically assigned using manifest
+     * will re-route to off-host SE that stated in manifest after NFC
+     * toggle.
+     *
+     * <p>Note that you can only set off-host SE for a service that
+     * is running under the same UID as the caller of this API. Typically
+     * this means you need to call this from the same
+     * package as the service itself, though UIDs can also
+     * be shared between packages using shared UIDs.
+     *
+     * <p>Registeration will be successful only if the Secure Element
+     * exists on the device.
+     *
+     * @param service The component name of the service
+     * @param offHostSecureElement Secure Element to register the AID to. Only accept strings with
+     *                             prefix SIM or prefix eSE.
+     *                             Ref: GSMA TS.26 - NFC Handset Requirements
+     *                             TS26_NFC_REQ_069: For UICC, Secure Element Name SHALL be
+     *                                               SIM[smartcard slot]
+     *                                               (e.g. SIM/SIM1, SIM2… SIMn).
+     *                             TS26_NFC_REQ_070: For embedded SE, Secure Element Name SHALL be
+     *                                               eSE[number]
+     *                                               (e.g. eSE/eSE1, eSE2, etc.).
+     * @return whether the registration was successful.
+     */
+    @RequiresPermission(android.Manifest.permission.NFC)
+    @NonNull
+    public boolean setOffHostForService(@NonNull ComponentName service,
+            @NonNull String offHostSecureElement) {
+        NfcAdapter adapter = NfcAdapter.getDefaultAdapter(mContext);
+        if (adapter == null || offHostSecureElement == null) {
+            return false;
         }
+
+        List<String> validSE = adapter.getSupportedOffHostSecureElements();
+        if ((offHostSecureElement.startsWith("eSE") && !validSE.contains("eSE"))
+                || (offHostSecureElement.startsWith("SIM") && !validSE.contains("SIM"))) {
+            return false;
+        }
+
+        if (!offHostSecureElement.startsWith("eSE") && !offHostSecureElement.startsWith("SIM")) {
+            return false;
+        }
+
+        if (offHostSecureElement.equals("eSE")) {
+            offHostSecureElement = "eSE1";
+        } else if (offHostSecureElement.equals("SIM")) {
+            offHostSecureElement = "SIM1";
+        }
+        final String offHostSecureElementV = new String(offHostSecureElement);
+        return callServiceReturn(() ->
+            sService.setOffHostForService(
+                mContext.getUser().getIdentifier(), service, offHostSecureElementV), false);
     }
 
     /**
@@ -359,25 +792,10 @@ public final class CardEmulation {
      * @return The list of AIDs registered for this category, or null if it couldn't be found.
      */
     public List<String> getAidsForService(ComponentName service, String category) {
-        try {
-            AidGroup group =  sService.getAidGroupForService(mContext.getUserId(), service,
-                    category);
-            return (group != null ? group.getAids() : null);
-        } catch (RemoteException e) {
-            recoverService();
-            if (sService == null) {
-                Log.e(TAG, "Failed to recover CardEmulationService.");
-                return null;
-            }
-            try {
-                AidGroup group = sService.getAidGroupForService(mContext.getUserId(), service,
-                        category);
-                return (group != null ? group.getAids() : null);
-            } catch (RemoteException ee) {
-                Log.e(TAG, "Failed to recover CardEmulationService.");
-                return null;
-            }
-        }
+        AidGroup group = callServiceReturn(() ->
+               sService.getAidGroupForService(
+                   mContext.getUser().getIdentifier(), service, category), null);
+        return (group != null ? group.getAids() : null);
     }
 
     /**
@@ -396,22 +814,9 @@ public final class CardEmulation {
      * @return whether the group was successfully removed.
      */
     public boolean removeAidsForService(ComponentName service, String category) {
-        try {
-            return sService.removeAidGroupForService(mContext.getUserId(), service, category);
-        } catch (RemoteException e) {
-            // Try one more time
-            recoverService();
-            if (sService == null) {
-                Log.e(TAG, "Failed to recover CardEmulationService.");
-                return false;
-            }
-            try {
-                return sService.removeAidGroupForService(mContext.getUserId(), service, category);
-            } catch (RemoteException ee) {
-                Log.e(TAG, "Failed to reach CardEmulationService.");
-                return false;
-            }
-        }
+        return callServiceReturn(() ->
+            sService.removeAidGroupForService(
+                mContext.getUser().getIdentifier(), service, category), false);
     }
 
     /**
@@ -439,34 +844,20 @@ public final class CardEmulation {
      * <p>Note that this preference is not persisted by the OS, and hence must be
      * called every time the Activity is resumed.
      *
+     * <p>Starting with {@link Build.VERSION_CODES#CINNAMON_BUN}, this
+     * method will prefer all services matching the package name of the activity.
+     *
      * @param activity The activity which prefers this service to be invoked
      * @param service The service to be preferred while this activity is in the foreground
      * @return whether the registration was successful
      */
     public boolean setPreferredService(Activity activity, ComponentName service) {
         // Verify the activity is in the foreground before calling into NfcService
-        if (activity == null || service == null) {
-            throw new NullPointerException("activity or service or category is null");
+        if (service == null) {
+            throw new NullPointerException("service is null");
         }
-        if (!activity.isResumed()) {
-            throw new IllegalArgumentException("Activity must be resumed.");
-        }
-        try {
-            return sService.setPreferredService(service);
-        } catch (RemoteException e) {
-            // Try one more time
-            recoverService();
-            if (sService == null) {
-                Log.e(TAG, "Failed to recover CardEmulationService.");
-                return false;
-            }
-            try {
-                return sService.setPreferredService(service);
-            } catch (RemoteException ee) {
-                Log.e(TAG, "Failed to reach CardEmulationService.");
-                return false;
-            }
-        }
+        return callServiceReturn(() -> sService.setPreferredService(service, activity != null),
+                false);
     }
 
     /**
@@ -480,28 +871,7 @@ public final class CardEmulation {
      * @return true when successful
      */
     public boolean unsetPreferredService(Activity activity) {
-        if (activity == null) {
-            throw new NullPointerException("activity is null");
-        }
-        if (!activity.isResumed()) {
-            throw new IllegalArgumentException("Activity must be resumed.");
-        }
-        try {
-            return sService.unsetPreferredService();
-        } catch (RemoteException e) {
-            // Try one more time
-            recoverService();
-            if (sService == null) {
-                Log.e(TAG, "Failed to recover CardEmulationService.");
-                return false;
-            }
-            try {
-                return sService.unsetPreferredService();
-            } catch (RemoteException ee) {
-                Log.e(TAG, "Failed to reach CardEmulationService.");
-                return false;
-            }
-        }
+        return callServiceReturn(() -> sService.unsetPreferredService(activity != null), false);
     }
 
     /**
@@ -515,88 +885,181 @@ public final class CardEmulation {
      * @return whether AID prefix registering is supported on this device.
      */
     public boolean supportsAidPrefixRegistration() {
-        try {
-            return sService.supportsAidPrefixRegistration();
-        } catch (RemoteException e) {
-            recoverService();
-            if (sService == null) {
-                Log.e(TAG, "Failed to recover CardEmulationService.");
-                return false;
+        return callServiceReturn(() -> sService.supportsAidPrefixRegistration(), false);
+    }
+
+    /**
+     * Retrieves the registered AIDs for the preferred payment service.
+     *
+     * @return The list of AIDs registered for this category, or null if it couldn't be found.
+     */
+    @RequiresPermission(android.Manifest.permission.NFC_PREFERRED_PAYMENT_INFO)
+    @Nullable
+    public List<String> getAidsForPreferredPaymentService() {
+        ApduServiceInfo serviceInfo = callServiceReturn(() ->
+                sService.getPreferredPaymentService(mContext.getUser().getIdentifier()), null);
+        return (serviceInfo != null ? serviceInfo.getAids() : null);
+    }
+
+    /**
+     * Retrieves the route destination for the preferred payment service.
+     *
+     * <p class="note">
+     * Starting with {@link Build.VERSION_CODES#VANILLA_ICE_CREAM}, the preferred payment service
+     * no longer exists and is replaced by {@link android.app.role.RoleManager#ROLE_WALLET}. This
+     * will return the route for one of the services registered by the role holder (if any). If
+     * there are multiple services registered, it is unspecified which of those will be used to
+     * determine the route.
+     *
+     * @return The route destination secure element name of the preferred payment service.
+     *         HCE payment: "Host"
+     *         OffHost payment: 1. String with prefix SIM or prefix eSE string.
+     *                             Ref: GSMA TS.26 - NFC Handset Requirements
+     *                             TS26_NFC_REQ_069: For UICC, Secure Element Name SHALL be
+     *                                               SIM[smartcard slot]
+     *                                               (e.g. SIM/SIM1, SIM2… SIMn).
+     *                             TS26_NFC_REQ_070: For embedded SE, Secure Element Name SHALL be
+     *                                               eSE[number]
+     *                                               (e.g. eSE/eSE1, eSE2, etc.).
+     *                          2. "OffHost" if the payment service does not specify secure element
+     *                             name.
+     */
+    @RequiresPermission(android.Manifest.permission.NFC_PREFERRED_PAYMENT_INFO)
+    @Nullable
+    public String getRouteDestinationForPreferredPaymentService() {
+        ApduServiceInfo serviceInfo = callServiceReturn(() ->
+                sService.getPreferredPaymentService(mContext.getUser().getIdentifier()), null);
+        if (serviceInfo != null) {
+            if (!serviceInfo.isOnHost()) {
+                return serviceInfo.getOffHostSecureElement() == null ?
+                        "OffHost" : serviceInfo.getOffHostSecureElement();
             }
-            try {
-                return sService.supportsAidPrefixRegistration();
-            } catch (RemoteException ee) {
-                Log.e(TAG, "Failed to reach CardEmulationService.");
-                return false;
-            }
+            return "Host";
         }
+        return null;
+    }
+
+    /**
+     * Returns a user-visible description of the preferred payment service.
+     *
+     * <p class="note">
+     * Starting with {@link Build.VERSION_CODES#VANILLA_ICE_CREAM}, the preferred payment service
+     * no longer exists and is replaced by {@link android.app.role.RoleManager#ROLE_WALLET}. This
+     * will return the description for one of the services registered by the role holder (if any).
+     * If there are multiple services registered, it is unspecified which of those will be used
+     * to obtain the service description here.
+     *
+     * @return the preferred payment service description
+     */
+    @RequiresPermission(Manifest.permission.NFC_PREFERRED_PAYMENT_INFO)
+    @Nullable
+    public CharSequence getDescriptionForPreferredPaymentService() {
+        ApduServiceInfo serviceInfo = callServiceReturn(() ->
+                sService.getPreferredPaymentService(mContext.getUser().getIdentifier()), null);
+        return (serviceInfo != null ? serviceInfo.getDescription() : null);
     }
 
     /**
      * @hide
      */
     public boolean setDefaultServiceForCategory(ComponentName service, String category) {
-        try {
-            return sService.setDefaultServiceForCategory(mContext.getUserId(), service, category);
-        } catch (RemoteException e) {
-            // Try one more time
-            recoverService();
-            if (sService == null) {
-                Log.e(TAG, "Failed to recover CardEmulationService.");
-                return false;
-            }
-            try {
-                return sService.setDefaultServiceForCategory(mContext.getUserId(), service,
-                        category);
-            } catch (RemoteException ee) {
-                Log.e(TAG, "Failed to reach CardEmulationService.");
-                return false;
-            }
-        }
+        return callServiceReturn(() ->
+                sService.setDefaultServiceForCategory(
+                    mContext.getUser().getIdentifier(), service, category), false);
     }
 
     /**
+     * Sets the default service for the next tap.
+     *
+     * <p>This API allows an OEM extension or authorized system app to
+     * specify which service should handle the immediate next transaction.
+     *
+     * @param service The component name of the service to be used.
+     * @return true if the default was successfully set.
      * @hide
      */
-    public boolean setDefaultForNextTap(ComponentName service) {
-        try {
-            return sService.setDefaultForNextTap(mContext.getUserId(), service);
-        } catch (RemoteException e) {
-            // Try one more time
-            recoverService();
-            if (sService == null) {
-                Log.e(TAG, "Failed to recover CardEmulationService.");
-                return false;
-            }
-            try {
-                return sService.setDefaultForNextTap(mContext.getUserId(), service);
-            } catch (RemoteException ee) {
-                Log.e(TAG, "Failed to reach CardEmulationService.");
-                return false;
-            }
-        }
+    @SystemApi
+    @FlaggedApi(com.android.nfc.module.flags.Flags.FLAG_NFCSTACK_26Q2_UPDATES)
+    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
+    public boolean setDefaultForNextTap(@NonNull ComponentName service) {
+        return callServiceReturn(() ->
+                sService.setDefaultForNextTap(
+                    mContext.getUser().getIdentifier(), service), false);
+    }
+
+    /**
+     * Sets the default service for the next tap for a specific user.
+     *
+     * <p>This API allows an OEM extension or authorized system app to
+     * specify which service should handle the immediate next transaction for a specific user.
+     *
+     * @param userId The user id of the user context.
+     * @param service The component name of the service to be used.
+     * @return true if the default was successfully set.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(com.android.nfc.module.flags.Flags.FLAG_NFCSTACK_26Q2_UPDATES)
+    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
+    public boolean setDefaultForNextTap(@UserIdInt int userId, @NonNull ComponentName service) {
+        return callServiceReturn(() ->
+                sService.setDefaultForNextTap(userId, service), false);
     }
 
     /**
      * @hide
      */
     public List<ApduServiceInfo> getServices(String category) {
-        try {
-            return sService.getServices(mContext.getUserId(), category);
-        } catch (RemoteException e) {
-            // Try one more time
-            recoverService();
-            if (sService == null) {
-                Log.e(TAG, "Failed to recover CardEmulationService.");
-                return null;
-            }
-            try {
-                return sService.getServices(mContext.getUserId(), category);
-            } catch (RemoteException ee) {
-                Log.e(TAG, "Failed to reach CardEmulationService.");
-                return null;
-            }
+        return callServiceReturn(() ->
+                sService.getServices(
+                    mContext.getUser().getIdentifier(), category), null);
+    }
+
+    /**
+     * Retrieves list of services registered of the provided category for the provided user.
+     *
+     * @param category Category string, one of {@link #CATEGORY_PAYMENT} or {@link #CATEGORY_OTHER}
+     * @param userId the user handle of the user whose information is being requested.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_ENABLE_NFC_MAINLINE)
+    @NonNull
+    public List<ApduServiceInfo> getServices(@NonNull String category, @UserIdInt int userId) {
+        return callServiceReturn(() ->
+                sService.getServices(userId, category), null);
+    }
+
+    /**
+     * Tests the validity of the polling loop filter.
+     * @param pollingLoopFilter The polling loop filter to test.
+     *
+     * @hide
+     */
+    public static @NonNull String validatePollingLoopFilter(@NonNull String pollingLoopFilter) {
+        // Verify hex characters
+        byte[] plfBytes = HexFormat.of().parseHex(pollingLoopFilter);
+        if (plfBytes.length == 0) {
+            throw new IllegalArgumentException(
+                "Polling loop filter must contain at least one byte.");
         }
+        return HexFormat.of().withUpperCase().formatHex(plfBytes);
+    }
+
+    /**
+     * Tests the validity of the polling loop pattern filter.
+     * @param pollingLoopPatternFilter The polling loop filter to test.
+     *
+     * @hide
+     */
+    public static @NonNull String validatePollingLoopPatternFilter(
+        @NonNull String pollingLoopPatternFilter) {
+        // Verify hex characters
+        if (!PLPF_PATTERN.matcher(pollingLoopPatternFilter).matches()) {
+            throw new IllegalArgumentException(
+                "Polling loop pattern filters may only contain hexadecimal numbers, ?s and *s");
+        }
+        return Pattern.compile(pollingLoopPatternFilter.toUpperCase(Locale.ROOT)).toString();
     }
 
     /**
@@ -629,7 +1092,7 @@ public final class CardEmulation {
         }
 
         // Verify hex characters
-        if (!aid.matches("[0-9A-Fa-f]{10,32}\\*?\\#?")) {
+        if (!AID_PATTERN.matcher(aid).matches()) {
             Log.e(TAG, "AID " + aid + " is not a valid AID.");
             return false;
         }
@@ -637,9 +1100,659 @@ public final class CardEmulation {
         return true;
     }
 
-    void recoverService() {
-        NfcAdapter adapter = NfcAdapter.getDefaultAdapter(mContext);
-        sService = adapter.getCardEmulationService();
+    /**
+     * Allows to set or unset preferred service (category other) to avoid AID Collision. The user
+     * should use corresponding context using {@link Context#createContextAsUser(UserHandle, int)}
+     *
+     * @param service The ComponentName of the service
+     * @param status  true to enable, false to disable
+     * @return status code defined in {@link SetServiceEnabledStatusCode}
+     *
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_NFC_SET_SERVICE_ENABLED_FOR_CATEGORY_OTHER)
+    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
+    @SetServiceEnabledStatusCode
+    public int setServiceEnabledForCategoryOther(@NonNull ComponentName service,
+            boolean status) {
+        return setServiceEnabledForCategoryOther(
+                service, mContext.getUser().getIdentifier(), status);
     }
 
+    /**
+     * Same as {@link #setServiceEnabledForCategoryOther(ComponentName, boolean)} for a particular
+     * user.
+     *
+     * @param service The ComponentName of the service
+     * @param userId User id
+     * @param status  true to enable, false to disable
+     * @return status code defined in {@link SetServiceEnabledStatusCode}
+     * @hide
+     */
+    @SetServiceEnabledStatusCode
+    public int setServiceEnabledForCategoryOther(@NonNull ComponentName service,
+            @UserIdInt int userId, boolean status) {
+        return callServiceReturn(() ->
+                sService.setServiceEnabledForCategoryOther(userId,
+                        service, status), SET_SERVICE_ENABLED_STATUS_FAILURE_UNKNOWN_ERROR);
+    }
+
+    /** @hide */
+    @IntDef(prefix = "PROTOCOL_AND_TECHNOLOGY_ROUTE_",
+            value = {
+                    PROTOCOL_AND_TECHNOLOGY_ROUTE_DH,
+                    PROTOCOL_AND_TECHNOLOGY_ROUTE_ESE,
+                    PROTOCOL_AND_TECHNOLOGY_ROUTE_UICC,
+                    PROTOCOL_AND_TECHNOLOGY_ROUTE_UNSET,
+                    PROTOCOL_AND_TECHNOLOGY_ROUTE_DEFAULT,
+                    PROTOCOL_AND_TECHNOLOGY_ROUTE_NDEF_NFCEE
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface ProtocolAndTechnologyRoute {}
+
+    /**
+     * Setting NFC controller routing table, which includes Protocol Route and Technology Route,
+     * while this Activity is in the foreground.
+     *
+     * The parameter set to {@link #PROTOCOL_AND_TECHNOLOGY_ROUTE_UNSET}
+     * can be used to keep current values for that entry. Either
+     * Protocol Route or Technology Route should be override when calling this API, otherwise
+     * throw {@link IllegalArgumentException}.
+     * <p>
+     * Example usage in an Activity that requires to set proto route to "ESE" and keep tech route:
+     * <pre>
+     * protected void onResume() {
+     *     mNfcAdapter.overrideRoutingTable(
+     *         this, {@link #PROTOCOL_AND_TECHNOLOGY_ROUTE_ESE},
+     *         {@link #PROTOCOL_AND_TECHNOLOGY_ROUTE_UNSET});
+     * }</pre>
+     * </p>
+     * Also activities must call {@link #recoverRoutingTable(Activity)}
+     * when it goes to the background. Only the package of the
+     * currently preferred service (the service set as preferred by the current foreground
+     * application via {@link CardEmulation#setPreferredService(Activity, ComponentName)} or the
+     * current Default Wallet Role Holder {@link RoleManager#ROLE_WALLET}),
+     * otherwise a call to this method will fail and throw {@link SecurityException}.
+     * @param activity The Activity that requests NFC controller routing table to be changed.
+     * @param protocol ISO-DEP route destination, where the possible inputs are defined
+     *                 in {@link ProtocolAndTechnologyRoute}. However
+     *                 {@link #PROTOCOL_AND_TECHNOLOGY_ROUTE_DEFAULT} and
+     *                 {@link #PROTOCOL_AND_TECHNOLOGY_ROUTE_NDEF_NFCEE} are invalid inputs.
+     * @param technology Tech-A, Tech-B and Tech-F route destination, where the possible inputs
+     *                   are defined in {@link ProtocolAndTechnologyRoute}. However
+     *                   {@link #PROTOCOL_AND_TECHNOLOGY_ROUTE_DEFAULT} and
+     *                   {@link #PROTOCOL_AND_TECHNOLOGY_ROUTE_NDEF_NFCEE} are invalid inputs.
+     * @throws SecurityException if the caller is not the preferred NFC service
+     * @throws IllegalArgumentException if the activity is not resumed or the caller is not in the
+     * foreground.
+     * <p>
+     * This is a high risk API and only included to support mainline effort
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
+    @FlaggedApi(Flags.FLAG_NFC_OVERRIDE_RECOVER_ROUTING_TABLE)
+    public void overrideRoutingTable(
+            @NonNull Activity activity, @ProtocolAndTechnologyRoute int protocol,
+            @ProtocolAndTechnologyRoute int technology) {
+        if (!activity.isResumed()) {
+            throw new IllegalArgumentException("Activity must be resumed.");
+        }
+        if (protocol >= PROTOCOL_AND_TECHNOLOGY_ROUTE_DEFAULT) {
+            throw new IllegalArgumentException("Invalid protocol inputs.");
+        }
+        if (technology >= PROTOCOL_AND_TECHNOLOGY_ROUTE_DEFAULT) {
+            throw new IllegalArgumentException("Invalid technology inputs.");
+        }
+        if (protocol == PROTOCOL_AND_TECHNOLOGY_ROUTE_UNSET
+                && technology == PROTOCOL_AND_TECHNOLOGY_ROUTE_UNSET) {
+            throw new IllegalArgumentException("At least one routing parameter must be set.");
+        }
+
+        String protocolRoute = routeIntToString(protocol);
+        String technologyRoute = routeIntToString(technology);
+        callService(() ->
+                sService.overrideRoutingTable(
+                        mContext.getUser().getIdentifier(),
+                        protocolRoute,
+                        technologyRoute,
+                        mContext.getPackageName()));
+    }
+
+    /**
+     * Restore the NFC controller routing table,
+     * which was changed by {@link #overrideRoutingTable(Activity, int, int)}
+     *
+     * @param activity The Activity that requested NFC controller routing table to be changed.
+     * @throws IllegalArgumentException if the caller is not in the foreground.
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
+    @FlaggedApi(Flags.FLAG_NFC_OVERRIDE_RECOVER_ROUTING_TABLE)
+    public void recoverRoutingTable(@NonNull Activity activity) {
+        if (!activity.isResumed()) {
+            throw new IllegalArgumentException("Activity must be resumed.");
+        }
+        callService(() ->
+                sService.recoverRoutingTable(
+                    mContext.getUser().getIdentifier()));
+    }
+
+    /**
+     * Is EUICC supported as a Secure Element EE which supports off host card emulation.
+     *
+     * @return true if the device supports EUICC for off host card emulation, false otherwise.
+     */
+    @FlaggedApi(android.nfc.Flags.FLAG_ENABLE_CARD_EMULATION_EUICC)
+    public boolean isEuiccSupported() {
+        return callServiceReturn(() -> sService.isEuiccSupported(), false);
+    }
+
+    /**
+     * Setting the default subscription ID succeeded.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(android.nfc.Flags.FLAG_ENABLE_CARD_EMULATION_EUICC)
+    public static final int SET_SUBSCRIPTION_ID_STATUS_SUCCESS = 0;
+
+    /**
+     * Setting the default subscription ID failed because the subscription ID is invalid.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(android.nfc.Flags.FLAG_ENABLE_CARD_EMULATION_EUICC)
+    public static final int SET_SUBSCRIPTION_ID_STATUS_FAILED_INVALID_SUBSCRIPTION_ID = 1;
+
+    /**
+     * Setting the default subscription ID failed because there was an internal error processing
+     * the request. For ex: NFC service died in the middle of handling the API.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(android.nfc.Flags.FLAG_ENABLE_CARD_EMULATION_EUICC)
+    public static final int SET_SUBSCRIPTION_ID_STATUS_FAILED_INTERNAL_ERROR = 2;
+
+    /**
+     * Setting the default subscription ID failed because this feature is not supported on the
+     * device.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(android.nfc.Flags.FLAG_ENABLE_CARD_EMULATION_EUICC)
+    public static final int SET_SUBSCRIPTION_ID_STATUS_FAILED_NOT_SUPPORTED = 3;
+
+    /**
+     * Setting the default subscription ID failed because of unknown error.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_ENABLE_CARD_EMULATION_EUICC)
+    public static final int SET_SUBSCRIPTION_ID_STATUS_UNKNOWN = -1;
+
+    /** @hide */
+    @IntDef(prefix = "SET_SUBSCRIPTION_ID_STATUS_",
+            value = {
+                    SET_SUBSCRIPTION_ID_STATUS_SUCCESS,
+                    SET_SUBSCRIPTION_ID_STATUS_FAILED_INVALID_SUBSCRIPTION_ID,
+                    SET_SUBSCRIPTION_ID_STATUS_FAILED_INTERNAL_ERROR,
+                    SET_SUBSCRIPTION_ID_STATUS_FAILED_NOT_SUPPORTED,
+                    SET_SUBSCRIPTION_ID_STATUS_UNKNOWN
+            })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface SetSubscriptionIdStatus {}
+
+    /**
+     * Sets the system's default NFC subscription id.
+     *
+     * <p> For devices with multiple UICC/EUICC that is configured to be NFCEE, this sets the
+     * default UICC NFCEE that will handle NFC offhost CE transactions </p>
+     *
+     * @param subscriptionId the default NFC subscription Id to set. User can get subscription id
+     *                       from {@link SubscriptionManager#getSubscriptionId(int)}
+     * @return status of the operation.
+     *
+     * @throws UnsupportedOperationException If the device does not have
+     * {@link PackageManager#FEATURE_TELEPHONY_SUBSCRIPTION}.
+     * @hide
+     */
+    @SystemApi
+    @RequiresFeature(PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION)
+    @RequiresPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS)
+    @FlaggedApi(android.nfc.Flags.FLAG_ENABLE_CARD_EMULATION_EUICC)
+    public @SetSubscriptionIdStatus int setDefaultNfcSubscriptionId(int subscriptionId) {
+        return callServiceReturn(() ->
+                        sService.setDefaultNfcSubscriptionId(
+                                subscriptionId, mContext.getPackageName()),
+                SET_SUBSCRIPTION_ID_STATUS_FAILED_INTERNAL_ERROR);
+    }
+
+    /**
+     * Returns the system's default NFC subscription id.
+     *
+     * <p> For devices with multiple UICC/EUICC that is configured to be NFCEE, this returns the
+     * default UICC NFCEE that will handle NFC offhost CE transactions </p>
+     * <p> If the device has no UICC that can serve as NFCEE, this will return
+     * {@link SubscriptionManager#INVALID_SUBSCRIPTION_ID}.</p>
+     *
+     * @return the default NFC subscription Id if set,
+     * {@link SubscriptionManager#INVALID_SUBSCRIPTION_ID} otherwise.
+     *
+     * @throws UnsupportedOperationException If the device does not have
+     * {@link PackageManager#FEATURE_TELEPHONY_SUBSCRIPTION}.
+     */
+    @RequiresFeature(PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION)
+    @FlaggedApi(android.nfc.Flags.FLAG_ENABLE_CARD_EMULATION_EUICC)
+    public int getDefaultNfcSubscriptionId() {
+        return callServiceReturn(() ->
+                sService.getDefaultNfcSubscriptionId(mContext.getPackageName()),
+                SubscriptionManager.INVALID_SUBSCRIPTION_ID);
+    }
+
+    /**
+     * Returns the value of {@link Settings.Secure#NFC_PAYMENT_DEFAULT_COMPONENT}.
+     *
+     * @param context A context
+     * @return A ComponentName for the setting value, or null.
+     *
+     * @hide
+     */
+    @SystemApi
+    @UserHandleAware
+    @RequiresPermission(android.Manifest.permission.NFC_PREFERRED_PAYMENT_INFO)
+    @SuppressWarnings("AndroidFrameworkClientSidePermissionCheck")
+    @FlaggedApi(android.permission.flags.Flags.FLAG_WALLET_ROLE_ENABLED)
+    @Nullable
+    public static ComponentName getPreferredPaymentService(@NonNull Context context) {
+        context.checkCallingOrSelfPermission(Manifest.permission.NFC_PREFERRED_PAYMENT_INFO);
+        String defaultPaymentComponent = Settings.Secure.getString(context.getContentResolver(),
+                Constants.SETTINGS_SECURE_NFC_PAYMENT_DEFAULT_COMPONENT);
+
+        if (defaultPaymentComponent == null) {
+            return null;
+        }
+
+        return ComponentName.unflattenFromString(defaultPaymentComponent);
+    }
+
+    /** @hide */
+    interface ServiceCall {
+        void call() throws RemoteException;
+    }
+    /** @hide */
+    public static void callService(ServiceCall call) {
+        try {
+            if (sService == null) {
+                NfcAdapter.attemptDeadServiceRecovery(
+                    new RemoteException("NFC CardEmulation Service is null"));
+                sService = NfcAdapter.getCardEmulationService();
+            }
+            call.call();
+        } catch (RemoteException e) {
+            NfcAdapter.attemptDeadServiceRecovery(e);
+            sService = NfcAdapter.getCardEmulationService();
+            try {
+                call.call();
+            } catch (RemoteException ee) {
+                ee.rethrowAsRuntimeException();
+            }
+        }
+    }
+    /** @hide */
+    interface ServiceCallReturn<T> {
+        T call() throws RemoteException;
+    }
+    /** @hide */
+    public static <T> T callServiceReturn(ServiceCallReturn<T> call, T defaultReturn) {
+        try {
+            if (sService == null) {
+                NfcAdapter.attemptDeadServiceRecovery(
+                    new RemoteException("NFC CardEmulation Service is null"));
+                sService = NfcAdapter.getCardEmulationService();
+            }
+            return call.call();
+        } catch (RemoteException e) {
+            NfcAdapter.attemptDeadServiceRecovery(e);
+            sService = NfcAdapter.getCardEmulationService();
+            // Try one more time
+            try {
+                return call.call();
+            } catch (RemoteException ee) {
+                ee.rethrowAsRuntimeException();
+            }
+        }
+        return defaultReturn;
+    }
+
+    /** @hide */
+    public static String routeIntToString(@ProtocolAndTechnologyRoute int route) {
+        return switch (route) {
+            case PROTOCOL_AND_TECHNOLOGY_ROUTE_DH -> "DH";
+            case PROTOCOL_AND_TECHNOLOGY_ROUTE_ESE -> "eSE";
+            case PROTOCOL_AND_TECHNOLOGY_ROUTE_UICC -> "SIM";
+            case PROTOCOL_AND_TECHNOLOGY_ROUTE_UNSET -> null;
+            case PROTOCOL_AND_TECHNOLOGY_ROUTE_DEFAULT -> "default";
+            case PROTOCOL_AND_TECHNOLOGY_ROUTE_NDEF_NFCEE-> "NDEF-NFCEE";
+            default -> throw new IllegalStateException("Unexpected value: " + route);
+        };
+    }
+
+    @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+    public static final int NFC_INTERNAL_ERROR_UNKNOWN = 0;
+
+    /**
+     * This error is reported when the NFC command watchdog restarts the NFC stack.
+     */
+    @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+    public static final int NFC_INTERNAL_ERROR_NFC_CRASH_RESTART = 1;
+
+    /**
+     * This error is reported when the NFC controller does not respond or there's an NCI transport
+     * error.
+     */
+    @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+    public static final int NFC_INTERNAL_ERROR_NFC_HARDWARE_ERROR = 2;
+
+    /**
+     * This error is reported when the NFC stack times out while waiting for a response to a command
+     * sent to the NFC hardware.
+     */
+    @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+    public static final int NFC_INTERNAL_ERROR_COMMAND_TIMEOUT = 3;
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+    @IntDef(prefix = "NFC_INTERNAL_ERROR_", value = {
+            NFC_INTERNAL_ERROR_UNKNOWN,
+            NFC_INTERNAL_ERROR_NFC_CRASH_RESTART,
+            NFC_INTERNAL_ERROR_NFC_HARDWARE_ERROR,
+            NFC_INTERNAL_ERROR_COMMAND_TIMEOUT,
+    })
+    public @interface NfcInternalErrorType {}
+
+    /**
+     * Callback interface for NFC-related events.
+     *
+     * These callbacks will be called when registered with
+     * {@link #registerNfcEventCallback(Executor, NfcEventCallback)} and while the registered caller
+     * is still alive. When you are done listening to the callbacks, you should unregister it with
+     * {@link #unregisterNfcEventCallback(NfcEventCallback)}.
+     */
+    @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+    public interface NfcEventCallback {
+        /**
+         * This method is called when this package gains or loses preferred NFC service status.
+         * This can happen by way of either it becoming the default wallet role holder
+         * (see {@link android.app.role.RoleManager#ROLE_WALLET}) or the preferred service of the
+         * foreground activity, set with {@link #setPreferredService(Activity, ComponentName)}.
+         *
+         * @param isPreferred true is this service has become the preferred NFC service, false if it
+         *     is no longer the preferred service
+         */
+        @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+        default void onPreferredServiceChanged(boolean isPreferred) {}
+
+        /**
+         * This method is called when observe mode has been enabled or disabled.
+         *
+         * @param isEnabled true if observe mode has been enabled, false if it has been disabled
+         */
+        @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+        default void onObserveModeStateChanged(boolean isEnabled) {}
+
+        /**
+         * This method is called when observe mode has been disabled in the firmware.
+         *
+         * @param exitFrame The polling frame that caused the firmware to exit observe mode. Null
+         *                  when we were unable to parse the exit frame from the NFCC.
+         * @hide
+         */
+        @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+        default void onObserveModeDisabledInFirmware(@Nullable PollingFrame exitFrame) {}
+
+        /**
+         * This method is called when an AID conflict is detected during an NFC transaction. This
+         * can happen when multiple services are registered for the same AID. If your service is
+         * registered for this AID you may want to instruct users to bring your app to the
+         * foreground and ensure you call {@link #setPreferredService(Activity, ComponentName)}
+         * to ensure the transaction is routed to your service.
+         *
+         * @param aid The AID that is in conflict
+         */
+        @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+        default void onAidConflictOccurred(@NonNull String aid) {}
+
+        /**
+         * This method is called when an AID is not routed to any service during an NFC
+         * transaction. This can happen when no service is registered for the given AID.
+         *
+         * @param aid the AID that was not routed
+         */
+        @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+        default void onAidNotRouted(@NonNull String aid) {}
+
+        /**
+         * This method is called when the NFC adapter state changes.
+         *
+         * @param state The new NFC adapter state
+         */
+        @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+        default void onNfcStateChanged(@NfcAdapter.AdapterState int state) {}
+        /**
+         * This method is called when the NFC controller is in card emulation mode and an NFC
+         * reader's field is either detected or lost.
+         *
+         * @param isDetected true if an NFC reader is detected, false if it is lost
+         */
+        @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+        default void onRemoteFieldChanged(boolean isDetected) {}
+
+        /**
+         * This method is called when an internal error is reported by the NFC stack.
+         *
+         * No action is required in response to these events as the NFC stack will automatically
+         * attempt to recover. These errors are reported for informational purposes only.
+         *
+         * Note that these errors can be reported when performing various internal NFC operations
+         * (such as during device shutdown) and cannot always be explicitly correlated with NFC
+         * transaction failures.
+         *
+         * @param errorType The type of the internal error
+         */
+        @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+        default void onInternalErrorReported(@NfcInternalErrorType int errorType) {}
+
+        /**
+         * This method is called when an off-host AID is selected.
+         *
+         * This indicates that an offhost (Secure Element or UICC) transaction
+         * has started.
+         *
+         * @param aid The AID that was selected
+         * @param offHostSecureElement Secure Element on which the AID was routed to. Will be string
+         *                             with prefix SIM or prefix eSE ({@link Reader#getName()}).
+         *                             Ref: GSMA TS.26 - NFC Handset Requirements
+         *                             TS26_NFC_REQ_069: For UICC, Secure Element Name SHALL be
+         *                                               SIM[smartcard slot]
+         *                                               (e.g. SIM/SIM1, SIM2… SIMn).
+         *                             TS26_NFC_REQ_070: For embedded SE, Secure Element Name SHALL
+         *                                               be eSE[number]
+         *                                               (e.g. eSE/eSE1, eSE2, etc.).
+         */
+        @FlaggedApi(com.android.nfc.module.flags.Flags.FLAG_EVENT_LISTENER_OFFHOST_AID_SELECTED)
+        default void onOffHostAidSelected(@NonNull String aid,
+                @NonNull String offHostSecureElement) {}
+    }
+
+    private final ArrayMap<NfcEventCallback, Executor> mNfcEventCallbacks = new ArrayMap<>();
+
+    final INfcEventCallback mINfcEventCallback =
+            new INfcEventCallback.Stub() {
+                public void onPreferredServiceChanged(ComponentNameAndUser componentNameAndUser) {
+                    if (!android.nfc.Flags.nfcEventListener()) {
+                        return;
+                    }
+                    boolean isPreferred =
+                            componentNameAndUser != null
+                                    && componentNameAndUser.getUserId()
+                                            == mContext.getUser().getIdentifier()
+                                    && componentNameAndUser.getComponentName() != null
+                                    && Objects.equals(
+                                            mContext.getPackageName(),
+                                            componentNameAndUser.getComponentName()
+                                                    .getPackageName());
+                    callListeners(listener -> listener.onPreferredServiceChanged(isPreferred));
+                }
+
+                public void onObserveModeStateChanged(boolean isEnabled) {
+                    if (!android.nfc.Flags.nfcEventListener()) {
+                        return;
+                    }
+                    callListeners(listener -> listener.onObserveModeStateChanged(isEnabled));
+                }
+
+                public void onObserveModeDisabledInFirmware(PollingFrame exitFrame) {
+                    if (!android.nfc.Flags.nfcEventListener()) {
+                        return;
+                    }
+                    callListeners(listener -> listener.onObserveModeDisabledInFirmware(exitFrame));
+                }
+
+                public void onAidConflictOccurred(String aid) {
+                    if (!android.nfc.Flags.nfcEventListener()) {
+                        return;
+                    }
+                    callListeners(listener -> listener.onAidConflictOccurred(aid));
+                }
+
+                public void onAidNotRouted(String aid) {
+                    if (!android.nfc.Flags.nfcEventListener()) {
+                        return;
+                    }
+                    callListeners(listener -> listener.onAidNotRouted(aid));
+                }
+
+                public void onNfcStateChanged(int state) {
+                    if (!android.nfc.Flags.nfcEventListener()) {
+                        return;
+                    }
+                    callListeners(listener -> listener.onNfcStateChanged(state));
+                }
+
+                public void onRemoteFieldChanged(boolean isDetected) {
+                    if (!android.nfc.Flags.nfcEventListener()) {
+                        return;
+                    }
+                    callListeners(listener -> listener.onRemoteFieldChanged(isDetected));
+                }
+
+                public void onInternalErrorReported(@NfcInternalErrorType int errorType) {
+                    if (!android.nfc.Flags.nfcEventListener()) {
+                        return;
+                    }
+                    callListeners(listener -> listener.onInternalErrorReported(errorType));
+                }
+
+                public void onOffHostAidSelected(String aid, String eeName) {
+                    if (!com.android.nfc.module.flags.Flags.eventListenerOffhostAidSelected()) {
+                        return;
+                    }
+                    callListeners(listener -> listener.onOffHostAidSelected(aid, eeName));
+                }
+
+                interface ListenerCall {
+                    void invoke(NfcEventCallback listener);
+                }
+
+                private void callListeners(ListenerCall listenerCall) {
+                    synchronized (mNfcEventCallbacks) {
+                        mNfcEventCallbacks.forEach(
+                            (listener, executor) -> {
+                                executor.execute(() -> listenerCall.invoke(listener));
+                            });
+                    }
+                }
+            };
+
+    private void linkToNfcDeath() {
+        try {
+            mDeathRecipient = new IBinder.DeathRecipient() {
+                @Override
+                public void binderDied() {
+                    synchronized (mNfcEventCallbacks) {
+                        mDeathRecipient = null;
+                        sService = null;
+                    }
+                    Handler handler = new Handler(Looper.getMainLooper());
+                    handler.postDelayed(new Runnable() {
+                        public void run() {
+                            try {
+                                synchronized (mNfcEventCallbacks) {
+                                    if (mNfcEventCallbacks.size() > 0) {
+                                        callService(() ->
+                                            sService.registerNfcEventCallback(mINfcEventCallback));
+                                    }
+                                }
+                            } catch (Throwable t) {
+                                handler.postDelayed(this, 50);
+                            }
+                        }
+                    }, 50);
+                }
+            };
+            sService.asBinder().linkToDeath(mDeathRecipient, 0);
+        } catch (RemoteException re) {
+            Log.e(TAG, "Couldn't link to death");
+        }
+    }
+
+    /**
+     * Register a callback for NFC events.
+     *
+     * @param executor The Executor to run the call back with
+     * @param callback The callback to register
+     */
+    @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+    public void registerNfcEventCallback(
+            @NonNull @CallbackExecutor Executor executor, @NonNull NfcEventCallback callback) {
+        if (!android.nfc.Flags.nfcEventListener()) {
+            return;
+        }
+        synchronized (mNfcEventCallbacks) {
+            mNfcEventCallbacks.put(callback, executor);
+            if (mNfcEventCallbacks.size() == 1) {
+                callService(() -> sService.registerNfcEventCallback(mINfcEventCallback));
+                linkToNfcDeath();
+            }
+        }
+    }
+
+    private IBinder.DeathRecipient mDeathRecipient;
+
+    /**
+     * Unregister an NFC event callback that was previously registered with {@link
+     * #registerNfcEventCallback(Executor, NfcEventCallback)}.
+     *
+     * @param callback The previously registered callback to unregister
+     */
+    @FlaggedApi(android.nfc.Flags.FLAG_NFC_EVENT_LISTENER)
+    public void unregisterNfcEventCallback(@NonNull NfcEventCallback callback) {
+        if (!android.nfc.Flags.nfcEventListener()) {
+            return;
+        }
+        synchronized (mNfcEventCallbacks) {
+            mNfcEventCallbacks.remove(callback);
+            if (mNfcEventCallbacks.size() == 0) {
+                callService(() -> sService.unregisterNfcEventCallback(mINfcEventCallback));
+                if (mDeathRecipient != null) {
+                    sService.asBinder().unlinkToDeath(mDeathRecipient, 0);
+                    mDeathRecipient = null;
+                }
+            }
+        }
+    }
 }

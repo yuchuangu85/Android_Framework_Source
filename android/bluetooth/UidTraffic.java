@@ -13,32 +13,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package android.bluetooth;
 
+import android.annotation.Hide;
+import android.annotation.NonNull;
+import android.annotation.RequiresNoPermission;
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-/**
- * Record of data traffic (in bytes) by an application identified by its UID.
- *
- * @hide
- */
-public class UidTraffic implements Cloneable, Parcelable {
+/** Record of data traffic (in bytes) by an application identified by its UID. */
+@Hide
+@SystemApi(client = SystemApi.Client.PRIVILEGED_APPS)
+public final class UidTraffic implements Cloneable, Parcelable {
     private final int mAppUid;
     private long mRxBytes;
     private long mTxBytes;
 
-    public UidTraffic(int appUid) {
-        mAppUid = appUid;
-    }
-
+    @Hide
     public UidTraffic(int appUid, long rx, long tx) {
         mAppUid = appUid;
         mRxBytes = rx;
         mTxBytes = tx;
     }
 
-    UidTraffic(Parcel in) {
+    @Hide
+    private UidTraffic(Parcel in) {
         mAppUid = in.readInt();
         mRxBytes = in.readLong();
         mTxBytes = in.readLong();
@@ -51,30 +52,50 @@ public class UidTraffic implements Cloneable, Parcelable {
         dest.writeLong(mTxBytes);
     }
 
+    @Hide
+    @RequiresNoPermission
     public void setRxBytes(long bytes) {
         mRxBytes = bytes;
     }
 
+    @Hide
+    @RequiresNoPermission
     public void setTxBytes(long bytes) {
         mTxBytes = bytes;
     }
 
+    @Hide
+    @RequiresNoPermission
     public void addRxBytes(long bytes) {
         mRxBytes += bytes;
     }
 
+    @Hide
+    @RequiresNoPermission
     public void addTxBytes(long bytes) {
         mTxBytes += bytes;
     }
 
+    /**
+     * @return corresponding app Uid
+     */
+    @RequiresNoPermission
     public int getUid() {
         return mAppUid;
     }
 
+    /**
+     * @return rx bytes count
+     */
+    @RequiresNoPermission
     public long getRxBytes() {
         return mRxBytes;
     }
 
+    /**
+     * @return tx bytes count
+     */
+    @RequiresNoPermission
     public long getTxBytes() {
         return mTxBytes;
     }
@@ -84,26 +105,30 @@ public class UidTraffic implements Cloneable, Parcelable {
         return 0;
     }
 
+    @Hide
     @Override
+    @RequiresNoPermission
     public UidTraffic clone() {
         return new UidTraffic(mAppUid, mRxBytes, mTxBytes);
     }
 
     @Override
     public String toString() {
-        return "UidTraffic{mAppUid=" + mAppUid + ", mRxBytes=" + mRxBytes + ", mTxBytes="
-                + mTxBytes + '}';
+        return ("UidTraffic [mAppUid=" + mAppUid)
+                + (", mRxBytes=" + mRxBytes)
+                + (", mTxBytes=" + mTxBytes + "]");
     }
 
-    public static final Creator<UidTraffic> CREATOR = new Creator<UidTraffic>() {
-        @Override
-        public UidTraffic createFromParcel(Parcel source) {
-            return new UidTraffic(source);
-        }
+    public static final @NonNull Creator<UidTraffic> CREATOR =
+            new Creator<UidTraffic>() {
+                @Override
+                public UidTraffic createFromParcel(Parcel source) {
+                    return new UidTraffic(source);
+                }
 
-        @Override
-        public UidTraffic[] newArray(int size) {
-            return new UidTraffic[size];
-        }
-    };
+                @Override
+                public UidTraffic[] newArray(int size) {
+                    return new UidTraffic[size];
+                }
+            };
 }

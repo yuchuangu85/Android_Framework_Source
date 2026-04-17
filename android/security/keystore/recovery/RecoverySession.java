@@ -22,8 +22,11 @@ import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.os.RemoteException;
 import android.os.ServiceSpecificException;
+import android.security.keystore.KeyPermanentlyInvalidatedException;
 import android.util.ArrayMap;
 import android.util.Log;
+
+import libcore.util.HexEncoding;
 
 import java.security.Key;
 import java.security.SecureRandom;
@@ -70,41 +73,7 @@ public class RecoverySession implements AutoCloseable {
         SecureRandom secureRandom = new SecureRandom();
         byte[] sessionId = new byte[SESSION_ID_LENGTH_BYTES];
         secureRandom.nextBytes(sessionId);
-        StringBuilder sb = new StringBuilder();
-        for (byte b : sessionId) {
-            sb.append(Byte.toHexString(b, /*upperCase=*/ false));
-        }
-        return sb.toString();
-    }
-
-    /**
-     * @deprecated Use {@link #start(String, CertPath, byte[], byte[], List)} instead.
-     * @removed
-     */
-    @Deprecated
-    @RequiresPermission(android.Manifest.permission.RECOVER_KEYSTORE)
-    @NonNull public byte[] start(
-            @NonNull byte[] verifierPublicKey,
-            @NonNull byte[] vaultParams,
-            @NonNull byte[] vaultChallenge,
-            @NonNull List<KeyChainProtectionParams> secrets)
-            throws CertificateException, InternalRecoveryServiceException {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * @deprecated Use {@link #start(String, CertPath, byte[], byte[], List)} instead.
-     * @removed
-     */
-    @Deprecated
-    @RequiresPermission(android.Manifest.permission.RECOVER_KEYSTORE)
-    @NonNull public byte[] start(
-            @NonNull CertPath verifierCertPath,
-            @NonNull byte[] vaultParams,
-            @NonNull byte[] vaultChallenge,
-            @NonNull List<KeyChainProtectionParams> secrets)
-            throws CertificateException, InternalRecoveryServiceException {
-        throw new UnsupportedOperationException();
+        return HexEncoding.encodeToString(sessionId, /*upperCase=*/ false);
     }
 
     /**
@@ -162,20 +131,6 @@ public class RecoverySession implements AutoCloseable {
     }
 
     /**
-     * @deprecated Use {@link #recoverKeyChainSnapshot(byte[], List)} instead.
-     * @removed
-     */
-    @Deprecated
-    @RequiresPermission(android.Manifest.permission.RECOVER_KEYSTORE)
-    public Map<String, byte[]> recoverKeys(
-            @NonNull byte[] recoveryKeyBlob,
-            @NonNull List<WrappedApplicationKey> applicationKeys)
-            throws SessionExpiredException, DecryptionFailedException,
-            InternalRecoveryServiceException {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
      * Imports key chain snapshot recovered from a remote vault.
      *
      * @param recoveryKeyBlob Recovery blob encrypted by symmetric key generated for this session.
@@ -218,7 +173,7 @@ public class RecoverySession implements AutoCloseable {
             Key key;
             try {
                 key = mRecoveryController.getKeyFromGrant(grantAlias);
-            } catch (UnrecoverableKeyException e) {
+            } catch (KeyPermanentlyInvalidatedException | UnrecoverableKeyException e) {
                 throw new InternalRecoveryServiceException(
                         String.format(
                                 Locale.US,
@@ -236,7 +191,7 @@ public class RecoverySession implements AutoCloseable {
      *
      * @hide
      */
-    String getSessionId() {
+    @NonNull String getSessionId() {
         return mSessionId;
     }
 

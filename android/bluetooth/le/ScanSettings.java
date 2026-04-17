@@ -16,10 +16,22 @@
 
 package android.bluetooth.le;
 
+import android.annotation.Hide;
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.RequiresNoPermission;
 import android.annotation.SystemApi;
+import android.app.compat.CompatChanges;
 import android.bluetooth.BluetoothDevice;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.List;
 
 /**
  * Bluetooth LE scan settings are passed to {@link BluetoothLeScanner#startScan} to define the
@@ -52,6 +64,26 @@ public final class ScanSettings implements Parcelable {
     public static final int SCAN_MODE_LOW_LATENCY = 2;
 
     /**
+     * Perform Bluetooth LE scan in ambient discovery mode. This mode has lower duty cycle and more
+     * aggressive scan interval than balanced mode that provides a good trade-off between scan
+     * latency and power consumption.
+     */
+    @Hide @SystemApi public static final int SCAN_MODE_AMBIENT_DISCOVERY = 3;
+
+    /**
+     * Default Bluetooth LE scan mode when the screen is off. This mode has the low duty cycle and
+     * long scan interval which results in the lowest power consumption among all modes. It is for
+     * the framework internal use only.
+     */
+    @Hide public static final int SCAN_MODE_SCREEN_OFF = 4;
+
+    /**
+     * Balanced Bluetooth LE scan mode for foreground service when the screen is off. It is for the
+     * framework internal use only.
+     */
+    @Hide public static final int SCAN_MODE_SCREEN_OFF_BALANCED = 5;
+
+    /**
      * Trigger a callback for every Bluetooth advertisement found that matches the filter criteria.
      * If no filter is active, all advertisement packets are reported.
      */
@@ -69,141 +101,191 @@ public final class ScanSettings implements Parcelable {
      */
     public static final int CALLBACK_TYPE_MATCH_LOST = 4;
 
+    /**
+     * A result callback for every Bluetooth advertisement found that matches the filter criteria is
+     * only triggered when screen is turned on. While the screen is turned off, the advertisements
+     * are batched and the batched result callbacks are triggered every report delay. When the batch
+     * scan with this callback type is activated, the batched result callbacks are also triggered
+     * while turning on screen or disabling the scan. This callback type must be used with a report
+     * delay of {@link ScanSettings#AUTO_BATCH_MIN_REPORT_DELAY_MILLIS} or greater.
+     */
+    public static final int CALLBACK_TYPE_ALL_MATCHES_AUTO_BATCH = 8;
+
+    /** Minimum report delay for {@link ScanSettings#CALLBACK_TYPE_ALL_MATCHES_AUTO_BATCH}. */
+    public static final long AUTO_BATCH_MIN_REPORT_DELAY_MILLIS = 1000 * 60 * 10;
 
     /**
-     * Determines how many advertisements to match per filter, as this is scarce hw resource
-     */
-    /**
-     * Match one advertisement per filter
+     * Determines how many advertisements to match per filter, as this is scarce hw resource. Match
+     * one advertisement per filter.
      */
     public static final int MATCH_NUM_ONE_ADVERTISEMENT = 1;
 
     /**
-     * Match few advertisement per filter, depends on current capability and availibility of
-     * the resources in hw
+     * Match few advertisement per filter, depends on current capability and availability of the
+     * resources in hw.
      */
     public static final int MATCH_NUM_FEW_ADVERTISEMENT = 2;
 
     /**
-     * Match as many advertisement per filter as hw could allow, depends on current
-     * capability and availibility of the resources in hw
+     * Match as many advertisement per filter as hw could allow, depends on current capability and
+     * availability of the resources in hw.
      */
     public static final int MATCH_NUM_MAX_ADVERTISEMENT = 3;
 
-
     /**
-     * In Aggressive mode, hw will determine a match sooner even with feeble signal strength
-     * and few number of sightings/match in a duration.
+     * In Aggressive mode, hw will determine a match sooner even with feeble signal strength and few
+     * number of sightings/match in a duration.
      */
     public static final int MATCH_MODE_AGGRESSIVE = 1;
 
     /**
-     * For sticky mode, higher threshold of signal strength and sightings is required
-     * before reporting by hw
+     * For sticky mode, higher threshold of signal strength and sightings is required before
+     * reporting by hw.
      */
     public static final int MATCH_MODE_STICKY = 2;
 
     /**
-     * Request full scan results which contain the device, rssi, advertising data, scan response
-     * as well as the scan timestamp.
-     *
-     * @hide
+     * Request full scan results which contain the device, rssi, advertising data, scan response as
+     * well as the scan timestamp.
      */
-    @SystemApi
-    public static final int SCAN_RESULT_TYPE_FULL = 0;
+    @Hide @SystemApi public static final int SCAN_RESULT_TYPE_FULL = 0;
 
     /**
      * Request abbreviated scan results which contain the device, rssi and scan timestamp.
-     * <p>
-     * <b>Note:</b> It is possible for an application to get more scan results than it asked for, if
-     * there are multiple apps using this type.
      *
-     * @hide
+     * <p><b>Note:</b> It is possible for an application to get more scan results than it asked for,
+     * if there are multiple apps using this type.
      */
-    @SystemApi
-    public static final int SCAN_RESULT_TYPE_ABBREVIATED = 1;
+    @Hide @SystemApi public static final int SCAN_RESULT_TYPE_ABBREVIATED = 1;
 
     /**
-     * Use all supported PHYs for scanning.
-     * This will check the controller capabilities, and start
-     * the scan on 1Mbit and LE Coded PHYs if supported, or on
-     * the 1Mbit PHY only.
+     * Use all supported PHYs for scanning. This will check the controller capabilities, and start
+     * the scan on 1Mbit and LE Coded PHYs if supported, or on the 1Mbit PHY only.
      */
     public static final int PHY_LE_ALL_SUPPORTED = 255;
 
+    /** Scan type is unknown. */
+    public static final int SCAN_TYPE_UNKNOWN = 0;
+
+    /** Does passive scanning, scan responses are ignored. */
+    public static final int SCAN_TYPE_PASSIVE = 1;
+
+    /** Does active scanning, scan results are delivered upon scan responses arrive. */
+    public static final int SCAN_TYPE_ACTIVE = 2;
+
+    @Hide
+    @IntDef(
+            prefix = "SCAN_TYPE_",
+            value = {
+                SCAN_TYPE_UNKNOWN,
+                SCAN_TYPE_PASSIVE,
+                SCAN_TYPE_ACTIVE,
+            })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface ScanType {}
+
+    /**
+     * Starting with Android B (Baklava), the default number of trackable advertisements for onFound
+     * /onLost scanning is 2 instead of (max hardware allows / 2).
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = Build.VERSION_CODES.BAKLAVA)
+    static final long CHANGE_DEFAULT_TRACKABLE_ADV_NUMBER = 386727721L;
+
     // Bluetooth LE scan mode.
-    private int mScanMode;
+    private final int mScanMode;
 
-    // Bluetooth LE scan callback type
-    private int mCallbackType;
+    // Bluetooth LE scan callback type.
+    private final int mCallbackType;
 
-    // Bluetooth LE scan result type
-    private int mScanResultType;
+    // Bluetooth LE scan result type.
+    private final int mScanResultType;
 
-    // Time of delay for reporting the scan result
-    private long mReportDelayMillis;
+    // Time of delay for reporting the scan result.
+    private final long mReportDelayMillis;
 
-    private int mMatchMode;
+    private final int mMatchMode;
 
-    private int mNumOfMatchesPerFilter;
+    private final int mNumOfMatchesPerFilter;
 
-    // Include only legacy advertising results
-    private boolean mLegacy;
+    // Include only legacy advertising results.
+    private final boolean mLegacy;
 
-    private int mPhy;
+    private final int mPhy;
 
+    private final int mRssiThreshold;
+
+    private final int mScanType;
+
+    @RequiresNoPermission
     public int getScanMode() {
         return mScanMode;
     }
 
+    @RequiresNoPermission
     public int getCallbackType() {
         return mCallbackType;
     }
 
+    @RequiresNoPermission
     public int getScanResultType() {
         return mScanResultType;
     }
 
-    /**
-     * @hide
-     */
+    /** Returns report delay timestamp based on the device clock. */
+    @RequiresNoPermission
+    public long getReportDelayMillis() {
+        return mReportDelayMillis;
+    }
+
+    @Hide
+    @RequiresNoPermission
     public int getMatchMode() {
         return mMatchMode;
     }
 
-    /**
-     * @hide
-     */
+    @Hide
+    @RequiresNoPermission
     public int getNumOfMatches() {
         return mNumOfMatchesPerFilter;
     }
 
     /**
-     * Returns whether only legacy advertisements will be returned.
-     * Legacy advertisements include advertisements as specified
-     * by the Bluetooth core specification 4.2 and below.
+     * Returns whether only legacy advertisements will be returned. Legacy advertisements include
+     * advertisements as specified by the Bluetooth core specification 4.2 and below.
      */
+    @RequiresNoPermission
     public boolean getLegacy() {
         return mLegacy;
     }
 
-    /**
-     * Returns the physical layer used during a scan.
-     */
+    /** Returns the physical layer used during a scan. */
+    @RequiresNoPermission
     public int getPhy() {
         return mPhy;
     }
 
-    /**
-     * Returns report delay timestamp based on the device clock.
-     */
-    public long getReportDelayMillis() {
-        return mReportDelayMillis;
+    @RequiresNoPermission
+    public int getRssiThreshold() {
+        return mRssiThreshold;
     }
 
-    private ScanSettings(int scanMode, int callbackType, int scanResultType,
-            long reportDelayMillis, int matchMode,
-            int numOfMatchesPerFilter, boolean legacy, int phy) {
+    @RequiresNoPermission
+    public @ScanType int getScanType() {
+        return mScanType;
+    }
+
+    private ScanSettings(
+            int scanMode,
+            int callbackType,
+            int scanResultType,
+            long reportDelayMillis,
+            int matchMode,
+            int numOfMatchesPerFilter,
+            boolean legacy,
+            int phy,
+            int rssiThreshold,
+            int scanType) {
         mScanMode = scanMode;
         mCallbackType = callbackType;
         mScanResultType = scanResultType;
@@ -212,6 +294,8 @@ public final class ScanSettings implements Parcelable {
         mMatchMode = matchMode;
         mLegacy = legacy;
         mPhy = phy;
+        mRssiThreshold = rssiThreshold;
+        mScanType = scanType;
     }
 
     private ScanSettings(Parcel in) {
@@ -223,6 +307,8 @@ public final class ScanSettings implements Parcelable {
         mNumOfMatchesPerFilter = in.readInt();
         mLegacy = in.readInt() != 0;
         mPhy = in.readInt();
+        mRssiThreshold = in.readInt();
+        mScanType = in.readInt();
     }
 
     @Override
@@ -235,6 +321,8 @@ public final class ScanSettings implements Parcelable {
         dest.writeInt(mNumOfMatchesPerFilter);
         dest.writeInt(mLegacy ? 1 : 0);
         dest.writeInt(mPhy);
+        dest.writeInt(mRssiThreshold);
+        dest.writeInt(mScanType);
     }
 
     @Override
@@ -242,22 +330,20 @@ public final class ScanSettings implements Parcelable {
         return 0;
     }
 
-    public static final Parcelable.Creator<ScanSettings> CREATOR =
+    public static final @NonNull Parcelable.Creator<ScanSettings> CREATOR =
             new Creator<ScanSettings>() {
-        @Override
-        public ScanSettings[] newArray(int size) {
-            return new ScanSettings[size];
-        }
+                @Override
+                public ScanSettings[] newArray(int size) {
+                    return new ScanSettings[size];
+                }
 
-        @Override
-        public ScanSettings createFromParcel(Parcel in) {
-            return new ScanSettings(in);
-        }
-    };
+                @Override
+                public ScanSettings createFromParcel(Parcel in) {
+                    return new ScanSettings(in);
+                }
+            };
 
-    /**
-     * Builder for {@link ScanSettings}.
-     */
+    /** Builder for {@link ScanSettings}. */
     public static final class Builder {
         private int mScanMode = SCAN_MODE_LOW_POWER;
         private int mCallbackType = CALLBACK_TYPE_ALL_MATCHES;
@@ -266,19 +352,39 @@ public final class ScanSettings implements Parcelable {
         private int mMatchMode = MATCH_MODE_AGGRESSIVE;
         private int mNumOfMatchesPerFilter = MATCH_NUM_MAX_ADVERTISEMENT;
         private boolean mLegacy = true;
-        private int mPhy = PHY_LE_ALL_SUPPORTED;
+        private int mPhy = BluetoothDevice.PHY_LE_1M;
+        private int mRssiThreshold = Byte.MIN_VALUE;
+        private int mScanType = SCAN_TYPE_ACTIVE;
+
+        // Instance initializer for mNumOfMatchesPerFilter
+        {
+            if (CompatChanges.isChangeEnabled(CHANGE_DEFAULT_TRACKABLE_ADV_NUMBER)) {
+                mNumOfMatchesPerFilter = MATCH_NUM_FEW_ADVERTISEMENT;
+            }
+        }
 
         /**
          * Set scan mode for Bluetooth LE scan.
          *
          * @param scanMode The scan mode can be one of {@link ScanSettings#SCAN_MODE_LOW_POWER},
-         * {@link ScanSettings#SCAN_MODE_BALANCED} or {@link ScanSettings#SCAN_MODE_LOW_LATENCY}.
+         *     {@link ScanSettings#SCAN_MODE_BALANCED} or {@link
+         *     ScanSettings#SCAN_MODE_LOW_LATENCY}.
          * @throws IllegalArgumentException If the {@code scanMode} is invalid.
          */
+        @RequiresNoPermission
         public Builder setScanMode(int scanMode) {
-            if (scanMode < SCAN_MODE_OPPORTUNISTIC || scanMode > SCAN_MODE_LOW_LATENCY) {
+            if (!List.of(
+                            SCAN_MODE_OPPORTUNISTIC,
+                            SCAN_MODE_LOW_POWER,
+                            SCAN_MODE_BALANCED,
+                            SCAN_MODE_LOW_LATENCY,
+                            SCAN_MODE_AMBIENT_DISCOVERY,
+                            SCAN_MODE_SCREEN_OFF,
+                            SCAN_MODE_SCREEN_OFF_BALANCED)
+                    .contains(scanMode)) {
                 throw new IllegalArgumentException("invalid scan mode " + scanMode);
             }
+
             mScanMode = scanMode;
             return this;
         }
@@ -289,8 +395,8 @@ public final class ScanSettings implements Parcelable {
          * @param callbackType The callback type flags for the scan.
          * @throws IllegalArgumentException If the {@code callbackType} is invalid.
          */
+        @RequiresNoPermission
         public Builder setCallbackType(int callbackType) {
-
             if (!isValidCallbackType(callbackType)) {
                 throw new IllegalArgumentException("invalid callback type - " + callbackType);
             }
@@ -299,8 +405,9 @@ public final class ScanSettings implements Parcelable {
         }
 
         // Returns true if the callbackType is valid.
-        private boolean isValidCallbackType(int callbackType) {
+        private static boolean isValidCallbackType(int callbackType) {
             if (callbackType == CALLBACK_TYPE_ALL_MATCHES
+                    || callbackType == CALLBACK_TYPE_ALL_MATCHES_AUTO_BATCH
                     || callbackType == CALLBACK_TYPE_FIRST_MATCH
                     || callbackType == CALLBACK_TYPE_MATCH_LOST) {
                 return true;
@@ -312,29 +419,32 @@ public final class ScanSettings implements Parcelable {
          * Set scan result type for Bluetooth LE scan.
          *
          * @param scanResultType Type for scan result, could be either {@link
-         * ScanSettings#SCAN_RESULT_TYPE_FULL} or {@link ScanSettings#SCAN_RESULT_TYPE_ABBREVIATED}.
+         *     ScanSettings#SCAN_RESULT_TYPE_FULL} or {@link
+         *     ScanSettings#SCAN_RESULT_TYPE_ABBREVIATED}.
          * @throws IllegalArgumentException If the {@code scanResultType} is invalid.
-         * @hide
          */
+        @Hide
         @SystemApi
+        @RequiresNoPermission
         public Builder setScanResultType(int scanResultType) {
             if (scanResultType < SCAN_RESULT_TYPE_FULL
                     || scanResultType > SCAN_RESULT_TYPE_ABBREVIATED) {
-                throw new IllegalArgumentException(
-                        "invalid scanResultType - " + scanResultType);
+                throw new IllegalArgumentException("invalid scanResultType - " + scanResultType);
             }
             mScanResultType = scanResultType;
             return this;
         }
 
         /**
-         * Set report delay timestamp for Bluetooth LE scan.
+         * Set report delay timestamp for Bluetooth LE scan. If set to 0, you will be notified of
+         * scan results immediately. If &gt; 0, scan results are queued up and delivered after the
+         * requested delay or 5000 milliseconds (whichever is higher). Note scan results may be
+         * delivered sooner if the internal buffers fill up.
          *
-         * @param reportDelayMillis Delay of report in milliseconds. Set to 0 to be notified of
-         * results immediately. Values &gt; 0 causes the scan results to be queued up and delivered
-         * after the requested delay or when the internal buffers fill up.
-         * @throws IllegalArgumentException If {@code reportDelayMillis} &lt; 0.
+         * @param reportDelayMillis how frequently scan results should be delivered in milliseconds
+         * @throws IllegalArgumentException if {@code reportDelayMillis} &lt; 0
          */
+        @RequiresNoPermission
         public Builder setReportDelay(long reportDelayMillis) {
             if (reportDelayMillis < 0) {
                 throw new IllegalArgumentException("reportDelay must be > 0");
@@ -344,14 +454,15 @@ public final class ScanSettings implements Parcelable {
         }
 
         /**
-         * Set the number of matches for Bluetooth LE scan filters hardware match
+         * Set the number of matches for Bluetooth LE scan filters hardware match.
          *
-         * @param numOfMatches The num of matches can be one of
-         * {@link ScanSettings#MATCH_NUM_ONE_ADVERTISEMENT}
-         * or {@link ScanSettings#MATCH_NUM_FEW_ADVERTISEMENT} or {@link
-         * ScanSettings#MATCH_NUM_MAX_ADVERTISEMENT}
+         * @param numOfMatches The num of matches can be one of {@link
+         *     ScanSettings#MATCH_NUM_ONE_ADVERTISEMENT} or {@link
+         *     ScanSettings#MATCH_NUM_FEW_ADVERTISEMENT} or {@link
+         *     ScanSettings#MATCH_NUM_MAX_ADVERTISEMENT}
          * @throws IllegalArgumentException If the {@code matchMode} is invalid.
          */
+        @RequiresNoPermission
         public Builder setNumOfMatches(int numOfMatches) {
             if (numOfMatches < MATCH_NUM_ONE_ADVERTISEMENT
                     || numOfMatches > MATCH_NUM_MAX_ADVERTISEMENT) {
@@ -362,15 +473,15 @@ public final class ScanSettings implements Parcelable {
         }
 
         /**
-         * Set match mode for Bluetooth LE scan filters hardware match
+         * Set match mode for Bluetooth LE scan filters hardware match.
          *
          * @param matchMode The match mode can be one of {@link ScanSettings#MATCH_MODE_AGGRESSIVE}
-         * or {@link ScanSettings#MATCH_MODE_STICKY}
+         *     or {@link ScanSettings#MATCH_MODE_STICKY}
          * @throws IllegalArgumentException If the {@code matchMode} is invalid.
          */
+        @RequiresNoPermission
         public Builder setMatchMode(int matchMode) {
-            if (matchMode < MATCH_MODE_AGGRESSIVE
-                    || matchMode > MATCH_MODE_STICKY) {
+            if (matchMode < MATCH_MODE_AGGRESSIVE || matchMode > MATCH_MODE_STICKY) {
                 throw new IllegalArgumentException("invalid matchMode " + matchMode);
             }
             mMatchMode = matchMode;
@@ -378,42 +489,90 @@ public final class ScanSettings implements Parcelable {
         }
 
         /**
-         * Set whether only legacy advertisments should be returned in scan results.
-         * Legacy advertisements include advertisements as specified by the
-         * Bluetooth core specification 4.2 and below. This is true by default
-         * for compatibility with older apps.
+         * Set whether only legacy advertisements should be returned in scan results. Legacy
+         * advertisements include advertisements as specified by the Bluetooth core specification
+         * 4.2 and below. This is true by default for compatibility with older apps.
          *
          * @param legacy true if only legacy advertisements will be returned
          */
+        @RequiresNoPermission
         public Builder setLegacy(boolean legacy) {
             mLegacy = legacy;
             return this;
         }
 
         /**
-         * Set the Physical Layer to use during this scan.
-         * This is used only if {@link ScanSettings.Builder#setLegacy}
-         * is set to false.
-         * {@link android.bluetooth.BluetoothAdapter#isLeCodedPhySupported}
-         * may be used to check whether LE Coded phy is supported by calling
-         * {@link android.bluetooth.BluetoothAdapter#isLeCodedPhySupported}.
-         * Selecting an unsupported phy will result in failure to start scan.
+         * Set the Physical Layer to use during this scan. This is used only if {@link
+         * ScanSettings.Builder#setLegacy} is set to false. {@link
+         * android.bluetooth.BluetoothAdapter#isLeCodedPhySupported} may be used to check whether LE
+         * Coded phy is supported by calling {@link
+         * android.bluetooth.BluetoothAdapter#isLeCodedPhySupported}. Selecting an unsupported phy
+         * will result in failure to start scan.
          *
          * @param phy Can be one of {@link BluetoothDevice#PHY_LE_1M}, {@link
-         * BluetoothDevice#PHY_LE_CODED} or {@link ScanSettings#PHY_LE_ALL_SUPPORTED}
+         *     BluetoothDevice#PHY_LE_CODED} or {@link ScanSettings#PHY_LE_ALL_SUPPORTED}
          */
+        @RequiresNoPermission
         public Builder setPhy(int phy) {
             mPhy = phy;
             return this;
         }
 
         /**
-         * Build {@link ScanSettings}.
+         * Sets the RSSI threshold. When filtering by RSSI threshold, an advertisement will pass the
+         * filter only if its RSSI value is greater than or equal to the specified threshold.
+         *
+         * @param rssiThreshold the high threshold of RSSI value. The valid range is [-127, 126].
+         * @return this builder
          */
+        @RequiresNoPermission
+        public @NonNull Builder setRssiThreshold(int rssiThreshold) {
+            mRssiThreshold = rssiThreshold;
+            return this;
+        }
+
+        /**
+         * Sets the scan type. Either {@link #SCAN_TYPE_ACTIVE} or {@link #SCAN_TYPE_PASSIVE} can be
+         * set. The default value is {@link #SCAN_TYPE_ACTIVE}.
+         *
+         * @param scanType Either {@link #SCAN_TYPE_ACTIVE} or {@link #SCAN_TYPE_PASSIVE}. If scan
+         *     type is {@link #SCAN_TYPE_PASSIVE}, scan results are delivered immediately upon
+         *     receiving an advertising report, without waiting for scan responses.
+         * @throws IllegalArgumentException if invalid scan type is given.
+         */
+        @RequiresNoPermission
+        public @NonNull Builder setScanType(@ScanType int scanType) {
+            if (scanType != SCAN_TYPE_PASSIVE && scanType != SCAN_TYPE_ACTIVE) {
+                throw new IllegalArgumentException("invalid scan type");
+            }
+            mScanType = scanType;
+            return this;
+        }
+
+        /**
+         * Build {@link ScanSettings}.
+         *
+         * @throws IllegalArgumentException if the settings cannot be built.
+         */
+        @RequiresNoPermission
         public ScanSettings build() {
-            return new ScanSettings(mScanMode, mCallbackType, mScanResultType,
-                    mReportDelayMillis, mMatchMode,
-                    mNumOfMatchesPerFilter, mLegacy, mPhy);
+            if (mCallbackType == CALLBACK_TYPE_ALL_MATCHES_AUTO_BATCH
+                    && mReportDelayMillis < AUTO_BATCH_MIN_REPORT_DELAY_MILLIS) {
+                throw new IllegalArgumentException(
+                        "report delay for auto batch must be >= "
+                                + AUTO_BATCH_MIN_REPORT_DELAY_MILLIS);
+            }
+            return new ScanSettings(
+                    mScanMode,
+                    mCallbackType,
+                    mScanResultType,
+                    mReportDelayMillis,
+                    mMatchMode,
+                    mNumOfMatchesPerFilter,
+                    mLegacy,
+                    mPhy,
+                    mRssiThreshold,
+                    mScanType);
         }
     }
 }

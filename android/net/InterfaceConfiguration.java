@@ -16,10 +16,9 @@
 
 package android.net;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
-
-import com.google.android.collect.Sets;
 
 import java.util.HashSet;
 
@@ -31,10 +30,17 @@ import java.util.HashSet;
 public class InterfaceConfiguration implements Parcelable {
     private String mHwAddr;
     private LinkAddress mAddr;
-    private HashSet<String> mFlags = Sets.newHashSet();
+    private HashSet<String> mFlags = new HashSet<>();
 
+    // Must be kept in sync with constant in INetd.aidl
     private static final String FLAG_UP = "up";
     private static final String FLAG_DOWN = "down";
+
+    private static final  String[] EMPTY_STRING_ARRAY = new String[0];
+
+    @UnsupportedAppUsage
+    public InterfaceConfiguration() {
+    }
 
     @Override
     public String toString() {
@@ -45,6 +51,7 @@ public class InterfaceConfiguration implements Parcelable {
         return builder.toString();
     }
 
+    @UnsupportedAppUsage
     public Iterable<String> getFlags() {
         return mFlags;
     }
@@ -54,11 +61,13 @@ public class InterfaceConfiguration implements Parcelable {
         return mFlags.contains(flag);
     }
 
+    @UnsupportedAppUsage
     public void clearFlag(String flag) {
         validateFlag(flag);
         mFlags.remove(flag);
     }
 
+    @UnsupportedAppUsage
     public void setFlag(String flag) {
         validateFlag(flag);
         mFlags.add(flag);
@@ -67,6 +76,7 @@ public class InterfaceConfiguration implements Parcelable {
     /**
      * Set flags to mark interface as up.
      */
+    @UnsupportedAppUsage
     public void setInterfaceUp() {
         mFlags.remove(FLAG_DOWN);
         mFlags.add(FLAG_UP);
@@ -75,6 +85,7 @@ public class InterfaceConfiguration implements Parcelable {
     /**
      * Set flags to mark interface as down.
      */
+    @UnsupportedAppUsage
     public void setInterfaceDown() {
         mFlags.remove(FLAG_UP);
         mFlags.add(FLAG_DOWN);
@@ -92,6 +103,7 @@ public class InterfaceConfiguration implements Parcelable {
         return mAddr;
     }
 
+    @UnsupportedAppUsage
     public void setLinkAddress(LinkAddress addr) {
         mAddr = addr;
     }
@@ -148,7 +160,8 @@ public class InterfaceConfiguration implements Parcelable {
         }
     }
 
-    public static final Creator<InterfaceConfiguration> CREATOR = new Creator<
+    @SuppressWarnings("UnsafeParcelApi")
+    public static final @android.annotation.NonNull Creator<InterfaceConfiguration> CREATOR = new Creator<
             InterfaceConfiguration>() {
         public InterfaceConfiguration createFromParcel(Parcel in) {
             InterfaceConfiguration info = new InterfaceConfiguration();

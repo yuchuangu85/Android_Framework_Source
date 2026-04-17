@@ -26,7 +26,7 @@
 
 package java.lang.ref;
 
-import sun.misc.Cleaner;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Reference queues, to which registered reference objects are appended by the
@@ -35,6 +35,8 @@ import sun.misc.Cleaner;
  * @author   Mark Reinhold
  * @since    1.2
  */
+// BEGIN Android-changed: Reimplemented to accomodate a different GC and compiler.
+
 public class ReferenceQueue<T> {
 
     // Reference.queueNext will be set to sQueueNextUnenqueued to indicate
@@ -47,6 +49,9 @@ public class ReferenceQueue<T> {
     private Reference<? extends T> tail = null;
 
     private final Object lock = new Object();
+
+    // Current target of enqueuePending. Either a Cleaner or a ReferenceQueue.
+    private static Object currentTarget = null;
 
     /**
      * Constructs a new reference-object queue.
@@ -67,19 +72,7 @@ public class ReferenceQueue<T> {
             return false;
         }
 
-        if (r instanceof Cleaner) {
-            // If this reference is a Cleaner, then simply invoke the clean method instead
-            // of enqueueing it in the queue. Cleaners are associated with dummy queues that
-            // are never polled and objects are never enqueued on them.
-            Cleaner cl = (sun.misc.Cleaner) r;
-            cl.clean();
-
-            // Update queueNext to indicate that the reference has been
-            // enqueued, but is now removed from the queue.
-            r.queueNext = sQueueNextUnenqueued;
-            return true;
-        }
-
+        // Callers already handled sun.misc.Cleaner instances.
         if (tail == null) {
             head = r;
         } else {
@@ -88,6 +81,22 @@ public class ReferenceQueue<T> {
         tail = r;
         tail.queueNext = r;
         return true;
+    }
+
+    /**
+     * The queue or Runnable from a sun.misc.Cleaner currently being targeted by enqueuePending.
+     * Used only to get slightly informative output for timeouts. May be read via a data race,
+     * but only for crash debugging output.
+     * @hide
+     */
+    public static Object getCurrentTarget() {
+        if (currentTarget instanceof sun.misc.Cleaner cleaner) {
+            // The printed version of the Runnable is likely to be more informative than the
+            // Cleaner itself.
+            return cleaner.getThunk();
+        } else {
+            return currentTarget;
+        }
     }
 
     /**
@@ -109,6 +118,19 @@ public class ReferenceQueue<T> {
      */
     boolean enqueue(Reference<? extends T> reference) {
         synchronized (lock) {
+            if (reference instanceof sun.misc.Cleaner cl) {
+                // If this reference is a Cleaner, then simply invoke the clean method instead of
+                // enqueueing it in the queue. Cleaners are associated with placeholder queues
+                // that are never polled (except for error checking) and objects are never
+                // enqueued on them.
+                cl.clean();
+
+                // Update queueNext to indicate that the reference has been
+                // enqueued, but is now removed from the queue.
+                reference.queueNext = sQueueNextUnenqueued;
+                return true;
+            }
+
             if (enqueueLocked(reference)) {
                 lock.notifyAll();
                 return true;
@@ -147,9 +169,6 @@ public class ReferenceQueue<T> {
      */
     public Reference<? extends T> poll() {
         synchronized (lock) {
-            if (head == null)
-                return null;
-
             return reallyPollLocked();
         }
     }
@@ -214,39 +233,49 @@ public class ReferenceQueue<T> {
      *
      * @hide
      */
-    public static void enqueuePending(Reference<?> list) {
+    public static void enqueuePending(Reference<?> list, AtomicInteger progressCounter) {
         Reference<?> start = list;
         do {
             ReferenceQueue queue = list.queue;
-            if (queue == null) {
+            if (queue == null || sun.misc.Cleaner.isCleanerQueue(queue)) {
                 Reference<?> next = list.pendingNext;
-
-                // Make pendingNext a self-loop to preserve the invariant that
+                // Always make pendingNext a self-loop to preserve the invariant that
                 // once enqueued, pendingNext is non-null -- without leaking
                 // the object pendingNext was previously pointing to.
                 list.pendingNext = list;
+                if (queue != null) {
+                    // This is a Cleaner. Run directly without additional synchronization.
+                    sun.misc.Cleaner cl = (sun.misc.Cleaner) list;
+                    currentTarget = cl;
+                    cl.clean();  // Idempotent. No need to check queueNext first. Handles all
+                                 // exceptions.
+                    list.queueNext = sQueueNextUnenqueued;
+                }
                 list = next;
             } else {
+                currentTarget = queue;
                 // To improve performance, we try to avoid repeated
-                // synchronization on the same queue by batching enqueue of
+                // synchronization on the same queue by batching enqueueing of
                 // consecutive references in the list that have the same
-                // queue.
+                // queue. We limit this so that progressCounter gets incremented
+                // occasionally,
+                final int MAX_ITERS = 100;
+                int i = 0;
                 synchronized (queue.lock) {
+                    // Nothing in here should throw, even OOME,
                     do {
                         Reference<?> next = list.pendingNext;
-
-                        // Make pendingNext a self-loop to preserve the
-                        // invariant that once enqueued, pendingNext is
-                        // non-null -- without leaking the object pendingNext
-                        // was previously pointing to.
                         list.pendingNext = list;
                         queue.enqueueLocked(list);
                         list = next;
-                    } while (list != start && list.queue == queue);
+                    } while (list != start && list.queue == queue && ++i < MAX_ITERS);
                     queue.lock.notifyAll();
                 }
             }
+            progressCounter.incrementAndGet();
         } while (list != start);
+        currentTarget = null;
+        sun.misc.Cleaner.checkCleanerQueueEmpty();
     }
 
     /**
@@ -278,3 +307,4 @@ public class ReferenceQueue<T> {
         }
     }
 }
+// END Android-changed: Reimplemented to accomodate a different GC and compiler.

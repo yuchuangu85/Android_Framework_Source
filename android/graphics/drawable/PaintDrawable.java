@@ -27,6 +27,7 @@ import org.xmlpull.v1.XmlPullParser;
  * Drawable that draws its bounds in the given paint, with optional
  * rounded corners.
 */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class PaintDrawable extends ShapeDrawable {
 
     public PaintDrawable() {

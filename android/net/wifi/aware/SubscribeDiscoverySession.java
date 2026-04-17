@@ -16,6 +16,9 @@
 
 package android.net.wifi.aware;
 
+import static com.android.wifi.flags.Flags.FLAG_MULTI_PEER_AWARE_DATAPATH;
+
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.util.Log;
 
@@ -33,7 +36,7 @@ public class SubscribeDiscoverySession extends DiscoverySession {
     private static final String TAG = "SubscribeDiscSession";
 
     /**
-     * {@hide}
+     * @hide
      */
     public SubscribeDiscoverySession(WifiAwareManager manager, int clientId,
             int sessionId) {
@@ -69,5 +72,33 @@ public class SubscribeDiscoverySession extends DiscoverySession {
 
             mgr.updateSubscribe(mClientId, mSessionId, subscribeConfig);
         }
+    }
+
+    /**
+     * Initiate a Wi-Fi Aware data path request to create a connection with the target peer.
+     * The Aware data path request should be done in the context of a discovery session -
+     * after a {@link DiscoverySessionCallback#onServiceDiscovered(ServiceDiscoveryInfo)} event is
+     * received.
+     * When the Aware data path setup succeeds, both side will receive
+     * {@link DiscoverySessionCallback#onDataPathConnected(PeerHandle, WifiAwareNetworkInfo)}.
+     * Otherwise {@link DiscoverySessionCallback#onDataPathRequestFailed(PeerHandle, int)} will be
+     * called.
+     * @param peerHandle The peer's handle for the data path request.
+     * @param request The data path request.
+     * @return true if framework starts the data path setup successfully, false otherwise.
+     */
+    @FlaggedApi(FLAG_MULTI_PEER_AWARE_DATAPATH)
+    public boolean initiateDataPathRequest(@NonNull PeerHandle peerHandle,
+            @NonNull AwareDataPathRequest request) {
+        if (mTerminated) {
+            return false;
+        }
+
+        WifiAwareManager mgr = mMgr.get();
+        if (mgr == null) {
+            return false;
+        }
+        mgr.requestDataPath(mClientId, mSessionId, peerHandle, request);
+        return true;
     }
 }

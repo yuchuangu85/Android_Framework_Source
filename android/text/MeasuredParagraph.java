@@ -16,23 +16,31 @@
 
 package android.text;
 
+import static com.android.text.flags.Flags.FLAG_NO_BREAK_NO_HYPHENATION_SPAN;
+
+import android.annotation.FlaggedApi;
 import android.annotation.FloatRange;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.Px;
+import android.annotation.SuppressLint;
+import android.annotation.TestApi;
 import android.graphics.Paint;
 import android.graphics.Rect;
+import android.graphics.text.LineBreakConfig;
+import android.graphics.text.MeasuredText;
+import android.icu.lang.UCharacter;
+import android.icu.lang.UCharacterDirection;
+import android.icu.text.Bidi;
 import android.text.AutoGrowArray.ByteArray;
 import android.text.AutoGrowArray.FloatArray;
 import android.text.AutoGrowArray.IntArray;
 import android.text.Layout.Directions;
+import android.text.style.LineBreakConfigSpan;
 import android.text.style.MetricAffectingSpan;
 import android.text.style.ReplacementSpan;
 import android.util.Pools.SynchronizedPool;
-
-import dalvik.annotation.optimization.CriticalNative;
-
-import libcore.util.NativeAllocationRegistry;
 
 import java.util.Arrays;
 
@@ -59,11 +67,10 @@ import java.util.Arrays;
  * MeasuredParagraph is NOT a thread safe object.
  * @hide
  */
+@TestApi
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class MeasuredParagraph {
     private static final char OBJECT_REPLACEMENT_CHARACTER = '\uFFFC';
-
-    private static final NativeAllocationRegistry sRegistry = new NativeAllocationRegistry(
-            MeasuredParagraph.class.getClassLoader(), nGetReleaseFunc(), 1024);
 
     private MeasuredParagraph() {}  // Use build static functions instead.
 
@@ -78,6 +85,7 @@ public class MeasuredParagraph {
      * Recycle the MeasuredParagraph.
      *
      * Do not call any methods after you call this method.
+     * @hide
      */
     public void recycle() {
         release();
@@ -111,6 +119,8 @@ public class MeasuredParagraph {
     // This is empty if mLtrWithoutBidi is true.
     private @NonNull ByteArray mLevels = new ByteArray();
 
+    private Bidi mBidi;
+
     // The whole width of the text.
     // See getWholeWidth comments.
     private @FloatRange(from = 0.0f) float mWholeWidth;
@@ -128,31 +138,17 @@ public class MeasuredParagraph {
     private @Nullable IntArray mFontMetrics = new IntArray(4 * 4);
 
     // The native MeasuredParagraph.
-    // See getNativePtr comments.
-    // Do not modify these members directly. Use bindNativeObject/unbindNativeObject instead.
-    private /* Maybe Zero */ long mNativePtr = 0;
-    private @Nullable Runnable mNativeObjectCleaner;
+    private @Nullable MeasuredText mMeasuredText;
 
-    // Associate the native object to this Java object.
-    private void bindNativeObject(/* Non Zero*/ long nativePtr) {
-        mNativePtr = nativePtr;
-        mNativeObjectCleaner = sRegistry.registerNativeAllocation(this, nativePtr);
-    }
-
-    // Decouple the native object from this Java object and release the native object.
-    private void unbindNativeObject() {
-        if (mNativePtr != 0) {
-            mNativeObjectCleaner.run();
-            mNativePtr = 0;
-        }
-    }
-
-    // Following two objects are for avoiding object allocation.
-    private @NonNull TextPaint mCachedPaint = new TextPaint();
+    // Following three objects are for avoiding object allocation.
+    private final @NonNull TextPaint mCachedPaint = new TextPaint();
     private @Nullable Paint.FontMetricsInt mCachedFm;
+    private final @NonNull LineBreakConfig.Builder mLineBreakConfigBuilder =
+            new LineBreakConfig.Builder();
 
     /**
      * Releases internal buffers.
+     * @hide
      */
     public void release() {
         reset();
@@ -173,13 +169,15 @@ public class MeasuredParagraph {
         mWidths.clear();
         mFontMetrics.clear();
         mSpanEndCache.clear();
-        unbindNativeObject();
+        mMeasuredText = null;
+        mBidi = null;
     }
 
     /**
      * Returns the length of the paragraph.
      *
      * This is always available.
+     * @hide
      */
     public int getTextLength() {
         return mTextLength;
@@ -189,6 +187,7 @@ public class MeasuredParagraph {
      * Returns the characters to be measured.
      *
      * This is always available.
+     * @hide
      */
     public @NonNull char[] getChars() {
         return mCopiedBuffer;
@@ -198,25 +197,80 @@ public class MeasuredParagraph {
      * Returns the paragraph direction.
      *
      * This is always available.
+     * @hide
      */
     public @Layout.Direction int getParagraphDir() {
-        return mParaDir;
+        if (mBidi == null) {
+            return Layout.DIR_LEFT_TO_RIGHT;
+        }
+        return (mBidi.getParaLevel() & 0x01) == 0
+                ? Layout.DIR_LEFT_TO_RIGHT : Layout.DIR_RIGHT_TO_LEFT;
     }
 
     /**
      * Returns the directions.
      *
      * This is always available.
+     * @hide
      */
     public Directions getDirections(@IntRange(from = 0) int start,  // inclusive
                                     @IntRange(from = 0) int end) {  // exclusive
-        if (mLtrWithoutBidi) {
+        // Easy case: mBidi == null means the text is all LTR and no bidi suppot is needed.
+        if (mBidi == null) {
             return Layout.DIRS_ALL_LEFT_TO_RIGHT;
         }
 
-        final int length = end - start;
-        return AndroidBidi.directions(mParaDir, mLevels.getRawArray(), start, mCopiedBuffer, start,
-                length);
+        // Easy case: If the original text only contains single directionality run, the
+        // substring is only single run.
+        if (start == end) {
+            if ((mBidi.getParaLevel() & 0x01) == 0) {
+                return Layout.DIRS_ALL_LEFT_TO_RIGHT;
+            } else {
+                return Layout.DIRS_ALL_RIGHT_TO_LEFT;
+            }
+        }
+
+        // Okay, now we need to generate the line instance.
+        Bidi bidi = mBidi.createLineBidi(start, end);
+
+        // Easy case: If the line instance only contains single directionality run, no need
+        // to reorder visually.
+        if (bidi.getRunCount() == 1) {
+            if (bidi.getRunLevel(0) == 1) {
+                return Layout.DIRS_ALL_RIGHT_TO_LEFT;
+            } else if (bidi.getRunLevel(0) == 0) {
+                return Layout.DIRS_ALL_LEFT_TO_RIGHT;
+            } else {
+                return new Directions(new int[] {
+                        0, bidi.getRunLevel(0) << Layout.RUN_LEVEL_SHIFT | (end - start)});
+            }
+        }
+
+        // Reorder directionality run visually.
+        byte[] levels = new byte[bidi.getRunCount()];
+        for (int i = 0; i < bidi.getRunCount(); ++i) {
+            levels[i] = (byte) bidi.getRunLevel(i);
+        }
+        int[] visualOrders = Bidi.reorderVisual(levels);
+
+        int[] dirs = new int[bidi.getRunCount() * 2];
+        for (int i = 0; i < bidi.getRunCount(); ++i) {
+            int vIndex;
+            if ((mBidi.getBaseLevel() & 0x01) == 1) {
+                // For the historical reasons, if the base directionality is RTL, the Android
+                // draws from the right, i.e. the visually reordered run needs to be reversed.
+                vIndex = visualOrders[bidi.getRunCount() - i - 1];
+            } else {
+                vIndex = visualOrders[i];
+            }
+
+            // Special packing of dire
+            dirs[i * 2] = bidi.getRunStart(vIndex);
+            dirs[i * 2 + 1] = bidi.getRunLevel(vIndex) << Layout.RUN_LEVEL_SHIFT
+                    | (bidi.getRunLimit(vIndex) - dirs[i * 2]);
+        }
+
+        return new Directions(dirs);
     }
 
     /**
@@ -224,6 +278,7 @@ public class MeasuredParagraph {
      *
      * This is available only if the MeasuredParagraph is computed with buildForMeasurement.
      * Returns 0 in other cases.
+     * @hide
      */
     public @FloatRange(from = 0.0f) float getWholeWidth() {
         return mWholeWidth;
@@ -234,6 +289,7 @@ public class MeasuredParagraph {
      *
      * This is available only if the MeasuredParagraph is computed with buildForMeasurement.
      * Returns empty array in other cases.
+     * @hide
      */
     public @NonNull FloatArray getWidths() {
         return mWidths;
@@ -246,6 +302,7 @@ public class MeasuredParagraph {
      *
      * This is available only if the MeasuredParagraph is computed with buildForStaticLayout.
      * Returns empty array in other cases.
+     * @hide
      */
     public @NonNull IntArray getSpanEndCache() {
         return mSpanEndCache;
@@ -258,6 +315,7 @@ public class MeasuredParagraph {
      *
      * This is available only if the MeasuredParagraph is computed with buildForStaticLayout.
      * Returns empty array in other cases.
+     * @hide
      */
     public @NonNull IntArray getFontMetrics() {
         return mFontMetrics;
@@ -267,10 +325,11 @@ public class MeasuredParagraph {
      * Returns the native ptr of the MeasuredParagraph.
      *
      * This is available only if the MeasuredParagraph is computed with buildForStaticLayout.
-     * Returns 0 in other cases.
+     * Returns null in other cases.
+     * @hide
      */
-    public /* Maybe Zero */ long getNativePtr() {
-        return mNativePtr;
+    public MeasuredText getMeasuredText() {
+        return mMeasuredText;
     }
 
     /**
@@ -281,9 +340,10 @@ public class MeasuredParagraph {
      *
      * @param start the inclusive start offset of the target region in the text
      * @param end the exclusive end offset of the target region in the text
+     * @hide
      */
     public float getWidth(int start, int end) {
-        if (mNativePtr == 0) {
+        if (mMeasuredText == null) {
             // We have result in Java.
             final float[] widths = mWidths.getRawArray();
             float r = 0.0f;
@@ -293,7 +353,7 @@ public class MeasuredParagraph {
             return r;
         } else {
             // We have result in native.
-            return nGetWidth(mNativePtr, start, end);
+            return mMeasuredText.getWidth(start, end);
         }
     }
 
@@ -302,10 +362,32 @@ public class MeasuredParagraph {
      * at (0, 0).
      *
      * This is available only if the MeasuredParagraph is computed with buildForStaticLayout.
+     * @hide
      */
     public void getBounds(@IntRange(from = 0) int start, @IntRange(from = 0) int end,
             @NonNull Rect bounds) {
-        nGetBounds(mNativePtr, mCopiedBuffer, start, end, bounds);
+        mMeasuredText.getBounds(start, end, bounds);
+    }
+
+    /**
+     * Retrieves the font metrics for the given range.
+     *
+     * This is available only if the MeasuredParagraph is computed with buildForStaticLayout.
+     * @hide
+     */
+    public void getFontMetricsInt(@IntRange(from = 0) int start, @IntRange(from = 0) int end,
+            @NonNull Paint.FontMetricsInt fmi) {
+        mMeasuredText.getFontMetricsInt(start, end, fmi);
+    }
+
+    /**
+     * Returns a width of the character at the offset.
+     *
+     * This is available only if the MeasuredParagraph is computed with buildForStaticLayout.
+     * @hide
+     */
+    public float getCharWidthAt(@IntRange(from = 0) int offset) {
+        return mMeasuredText.getCharWidthAt(offset);
     }
 
     /**
@@ -321,6 +403,7 @@ public class MeasuredParagraph {
      * @param recycle pass existing MeasuredParagraph if you want to recycle it.
      *
      * @return measured text
+     * @hide
      */
     public static @NonNull MeasuredParagraph buildForBidi(@NonNull CharSequence text,
                                                      @IntRange(from = 0) int start,
@@ -346,6 +429,7 @@ public class MeasuredParagraph {
      * @param recycle pass existing MeasuredParagraph if you want to recycle it.
      *
      * @return measured text
+     * @hide
      */
     public static @NonNull MeasuredParagraph buildForMeasurement(@NonNull TextPaint paint,
                                                             @NonNull CharSequence text,
@@ -364,20 +448,53 @@ public class MeasuredParagraph {
         if (mt.mSpanned == null) {
             // No style change by MetricsAffectingSpan. Just measure all text.
             mt.applyMetricsAffectingSpan(
-                    paint, null /* spans */, start, end, 0 /* native static layout ptr */);
+                    paint, null /* lineBreakConfig */, null /* spans */, null /* lbcSpans */,
+                    start, end, null /* native builder ptr */, null);
         } else {
             // There may be a MetricsAffectingSpan. Split into span transitions and apply styles.
             int spanEnd;
             for (int spanStart = start; spanStart < end; spanStart = spanEnd) {
-                spanEnd = mt.mSpanned.nextSpanTransition(spanStart, end, MetricAffectingSpan.class);
+                int maSpanEnd = mt.mSpanned.nextSpanTransition(spanStart, end,
+                        MetricAffectingSpan.class);
+                int lbcSpanEnd = mt.mSpanned.nextSpanTransition(spanStart, end,
+                        LineBreakConfigSpan.class);
+                spanEnd = Math.min(maSpanEnd, lbcSpanEnd);
                 MetricAffectingSpan[] spans = mt.mSpanned.getSpans(spanStart, spanEnd,
                         MetricAffectingSpan.class);
+                LineBreakConfigSpan[] lbcSpans = mt.mSpanned.getSpans(spanStart, spanEnd,
+                        LineBreakConfigSpan.class);
                 spans = TextUtils.removeEmptySpans(spans, mt.mSpanned, MetricAffectingSpan.class);
+                lbcSpans = TextUtils.removeEmptySpans(lbcSpans, mt.mSpanned,
+                        LineBreakConfigSpan.class);
                 mt.applyMetricsAffectingSpan(
-                        paint, spans, spanStart, spanEnd, 0 /* native static layout ptr */);
+                        paint, null /* line break config */, spans, lbcSpans, spanStart, spanEnd,
+                        null /* native builder ptr */, null);
             }
         }
         return mt;
+    }
+
+    /**
+     * A test interface for observing the style run calculation.
+     * @hide
+     */
+    @TestApi
+    @FlaggedApi(FLAG_NO_BREAK_NO_HYPHENATION_SPAN)
+    public interface StyleRunCallback {
+        /**
+         * Called when a single style run is identified.
+         */
+        @FlaggedApi(FLAG_NO_BREAK_NO_HYPHENATION_SPAN)
+        void onAppendStyleRun(@NonNull Paint paint,
+                @Nullable LineBreakConfig lineBreakConfig, @IntRange(from = 0) int length,
+                boolean isRtl);
+
+        /**
+         * Called when a single replacement run is identified.
+         */
+        @FlaggedApi(FLAG_NO_BREAK_NO_HYPHENATION_SPAN)
+        void onAppendReplacementRun(@NonNull Paint paint,
+                @IntRange(from = 0) int length, @Px @FloatRange(from = 0) float width);
     }
 
     /**
@@ -387,65 +504,129 @@ public class MeasuredParagraph {
      * result to recycle and returns recycle.
      *
      * @param paint the paint to be used for rendering the text.
+     * @param lineBreakConfig the line break configuration for text wrapping.
      * @param text the character sequence to be measured
      * @param start the inclusive start offset of the target region in the text
      * @param end the exclusive end offset of the target region in the text
      * @param textDir the text direction
+     * @param hyphenationMode a hyphenation mode
+     * @param computeLayout true if need to compute full layout, otherwise false.
+     * @param hint pass if you already have measured paragraph.
      * @param recycle pass existing MeasuredParagraph if you want to recycle it.
      *
      * @return measured text
+     * @hide
      */
     public static @NonNull MeasuredParagraph buildForStaticLayout(
             @NonNull TextPaint paint,
+            @Nullable LineBreakConfig lineBreakConfig,
             @NonNull CharSequence text,
             @IntRange(from = 0) int start,
             @IntRange(from = 0) int end,
             @NonNull TextDirectionHeuristic textDir,
-            boolean computeHyphenation,
+            int hyphenationMode,
             boolean computeLayout,
+            boolean computeBounds,
+            @Nullable MeasuredParagraph hint,
             @Nullable MeasuredParagraph recycle) {
+        return buildForStaticLayoutInternal(paint, lineBreakConfig, text, start, end, textDir,
+                hyphenationMode, computeLayout, computeBounds, hint, recycle, null);
+    }
+
+    /**
+     * Generates new MeasuredParagraph for StaticLayout.
+     *
+     * If recycle is null, this returns new instance. If recycle is not null, this fills computed
+     * result to recycle and returns recycle.
+     *
+     * @param paint the paint to be used for rendering the text.
+     * @param lineBreakConfig the line break configuration for text wrapping.
+     * @param text the character sequence to be measured
+     * @param start the inclusive start offset of the target region in the text
+     * @param end the exclusive end offset of the target region in the text
+     * @param textDir the text direction
+     * @param hyphenationMode a hyphenation mode
+     * @param computeLayout true if need to compute full layout, otherwise false.
+     *
+     * @return measured text
+     * @hide
+     */
+    @SuppressLint("ExecutorRegistration")
+    @TestApi
+    @NonNull
+    @FlaggedApi(FLAG_NO_BREAK_NO_HYPHENATION_SPAN)
+    public static MeasuredParagraph buildForStaticLayoutTest(
+            @NonNull TextPaint paint,
+            @Nullable LineBreakConfig lineBreakConfig,
+            @NonNull CharSequence text,
+            @IntRange(from = 0) int start,
+            @IntRange(from = 0) int end,
+            @NonNull TextDirectionHeuristic textDir,
+            int hyphenationMode,
+            boolean computeLayout,
+            @Nullable StyleRunCallback testCallback) {
+        return buildForStaticLayoutInternal(paint, lineBreakConfig, text, start, end, textDir,
+                hyphenationMode, computeLayout, false, null, null, testCallback);
+    }
+
+    private static @NonNull MeasuredParagraph buildForStaticLayoutInternal(
+            @NonNull TextPaint paint,
+            @Nullable LineBreakConfig lineBreakConfig,
+            @NonNull CharSequence text,
+            @IntRange(from = 0) int start,
+            @IntRange(from = 0) int end,
+            @NonNull TextDirectionHeuristic textDir,
+            int hyphenationMode,
+            boolean computeLayout,
+            boolean computeBounds,
+            @Nullable MeasuredParagraph hint,
+            @Nullable MeasuredParagraph recycle,
+            @Nullable StyleRunCallback testCallback) {
         final MeasuredParagraph mt = recycle == null ? obtain() : recycle;
         mt.resetAndAnalyzeBidi(text, start, end, textDir);
+        final MeasuredText.Builder builder;
+        if (hint == null) {
+            builder = new MeasuredText.Builder(mt.mCopiedBuffer)
+                    .setComputeHyphenation(hyphenationMode)
+                    .setComputeLayout(computeLayout)
+                    .setComputeBounds(computeBounds);
+        } else {
+            builder = new MeasuredText.Builder(hint.mMeasuredText);
+        }
         if (mt.mTextLength == 0) {
             // Need to build empty native measured text for StaticLayout.
             // TODO: Stop creating empty measured text for empty lines.
-            long nativeBuilderPtr = nInitBuilder();
-            try {
-                mt.bindNativeObject(
-                        nBuildNativeMeasuredParagraph(nativeBuilderPtr, mt.mCopiedBuffer,
-                              computeHyphenation, computeLayout));
-            } finally {
-                nFreeBuilder(nativeBuilderPtr);
-            }
-            return mt;
-        }
-
-        long nativeBuilderPtr = nInitBuilder();
-        try {
+            mt.mMeasuredText = builder.build();
+        } else {
             if (mt.mSpanned == null) {
                 // No style change by MetricsAffectingSpan. Just measure all text.
-                mt.applyMetricsAffectingSpan(paint, null /* spans */, start, end, nativeBuilderPtr);
+                mt.applyMetricsAffectingSpan(paint, lineBreakConfig, null /* spans */, null,
+                        start, end, builder, testCallback);
                 mt.mSpanEndCache.append(end);
             } else {
                 // There may be a MetricsAffectingSpan. Split into span transitions and apply
                 // styles.
                 int spanEnd;
                 for (int spanStart = start; spanStart < end; spanStart = spanEnd) {
-                    spanEnd = mt.mSpanned.nextSpanTransition(spanStart, end,
+                    int maSpanEnd = mt.mSpanned.nextSpanTransition(spanStart, end,
                                                              MetricAffectingSpan.class);
+                    int lbcSpanEnd = mt.mSpanned.nextSpanTransition(spanStart, end,
+                            LineBreakConfigSpan.class);
+                    spanEnd = Math.min(maSpanEnd, lbcSpanEnd);
                     MetricAffectingSpan[] spans = mt.mSpanned.getSpans(spanStart, spanEnd,
                             MetricAffectingSpan.class);
+                    LineBreakConfigSpan[] lbcSpans = mt.mSpanned.getSpans(spanStart, spanEnd,
+                            LineBreakConfigSpan.class);
                     spans = TextUtils.removeEmptySpans(spans, mt.mSpanned,
                                                        MetricAffectingSpan.class);
-                    mt.applyMetricsAffectingSpan(paint, spans, spanStart, spanEnd,
-                                                 nativeBuilderPtr);
+                    lbcSpans = TextUtils.removeEmptySpans(lbcSpans, mt.mSpanned,
+                                                       LineBreakConfigSpan.class);
+                    mt.applyMetricsAffectingSpan(paint, lineBreakConfig, spans, lbcSpans, spanStart,
+                            spanEnd, builder, testCallback);
                     mt.mSpanEndCache.append(spanEnd);
                 }
             }
-            mt.bindNativeObject(nBuildNativeMeasuredParagraph(nativeBuilderPtr, mt.mCopiedBuffer,
-                      computeHyphenation, computeLayout));
-        } finally {
-            nFreeBuilder(nativeBuilderPtr);
+            mt.mMeasuredText = builder.build();
         }
 
         return mt;
@@ -492,38 +673,65 @@ public class MeasuredParagraph {
                 || textDir == TextDirectionHeuristics.ANYRTL_LTR)
                 && TextUtils.doesNotNeedBidi(mCopiedBuffer, 0, mTextLength)) {
             mLevels.clear();
-            mParaDir = Layout.DIR_LEFT_TO_RIGHT;
             mLtrWithoutBidi = true;
-        } else {
-            final int bidiRequest;
-            if (textDir == TextDirectionHeuristics.LTR) {
-                bidiRequest = Layout.DIR_REQUEST_LTR;
-            } else if (textDir == TextDirectionHeuristics.RTL) {
-                bidiRequest = Layout.DIR_REQUEST_RTL;
-            } else if (textDir == TextDirectionHeuristics.FIRSTSTRONG_LTR) {
-                bidiRequest = Layout.DIR_REQUEST_DEFAULT_LTR;
-            } else if (textDir == TextDirectionHeuristics.FIRSTSTRONG_RTL) {
-                bidiRequest = Layout.DIR_REQUEST_DEFAULT_RTL;
-            } else {
-                final boolean isRtl = textDir.isRtl(mCopiedBuffer, 0, mTextLength);
-                bidiRequest = isRtl ? Layout.DIR_REQUEST_RTL : Layout.DIR_REQUEST_LTR;
-            }
-            mLevels.resize(mTextLength);
-            mParaDir = AndroidBidi.bidi(bidiRequest, mCopiedBuffer, mLevels.getRawArray());
-            mLtrWithoutBidi = false;
+            return;
         }
+        final int bidiRequest;
+        if (textDir == TextDirectionHeuristics.LTR) {
+            bidiRequest = Bidi.LTR;
+        } else if (textDir == TextDirectionHeuristics.RTL) {
+            bidiRequest = Bidi.RTL;
+        } else if (textDir == TextDirectionHeuristics.FIRSTSTRONG_LTR) {
+            bidiRequest = Bidi.LEVEL_DEFAULT_LTR;
+        } else if (textDir == TextDirectionHeuristics.FIRSTSTRONG_RTL) {
+            bidiRequest = Bidi.LEVEL_DEFAULT_RTL;
+        } else {
+            final boolean isRtl = textDir.isRtl(mCopiedBuffer, 0, mTextLength);
+            bidiRequest = isRtl ? Bidi.RTL : Bidi.LTR;
+        }
+        mBidi = new Bidi(mCopiedBuffer, 0, null, 0, mCopiedBuffer.length, bidiRequest);
+
+        if (mCopiedBuffer.length > 0
+                && mBidi.getParagraphIndex(mCopiedBuffer.length - 1) != 0) {
+            // Historically, the MeasuredParagraph does not treat the CR letters as paragraph
+            // breaker but ICU BiDi treats it as paragraph breaker. In the MeasureParagraph,
+            // the given range always represents a single paragraph, so if the BiDi object has
+            // multiple paragraph, it should contains a CR letters in the text. Using CR is not
+            // common in Android and also it should not penalize the easy case, e.g. all LTR,
+            // check the paragraph count here and replace the CR letters and re-calculate
+            // BiDi again.
+            for (int i = 0; i < mTextLength; ++i) {
+                if (Character.isSurrogate(mCopiedBuffer[i])) {
+                    // All block separators are in BMP.
+                    continue;
+                }
+                if (UCharacter.getDirection(mCopiedBuffer[i])
+                        == UCharacterDirection.BLOCK_SEPARATOR) {
+                    mCopiedBuffer[i] = OBJECT_REPLACEMENT_CHARACTER;
+                }
+            }
+            mBidi = new Bidi(mCopiedBuffer, 0, null, 0, mCopiedBuffer.length, bidiRequest);
+        }
+        mLevels.resize(mTextLength);
+        byte[] rawArray = mLevels.getRawArray();
+        for (int i = 0; i < mTextLength; ++i) {
+            rawArray[i] = mBidi.getLevelAt(i);
+        }
+        mLtrWithoutBidi = false;
     }
 
     private void applyReplacementRun(@NonNull ReplacementSpan replacement,
                                      @IntRange(from = 0) int start,  // inclusive, in copied buffer
                                      @IntRange(from = 0) int end,  // exclusive, in copied buffer
-                                     /* Maybe Zero */ long nativeBuilderPtr) {
+                                     @NonNull TextPaint paint,
+                                     @Nullable MeasuredText.Builder builder,
+                                     @Nullable StyleRunCallback testCallback) {
         // Use original text. Shouldn't matter.
         // TODO: passing uninitizlied FontMetrics to developers. Do we need to keep this for
         //       backward compatibility? or Should we initialize them for getFontMetricsInt?
         final float width = replacement.getSize(
-                mCachedPaint, mSpanned, start + mTextStart, end + mTextStart, mCachedFm);
-        if (nativeBuilderPtr == 0) {
+                paint, mSpanned, start + mTextStart, end + mTextStart, mCachedFm);
+        if (builder == null) {
             // Assigns all width to the first character. This is the same behavior as minikin.
             mWidths.set(start, width);
             if (end > start + 1) {
@@ -531,24 +739,40 @@ public class MeasuredParagraph {
             }
             mWholeWidth += width;
         } else {
-            nAddReplacementRun(nativeBuilderPtr, mCachedPaint.getNativeInstance(), start, end,
-                               width);
+            builder.appendReplacementRun(paint, end - start, width);
+        }
+        if (testCallback != null) {
+            testCallback.onAppendReplacementRun(paint, end - start, width);
         }
     }
 
     private void applyStyleRun(@IntRange(from = 0) int start,  // inclusive, in copied buffer
                                @IntRange(from = 0) int end,  // exclusive, in copied buffer
-                               /* Maybe Zero */ long nativeBuilderPtr) {
+                               @NonNull TextPaint paint,
+                               @Nullable LineBreakConfig config,
+                               @Nullable MeasuredText.Builder builder,
+                               @Nullable StyleRunCallback testCallback) {
 
         if (mLtrWithoutBidi) {
             // If the whole text is LTR direction, just apply whole region.
-            if (nativeBuilderPtr == 0) {
-                mWholeWidth += mCachedPaint.getTextRunAdvances(
-                        mCopiedBuffer, start, end - start, start, end - start, false /* isRtl */,
-                        mWidths.getRawArray(), start);
+            if (builder == null) {
+                // For the compatibility reasons, the letter spacing should not be dropped at the
+                // left and right edge.
+                int oldFlag = paint.getFlags();
+                paint.setFlags(paint.getFlags()
+                        | (Paint.TEXT_RUN_FLAG_LEFT_EDGE | Paint.TEXT_RUN_FLAG_RIGHT_EDGE));
+                try {
+                    mWholeWidth += paint.getTextRunAdvances(
+                            mCopiedBuffer, start, end - start, start, end - start,
+                            false /* isRtl */, mWidths.getRawArray(), start);
+                } finally {
+                    paint.setFlags(oldFlag);
+                }
             } else {
-                nAddStyleRun(nativeBuilderPtr, mCachedPaint.getNativeInstance(), start, end,
-                        false /* isRtl */);
+                builder.appendStyleRun(paint, config, end - start, false /* isRtl */);
+            }
+            if (testCallback != null) {
+                testCallback.onAppendStyleRun(paint, config, end - start, false);
             }
         } else {
             // If there is multiple bidi levels, split into individual bidi level and apply style.
@@ -558,14 +782,23 @@ public class MeasuredParagraph {
             for (int levelStart = start, levelEnd = start + 1;; ++levelEnd) {
                 if (levelEnd == end || mLevels.get(levelEnd) != level) {  // transition point
                     final boolean isRtl = (level & 0x1) != 0;
-                    if (nativeBuilderPtr == 0) {
+                    if (builder == null) {
                         final int levelLength = levelEnd - levelStart;
-                        mWholeWidth += mCachedPaint.getTextRunAdvances(
-                                mCopiedBuffer, levelStart, levelLength, levelStart, levelLength,
-                                isRtl, mWidths.getRawArray(), levelStart);
+                        int oldFlag = paint.getFlags();
+                        paint.setFlags(paint.getFlags()
+                                | (Paint.TEXT_RUN_FLAG_LEFT_EDGE | Paint.TEXT_RUN_FLAG_RIGHT_EDGE));
+                        try {
+                            mWholeWidth += paint.getTextRunAdvances(
+                                    mCopiedBuffer, levelStart, levelLength, levelStart, levelLength,
+                                    isRtl, mWidths.getRawArray(), levelStart);
+                        } finally {
+                            paint.setFlags(oldFlag);
+                        }
                     } else {
-                        nAddStyleRun(nativeBuilderPtr, mCachedPaint.getNativeInstance(), levelStart,
-                                levelEnd, isRtl);
+                        builder.appendStyleRun(paint, config, levelEnd - levelStart, isRtl);
+                    }
+                    if (testCallback != null) {
+                        testCallback.onAppendStyleRun(paint, config, levelEnd - levelStart, isRtl);
                     }
                     if (levelEnd == end) {
                         break;
@@ -579,15 +812,18 @@ public class MeasuredParagraph {
 
     private void applyMetricsAffectingSpan(
             @NonNull TextPaint paint,
+            @Nullable LineBreakConfig lineBreakConfig,
             @Nullable MetricAffectingSpan[] spans,
+            @Nullable LineBreakConfigSpan[] lbcSpans,
             @IntRange(from = 0) int start,  // inclusive, in original text buffer
             @IntRange(from = 0) int end,  // exclusive, in original text buffer
-            /* Maybe Zero */ long nativeBuilderPtr) {
+            @Nullable MeasuredText.Builder builder,
+            @Nullable StyleRunCallback testCallback) {
         mCachedPaint.set(paint);
         // XXX paint should not have a baseline shift, but...
         mCachedPaint.baselineShift = 0;
 
-        final boolean needFontMetrics = nativeBuilderPtr != 0;
+        final boolean needFontMetrics = builder != null;
 
         if (needFontMetrics && mCachedFm == null) {
             mCachedFm = new Paint.FontMetricsInt();
@@ -607,18 +843,27 @@ public class MeasuredParagraph {
             }
         }
 
+        if (lbcSpans != null) {
+            mLineBreakConfigBuilder.reset(lineBreakConfig);
+            for (LineBreakConfigSpan lbcSpan : lbcSpans) {
+                mLineBreakConfigBuilder.merge(lbcSpan.getLineBreakConfig());
+            }
+            lineBreakConfig = mLineBreakConfigBuilder.build();
+        }
+
         final int startInCopiedBuffer = start - mTextStart;
         final int endInCopiedBuffer = end - mTextStart;
 
-        if (nativeBuilderPtr != 0) {
+        if (builder != null) {
             mCachedPaint.getFontMetricsInt(mCachedFm);
         }
 
         if (replacement != null) {
-            applyReplacementRun(replacement, startInCopiedBuffer, endInCopiedBuffer,
-                                nativeBuilderPtr);
+            applyReplacementRun(replacement, startInCopiedBuffer, endInCopiedBuffer, mCachedPaint,
+                    builder, testCallback);
         } else {
-            applyStyleRun(startInCopiedBuffer, endInCopiedBuffer, nativeBuilderPtr);
+            applyStyleRun(startInCopiedBuffer, endInCopiedBuffer, mCachedPaint,
+                    lineBreakConfig, builder, testCallback);
         }
 
         if (needFontMetrics) {
@@ -687,61 +932,9 @@ public class MeasuredParagraph {
 
     /**
      * This only works if the MeasuredParagraph is computed with buildForStaticLayout.
+     * @hide
      */
     public @IntRange(from = 0) int getMemoryUsage() {
-        return nGetMemoryUsage(mNativePtr);
+        return mMeasuredText.getMemoryUsage();
     }
-
-    private static native /* Non Zero */ long nInitBuilder();
-
-    /**
-     * Apply style to make native measured text.
-     *
-     * @param nativeBuilderPtr The native MeasuredParagraph builder pointer.
-     * @param paintPtr The native paint pointer to be applied.
-     * @param start The start offset in the copied buffer.
-     * @param end The end offset in the copied buffer.
-     * @param isRtl True if the text is RTL.
-     */
-    private static native void nAddStyleRun(/* Non Zero */ long nativeBuilderPtr,
-                                            /* Non Zero */ long paintPtr,
-                                            @IntRange(from = 0) int start,
-                                            @IntRange(from = 0) int end,
-                                            boolean isRtl);
-
-    /**
-     * Apply ReplacementRun to make native measured text.
-     *
-     * @param nativeBuilderPtr The native MeasuredParagraph builder pointer.
-     * @param paintPtr The native paint pointer to be applied.
-     * @param start The start offset in the copied buffer.
-     * @param end The end offset in the copied buffer.
-     * @param width The width of the replacement.
-     */
-    private static native void nAddReplacementRun(/* Non Zero */ long nativeBuilderPtr,
-                                                  /* Non Zero */ long paintPtr,
-                                                  @IntRange(from = 0) int start,
-                                                  @IntRange(from = 0) int end,
-                                                  @FloatRange(from = 0) float width);
-
-    private static native long nBuildNativeMeasuredParagraph(/* Non Zero */ long nativeBuilderPtr,
-                                                 @NonNull char[] text,
-                                                 boolean computeHyphenation,
-                                                 boolean computeLayout);
-
-    private static native void nFreeBuilder(/* Non Zero */ long nativeBuilderPtr);
-
-    @CriticalNative
-    private static native float nGetWidth(/* Non Zero */ long nativePtr,
-                                         @IntRange(from = 0) int start,
-                                         @IntRange(from = 0) int end);
-
-    @CriticalNative
-    private static native /* Non Zero */ long nGetReleaseFunc();
-
-    @CriticalNative
-    private static native int nGetMemoryUsage(/* Non Zero */ long nativePtr);
-
-    private static native void nGetBounds(long nativePtr, char[] buf, int start, int end,
-            Rect rect);
 }

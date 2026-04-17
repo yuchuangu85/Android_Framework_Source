@@ -16,6 +16,8 @@
 
 package com.android.internal.util;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 import org.xmlpull.v1.XmlSerializer;
 
 import java.io.IOException;
@@ -37,7 +39,7 @@ import java.nio.charset.UnsupportedCharsetException;
  * painfully slow like the normal one.  It only does what is needed for the
  * specific XML files being written with it.
  */
-public class FastXmlSerializer implements XmlSerializer {
+public final class FastXmlSerializer implements XmlSerializer {
     private static final String ESCAPE_TABLE[] = new String[] {
         "&#0;",   "&#1;",   "&#2;",   "&#3;",  "&#4;",    "&#5;",   "&#6;",  "&#7;",  // 0-7
         "&#8;",   "&#9;",   "&#10;",  "&#11;", "&#12;",   "&#13;",  "&#14;", "&#15;", // 8-15
@@ -69,6 +71,7 @@ public class FastXmlSerializer implements XmlSerializer {
     private int mNesting = 0;
     private boolean mLineStart = true;
 
+    @UnsupportedAppUsage
     public FastXmlSerializer() {
         this(DEFAULT_BUFFER_LEN);
     }
@@ -364,8 +367,11 @@ public class FastXmlSerializer implements XmlSerializer {
 
     public void startDocument(String encoding, Boolean standalone) throws IOException,
             IllegalArgumentException, IllegalStateException {
-        append("<?xml version='1.0' encoding='utf-8' standalone='"
-                + (standalone ? "yes" : "no") + "' ?>\n");
+        append("<?xml version='1.0' encoding='utf-8'");
+        if (standalone != null) {
+            append(" standalone='" + (standalone ? "yes" : "no") + "'");
+        }
+        append(" ?>\n");
         mLineStart = true;
     }
 

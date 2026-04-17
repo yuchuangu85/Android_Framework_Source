@@ -16,12 +16,10 @@
 
 package com.android.internal.telephony;
 
-import android.telephony.Rlog;
 import java.util.BitSet;
-import android.telephony.ServiceState;
 
 /**
- * {@hide}
+ * @hide
  *
  * hardware configuration information reported by the ril layer and for
  * use by the telephone framework.

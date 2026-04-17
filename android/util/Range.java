@@ -18,7 +18,9 @@ package android.util;
 
 import static com.android.internal.util.Preconditions.*;
 
-import android.hardware.camera2.utils.HashCodeHelpers;
+import android.annotation.Nullable;
+
+import java.util.Objects;
 
 /**
  * Immutable class for describing the range of two numeric values.
@@ -28,7 +30,7 @@ import android.hardware.camera2.utils.HashCodeHelpers;
  * "integers from 1 to 100 inclusive."
  * </p>
  * <p>
- * All ranges are bounded, and the left side of the range is always {@code >=}
+ * All ranges are bounded, and the left side of the range is always {@code <=}
  * the right side of the range.
  * </p>
  *
@@ -36,6 +38,7 @@ import android.hardware.camera2.utils.HashCodeHelpers;
  * stored must also be immutable. If mutable objects are stored here, then the range
  * effectively becomes mutable. </p>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public final class Range<T extends Comparable<? super T>> {
     /**
      * Create a new immutable range.
@@ -146,7 +149,7 @@ public final class Range<T extends Comparable<? super T>> {
      * @return {@code true} if the ranges are equal, {@code false} otherwise
      */
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (obj == null) {
             return false;
         } else if (this == obj) {
@@ -350,9 +353,9 @@ public final class Range<T extends Comparable<? super T>> {
      */
     @Override
     public int hashCode() {
-        return HashCodeHelpers.hashCodeGeneric(mLower, mUpper);
+        return Objects.hash(mLower, mUpper);
     }
 
     private final T mLower;
     private final T mUpper;
-};
+}

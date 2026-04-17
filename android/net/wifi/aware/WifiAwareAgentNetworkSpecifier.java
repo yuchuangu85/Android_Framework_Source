@@ -17,11 +17,10 @@
 package android.net.wifi.aware;
 
 import android.net.NetworkSpecifier;
+import android.net.wifi.util.HexEncoding;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
-
-import libcore.util.HexEncoding;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -48,7 +47,7 @@ public class WifiAwareAgentNetworkSpecifier extends NetworkSpecifier implements 
     private MessageDigest mDigester;
 
     public WifiAwareAgentNetworkSpecifier() {
-        // do nothing, already initialized to empty
+        initialize();
     }
 
     public WifiAwareAgentNetworkSpecifier(WifiAwareNetworkSpecifier ns) {
@@ -77,7 +76,7 @@ public class WifiAwareAgentNetworkSpecifier extends NetworkSpecifier implements 
         dest.writeArray(mNetworkSpecifiers.toArray());
     }
 
-    public static final Creator<WifiAwareAgentNetworkSpecifier> CREATOR =
+    public static final @android.annotation.NonNull Creator<WifiAwareAgentNetworkSpecifier> CREATOR =
             new Creator<WifiAwareAgentNetworkSpecifier>() {
                 @Override
                 public WifiAwareAgentNetworkSpecifier createFromParcel(Parcel in) {
@@ -121,7 +120,7 @@ public class WifiAwareAgentNetworkSpecifier extends NetworkSpecifier implements 
     }
 
     @Override
-    public boolean satisfiedBy(NetworkSpecifier other) {
+    public boolean canBeSatisfiedBy(NetworkSpecifier other) {
         if (!(other instanceof WifiAwareAgentNetworkSpecifier)) {
             return false;
         }
@@ -144,9 +143,8 @@ public class WifiAwareAgentNetworkSpecifier extends NetworkSpecifier implements 
     }
 
     @Override
-    public void assertValidFromUid(int requestorUid) {
-        throw new SecurityException(
-                "WifiAwareAgentNetworkSpecifier should not be used in network requests");
+    public NetworkSpecifier redact() {
+        return null;
     }
 
     private void initialize() {
@@ -166,6 +164,7 @@ public class WifiAwareAgentNetworkSpecifier extends NetworkSpecifier implements 
         Parcel parcel = Parcel.obtain();
         ns.writeToParcel(parcel, 0);
         byte[] bytes = parcel.marshall();
+        parcel.recycle();
 
         mDigester.reset();
         mDigester.update(bytes);
@@ -202,14 +201,14 @@ public class WifiAwareAgentNetworkSpecifier extends NetworkSpecifier implements 
 
         @Override
         public void writeToParcel(Parcel dest, int flags) {
-            dest.writeBlob(mData);
+            dest.writeByteArray(mData);
         }
 
-        public static final Creator<ByteArrayWrapper> CREATOR =
+        public static final @android.annotation.NonNull Creator<ByteArrayWrapper> CREATOR =
                 new Creator<ByteArrayWrapper>() {
                     @Override
                     public ByteArrayWrapper createFromParcel(Parcel in) {
-                        return new ByteArrayWrapper(in.readBlob());
+                        return new ByteArrayWrapper(in.createByteArray());
                     }
 
                     @Override

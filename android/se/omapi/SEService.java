@@ -22,13 +22,17 @@
 
 package android.se.omapi;
 
+import android.annotation.BroadcastBehavior;
 import android.annotation.NonNull;
+import android.annotation.SdkConstant;
+import android.annotation.SdkConstant.SdkConstantType;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.IBinder;
 import android.os.RemoteException;
+import android.os.ServiceManager;
 import android.util.Log;
 
 import java.util.HashMap;
@@ -60,6 +64,9 @@ public final class SEService {
      */
     public static final int NO_SUCH_ELEMENT_ERROR = 2;
 
+    /** @hide */
+    private static final String SERVICE_NAME = "android.se.omapi.ISecureElementService/default";
+
     /**
      * Interface to send call-backs to the application when the service is connected.
      */
@@ -69,6 +76,28 @@ public final class SEService {
          */
         void onConnected();
     }
+
+    /**
+     * Broadcast Action: Intent to notify if the secure element state is changed.
+     */
+    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+    @BroadcastBehavior(registeredOnly = true, protectedBroadcast = true)
+    public static final String ACTION_SECURE_ELEMENT_STATE_CHANGED =
+            "android.se.omapi.action.SECURE_ELEMENT_STATE_CHANGED";
+
+    /**
+     * Mandatory extra containing the reader name of the state changed secure element.
+     *
+     * @see Reader#getName()
+     */
+    public static final String EXTRA_READER_NAME = "android.se.omapi.extra.READER_NAME";
+
+    /**
+     * Mandatory extra containing the connected state of the state changed secure element.
+     *
+     * True if the secure element is connected correctly, false otherwise.
+     */
+    public static final String EXTRA_READER_STATE = "android.se.omapi.extra.READER_STATE";
 
     /**
      * Listener object that allows the notification of the caller if this
@@ -93,10 +122,22 @@ public final class SEService {
                 });
             }
         }
+
+        @Override
+        public String getInterfaceHash() {
+            return ISecureElementListener.HASH;
+        }
+
+        @Override
+        public int getInterfaceVersion() {
+            return ISecureElementListener.VERSION;
+        }
     }
     private SEListener mSEListener = new SEListener();
 
     private static final String TAG = "OMAPI.SEService";
+
+    private static final String UICC_TERMINAL = "SIM";
 
     private final Object mLock = new Object();
 
@@ -144,6 +185,14 @@ public final class SEService {
         mSEListener.mListener = listener;
         mSEListener.mExecutor = executor;
 
+        IBinder seService = ServiceManager.checkService(SERVICE_NAME);
+        if (seService != null) {
+            mSecureElementService = ISecureElementService.Stub.asInterface(seService);
+            Log.i(TAG, "Got SecureElementService from system, not sending intent.");
+            executor.execute(listener::onConnected);
+            return;
+        }
+
         mConnection = new ServiceConnection() {
 
             public synchronized void onServiceConnected(
@@ -162,6 +211,8 @@ public final class SEService {
             }
         };
 
+        Log.i(TAG,
+                "No SecureElementService available from system, sending intent to start it");
         Intent intent = new Intent(ISecureElementService.class.getName());
         intent.setClassName("com.android.se",
                             "com.android.se.SecureElementService");
@@ -169,6 +220,8 @@ public final class SEService {
                 mContext.bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
         if (bindingSuccessful) {
             Log.i(TAG, "bindService successful");
+        } else {
+            Log.e(TAG, "bindService failed");
         }
     }
 
@@ -190,32 +243,33 @@ public final class SEService {
      * is of length 0.
      */
     public @NonNull Reader[] getReaders() {
-        if (mSecureElementService == null) {
-            throw new IllegalStateException("service not connected to system");
+        loadReaders();
+
+        return mReaders.values().toArray(new Reader[0]);
+    }
+
+    /**
+      * Obtain a UICC Reader instance with specific slot number from the SecureElementService
+      *
+      * @param slotNumber The index of the uicc slot. The index starts from 1.
+      * @throws IllegalArgumentException if the reader object corresponding to the uiccSlotNumber
+      *         is not exist.
+      * @return A Reader object for this uicc slot.
+      */
+    public @NonNull Reader getUiccReader(int slotNumber) {
+        if (slotNumber < 1) {
+            throw new IllegalArgumentException("slotNumber should be larger than 0");
         }
-        String[] readerNames;
-        try {
-            readerNames = mSecureElementService.getReaders();
-        } catch (RemoteException e) {
-            throw new RuntimeException(e);
+        loadReaders();
+
+        String readerName = UICC_TERMINAL + slotNumber;
+        Reader reader = mReaders.get(readerName);
+
+        if (reader == null) {
+            throw new IllegalArgumentException("Reader:" + readerName + " doesn't exist");
         }
 
-        Reader[] readers = new Reader[readerNames.length];
-        int i = 0;
-        for (String readerName : readerNames) {
-            if (mReaders.get(readerName) == null) {
-                try {
-                    mReaders.put(readerName, new Reader(this, readerName,
-                            getReader(readerName)));
-                    readers[i++] = mReaders.get(readerName);
-                } catch (Exception e) {
-                    Log.e(TAG, "Error adding Reader: " + readerName, e);
-                }
-            } else {
-                readers[i++] = mReaders.get(readerName);
-            }
-        }
-        return readers;
+        return reader;
     }
 
     /**
@@ -268,6 +322,32 @@ public final class SEService {
             return mSecureElementService.getReader(name);
         } catch (RemoteException e) {
             throw new IllegalStateException(e.getMessage());
+        }
+    }
+
+    /**
+     * Load available Secure Element Readers
+     */
+    private void loadReaders() {
+        if (mSecureElementService == null) {
+            throw new IllegalStateException("service not connected to system");
+        }
+        String[] readerNames;
+        try {
+            readerNames = mSecureElementService.getReaders();
+        } catch (RemoteException e) {
+            throw e.rethrowAsRuntimeException();
+        }
+
+        for (String readerName : readerNames) {
+            if (mReaders.get(readerName) == null) {
+                try {
+                    mReaders.put(readerName, new Reader(this, readerName,
+                            getReader(readerName)));
+                } catch (Exception e) {
+                    Log.e(TAG, "Error adding Reader: " + readerName, e);
+                }
+            }
         }
     }
 }

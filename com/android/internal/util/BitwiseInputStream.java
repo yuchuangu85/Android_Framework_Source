@@ -16,6 +16,8 @@
 
 package com.android.internal.util;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
  * An object that provides bitwise incremental read access to a byte array.
  *
@@ -24,6 +26,7 @@ package com.android.internal.util;
  *
  * NOTE -- This class is not threadsafe.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class BitwiseInputStream {
 
     // The byte array being read from.
@@ -49,6 +52,7 @@ public class BitwiseInputStream {
      *
      * @param buf a byte array containing data
      */
+    @UnsupportedAppUsage
     public BitwiseInputStream(byte buf[]) {
         mBuf = buf;
         mEnd = buf.length << 3;
@@ -58,6 +62,7 @@ public class BitwiseInputStream {
     /**
      * Return the number of bit still available for reading.
      */
+    @UnsupportedAppUsage
     public int available() {
         return mEnd - mPos;
     }
@@ -71,6 +76,7 @@ public class BitwiseInputStream {
      * @param bits the amount of data to read (gte 0, lte 8)
      * @return byte of read data (possibly partially filled, from lsb)
      */
+    @UnsupportedAppUsage
     public int read(int bits) throws AccessException {
         int index = mPos >>> 3;
         int offset = 16 - (mPos & 0x07) - bits;  // &7==%8
@@ -92,6 +98,7 @@ public class BitwiseInputStream {
      * @param bits the amount of data to read
      * @return newly allocated byte array of read data
      */
+    @UnsupportedAppUsage
     public byte[] readByteArray(int bits) throws AccessException {
         int bytes = (bits >>> 3) + ((bits & 0x07) > 0 ? 1 : 0);  // &7==%8
         byte[] arr = new byte[bytes];
@@ -107,6 +114,7 @@ public class BitwiseInputStream {
      *
      * @param bits the amount by which to increment the position
      */
+    @UnsupportedAppUsage
     public void skip(int bits) throws AccessException {
         if ((mPos + bits) > mEnd) {
             throw new AccessException("illegal skip " +

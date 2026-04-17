@@ -62,6 +62,10 @@ import sun.security.jca.GetInstance.Instance;
  *     </tr>
  *   </thead>
  *   <tbody>
+ *     <tr>
+ *       <td>AESCMAC</td>
+ *       <td>31+</td>
+ *     </tr>
  *     <tr class="deprecated">
  *       <td>DESMAC</td>
  *       <td>1-8</td>
@@ -122,27 +126,27 @@ import sun.security.jca.GetInstance.Instance;
  *       <td>PBEwithHmacSHA1</td>
  *       <td>1+</td>
  *     </tr>
- *     <tr>
+ *     <tr class="deprecated">
  *       <td>PBEwithHmacSHA224</td>
- *       <td>26+</td>
+ *       <td>26-31</td>
  *     </tr>
- *     <tr>
+ *     <tr class="deprecated">
  *       <td>PBEwithHmacSHA256</td>
- *       <td>26+</td>
+ *       <td>26-31</td>
  *     </tr>
- *     <tr>
+ *     <tr class="deprecated">
  *       <td>PBEwithHmacSHA384</td>
- *       <td>26+</td>
+ *       <td>26-31</td>
  *     </tr>
- *     <tr>
+ *     <tr class="deprecated">
  *       <td>PBEwithHmacSHA512</td>
- *       <td>26+</td>
+ *       <td>26-31</td>
  *     </tr>
  *   </tbody>
  * </table>
  *
  * These algorithms are described in the
- * <a href="{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Mac">
+ * <a href="{@docRoot}/../technotes/guides/security/StandardNames.html#Mac">
  * Mac section</a> of the
  * Java Cryptography Architecture Standard Algorithm Name Documentation.
  *
@@ -243,7 +247,7 @@ public class Mac implements Cloneable {
      *
      * @param algorithm the standard name of the requested MAC algorithm.
      * See the Mac section in the <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Mac">
+     *   "{@docRoot}/../technotes/guides/security/StandardNames.html#Mac">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
@@ -287,7 +291,7 @@ public class Mac implements Cloneable {
      *
      * @param algorithm the standard name of the requested MAC algorithm.
      * See the Mac section in the <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Mac">
+     *   "{@docRoot}/../technotes/guides/security/StandardNames.html#Mac">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *
@@ -327,7 +331,7 @@ public class Mac implements Cloneable {
      *
      * @param algorithm the standard name of the requested MAC algorithm.
      * See the Mac section in the <a href=
-     *   "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#Mac">
+     *   "{@docRoot}/../technotes/guides/security/StandardNames.html#Mac">
      * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
      * for information about standard algorithm names.
      *

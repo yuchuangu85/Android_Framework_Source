@@ -16,22 +16,51 @@
 
 package android.media;
 
+import static android.media.audio.Flags.FLAG_IAMF_DEFINITIONS_API;
+import static android.media.codec.Flags.FLAG_DYNAMIC_COLOR_ASPECTS;
+import static android.media.codec.Flags.FLAG_HLG_EDITING;
+import static android.media.codec.Flags.FLAG_IN_PROCESS_SW_AUDIO_CODEC;
+import static android.media.codec.Flags.FLAG_NULL_OUTPUT_SURFACE;
+import static android.media.codec.Flags.FLAG_REGION_OF_INTEREST;
+import static android.media.codec.Flags.FLAG_APV_SUPPORT;
+import static android.media.codec.Flags.FLAG_VVC_SUPPORT;
+import static android.media.codec.Flags.FLAG_TEMPORAL_LAYER_ENCODING;
+import static android.media.codec.Flags.FLAG_FORMAT_400_444_SUPPORT;
+import static android.media.Utils.intersectSortedDistinctRanges;
+import static android.media.Utils.sortDistinctRanges;
+import static android.media.MediaCodec.GetFlag;
+
+import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
+import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.os.Process;
+import android.os.SystemProperties;
+import android.sysprop.MediaProperties;
 import android.util.Log;
 import android.util.Pair;
 import android.util.Range;
 import android.util.Rational;
 import android.util.Size;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-
-import static android.media.Utils.intersectSortedDistinctRanges;
-import static android.media.Utils.sortDistinctRanges;
+import java.util.SortedSet;
+import java.util.TreeSet;
+import java.util.Vector;
 
 /**
  * Provides information about a given media codec available on the device. You can
@@ -59,15 +88,33 @@ import static android.media.Utils.sortDistinctRanges;
  *
  */
 public final class MediaCodecInfo {
-    private boolean mIsEncoder;
+    private static final String TAG = "MediaCodecInfo";
+
+    private static final int FLAG_IS_ENCODER = (1 << 0);
+    private static final int FLAG_IS_VENDOR = (1 << 1);
+    private static final int FLAG_IS_SOFTWARE_ONLY = (1 << 2);
+    private static final int FLAG_IS_HARDWARE_ACCELERATED = (1 << 3);
+
+    private int mFlags;
     private String mName;
+    private String mCanonicalName;
+    private int mSecurityModel;
     private Map<String, CodecCapabilities> mCaps;
 
     /* package private */ MediaCodecInfo(
-            String name, boolean isEncoder, CodecCapabilities[] caps) {
+            String name, String canonicalName, int flags, CodecCapabilities[] caps) {
+        this(name, canonicalName, flags, caps, SECURITY_MODEL_SANDBOXED);
+    }
+
+    /* package private */ MediaCodecInfo(
+            String name, String canonicalName, int flags, CodecCapabilities[] caps,
+            int securityModel) {
         mName = name;
-        mIsEncoder = isEncoder;
+        mCanonicalName = canonicalName;
+        mFlags = flags;
         mCaps = new HashMap<String, CodecCapabilities>();
+        mSecurityModel = securityModel;
+
         for (CodecCapabilities c: caps) {
             mCaps.put(c.getMimeType(), c);
         }
@@ -75,16 +122,69 @@ public final class MediaCodecInfo {
 
     /**
      * Retrieve the codec name.
+     *
+     * <strong>Note:</strong> Implementations may provide multiple aliases (codec
+     * names) for the same underlying codec, any of which can be used to instantiate the same
+     * underlying codec in {@link MediaCodec#createByCodecName}.
+     *
+     * Applications targeting SDK < {@link android.os.Build.VERSION_CODES#Q}, cannot determine if
+     * the multiple codec names listed in MediaCodecList are in-fact for the same codec.
      */
+    @NonNull
     public final String getName() {
         return mName;
+    }
+
+    /**
+     * Retrieve the underlying codec name.
+     *
+     * Device implementations may provide multiple aliases (codec names) for the same underlying
+     * codec to maintain backward app compatibility. This method returns the name of the underlying
+     * codec name, which must not be another alias. For non-aliases this is always the name of the
+     * codec.
+     */
+    @NonNull
+    public final String getCanonicalName() {
+        return mCanonicalName;
+    }
+
+    /**
+     * Query if the codec is an alias for another underlying codec.
+     */
+    public final boolean isAlias() {
+        return !mName.equals(mCanonicalName);
     }
 
     /**
      * Query if the codec is an encoder.
      */
     public final boolean isEncoder() {
-        return mIsEncoder;
+        return (mFlags & FLAG_IS_ENCODER) != 0;
+    }
+
+    /**
+     * Query if the codec is provided by the Android platform (false) or the device manufacturer
+     * (true).
+     */
+    public final boolean isVendor() {
+        return (mFlags & FLAG_IS_VENDOR) != 0;
+    }
+
+    /**
+     * Query if the codec is software only. Software-only codecs are more secure as they run in
+     * a tighter security sandbox. On the other hand, software-only codecs do not provide any
+     * performance guarantees.
+     */
+    public final boolean isSoftwareOnly() {
+        return (mFlags & FLAG_IS_SOFTWARE_ONLY) != 0;
+    }
+
+    /**
+     * Query if the codec is hardware accelerated. This attribute is provided by the device
+     * manufacturer. Note that it cannot be tested for correctness.
+     */
+    public final boolean isHardwareAccelerated() {
+        return (mFlags & FLAG_IS_HARDWARE_ACCELERATED) != 0;
     }
 
     /**
@@ -108,26 +208,40 @@ public final class MediaCodecInfo {
         public String mName;
         public int mValue;
         public boolean mDefault;
+        public boolean mInternal;
         public Feature(String name, int value, boolean def) {
+            this(name, value, def, false /* internal */);
+        }
+        public Feature(String name, int value, boolean def, boolean internal) {
             mName = name;
             mValue = value;
             mDefault = def;
+            mInternal = internal;
         }
     }
 
     // COMMON CONSTANTS
     private static final Range<Integer> POSITIVE_INTEGERS =
-        Range.create(1, Integer.MAX_VALUE);
+            Range.create(1, Integer.MAX_VALUE);
     private static final Range<Long> POSITIVE_LONGS =
-        Range.create(1l, Long.MAX_VALUE);
+            Range.create(1L, Long.MAX_VALUE);
     private static final Range<Rational> POSITIVE_RATIONALS =
-        Range.create(new Rational(1, Integer.MAX_VALUE),
-                     new Rational(Integer.MAX_VALUE, 1));
-    private static final Range<Integer> SIZE_RANGE = Range.create(1, 32768);
+            Range.create(new Rational(1, Integer.MAX_VALUE),
+                         new Rational(Integer.MAX_VALUE, 1));
     private static final Range<Integer> FRAME_RATE_RANGE = Range.create(0, 960);
     private static final Range<Integer> BITRATE_RANGE = Range.create(0, 500000000);
     private static final int DEFAULT_MAX_SUPPORTED_INSTANCES = 32;
     private static final int MAX_SUPPORTED_INSTANCES_LIMIT = 256;
+
+    private static Range<Integer> SIZE_RANGE;
+    private static synchronized Range<Integer> getSizeRange() {
+        if (SIZE_RANGE == null) {
+            SIZE_RANGE = Process.is64Bit()
+                    ? Range.create(1, 32768)
+                    : Range.create(1, MediaProperties.resolution_limit_32bit().orElse(4096));
+        }
+        return SIZE_RANGE;
+    }
 
     // found stuff that is not supported by framework (=> this should not happen)
     private static final int ERROR_UNRECOGNIZED   = (1 << 0);
@@ -146,12 +260,7 @@ public final class MediaCodecInfo {
      * {@link MediaCodecInfo#getCapabilitiesForType getCapabilitiesForType()}, passing a MIME type.
      */
     public static final class CodecCapabilities {
-        public CodecCapabilities() {
-        }
-
-        // CLASSIFICATION
-        private String mMime;
-        private int mMaxSupportedInstances;
+        private static final String TAG = "CodecCapabilities";
 
         // LEGACY FIELDS
 
@@ -161,7 +270,7 @@ public final class MediaCodecInfo {
         // such as B-frame support, arithmetic coding...
         public CodecProfileLevel[] profileLevels;  // NOTE this array is modifiable by user
 
-        // from OMX_COLOR_FORMATTYPE
+        // from MediaCodecConstants
         /** @deprecated Use {@link #COLOR_Format24bitBGR888}. */
         public static final int COLOR_FormatMonochrome              = 1;
         /** @deprecated Use {@link #COLOR_Format24bitBGR888}. */
@@ -339,11 +448,83 @@ public final class MediaCodecInfo {
         /** @deprecated Use {@link #COLOR_Format32bitABGR8888}. */
         public static final int COLOR_Format24BitABGR6666           = 43;
 
+        /**
+         * P010 is 10-bit-per component 4:2:0 YCbCr semiplanar format.
+         * <p>
+         * This format uses 24 allocated bits per pixel with 15 bits of
+         * data per pixel. Chroma planes are subsampled by 2 both
+         * horizontally and vertically. Each chroma and luma component
+         * has 16 allocated bits in little-endian configuration with 10
+         * MSB of actual data.
+         *
+         * <pre>
+         *            byte                   byte
+         *  <--------- i --------> | <------ i + 1 ------>
+         * +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+         * |     UNUSED      |      Y/Cb/Cr                |
+         * +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+         *  0               5 6   7 0                    7
+         * bit
+         * </pre>
+         *
+         * Use this format with {@link Image}. This format corresponds
+         * to {@link android.graphics.ImageFormat#YCBCR_P010}.
+         * <p>
+         */
+        @SuppressLint("AllUpper")
+        public static final int COLOR_FormatYUVP010                 = 54;
+
+        /**
+         * P210 is 10-bit-per component 4:2:2 YCbCr semiplanar format.
+         * <p>
+         * This format uses 32 allocated bits per pixel with 20 bits of
+         * data per pixel. Chroma planes are subsampled by 2 both
+         * horizontally. Each chroma and luma component
+         * has 16 allocated bits in little-endian configuration with 10
+         * MSB of actual data.
+         *
+         * <pre>
+         *            byte                   byte
+         *  <--------- i --------> | <------ i + 1 ------>
+         * +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+         * |     UNUSED      |      Y/Cb/Cr                |
+         * +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+         *  0               5 6   7 0                    7
+         * bit
+         * </pre>
+         *
+         * Use this format with {@link Image}. This format corresponds
+         * to {@link android.graphics.ImageFormat#YCBCR_P210}.
+         * <p>
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(android.media.codec.Flags.FLAG_P210_FORMAT_SUPPORT)
+        public static final int COLOR_FormatYUVP210                 = 60;
+
         /** @deprecated Use {@link #COLOR_FormatYUV420Flexible}. */
         public static final int COLOR_TI_FormatYUV420PackedSemiPlanar = 0x7f000100;
         // COLOR_FormatSurface indicates that the data will be a GraphicBuffer metadata reference.
-        // In OMX this is called OMX_COLOR_FormatAndroidOpaque.
+        // Note: in OMX this is called OMX_COLOR_FormatAndroidOpaque.
         public static final int COLOR_FormatSurface                   = 0x7F000789;
+
+        /**
+         * 64 bits per pixel RGBA color format, with 16-bit signed
+         * floating point red, green, blue, and alpha components.
+         * <p>
+         *
+         * <pre>
+         *         byte              byte             byte              byte
+         *  <-- i -->|<- i+1 ->|<- i+2 ->|<- i+3 ->|<- i+4 ->|<- i+5 ->|<- i+6 ->|<- i+7 ->
+         * +---------+---------+-------------------+---------+---------+---------+---------+
+         * |        RED        |       GREEN       |       BLUE        |       ALPHA       |
+         * +---------+---------+-------------------+---------+---------+---------+---------+
+         *  0       7 0       7 0       7 0       7 0       7 0       7 0       7 0       7
+         * </pre>
+         *
+         * This corresponds to {@link android.graphics.PixelFormat#RGBA_F16}.
+         */
+        @SuppressLint("AllUpper")
+        public static final int COLOR_Format64bitABGRFloat            = 0x7F000F16;
 
         /**
          * 32 bits per pixel RGBA color format, with 8-bit red, green, blue, and alpha components.
@@ -361,6 +542,26 @@ public final class MediaCodecInfo {
          * This corresponds to {@link android.graphics.PixelFormat#RGBA_8888}.
          */
         public static final int COLOR_Format32bitABGR8888             = 0x7F00A000;
+
+        /**
+         * 32 bits per pixel RGBA color format, with 10-bit red, green,
+         * blue, and 2-bit alpha components.
+         * <p>
+         * Using 32-bit little-endian representation, colors stored as
+         * Red 9:0, Green 19:10, Blue 29:20, and Alpha 31:30.
+         * <pre>
+         *         byte              byte             byte              byte
+         *  <------ i -----> | <---- i+1 ----> | <---- i+2 ----> | <---- i+3 ----->
+         * +-----------------+---+-------------+-------+---------+-----------+-----+
+         * |       RED           |      GREEN          |       BLUE          |ALPHA|
+         * +-----------------+---+-------------+-------+---------+-----------+-----+
+         *  0               7 0 1 2           7 0     3 4       7 0         5 6   7
+         * </pre>
+         *
+         * This corresponds to {@link android.graphics.PixelFormat#RGBA_1010102}.
+         */
+        @SuppressLint("AllUpper")
+        public static final int COLOR_Format32bitABGR2101010          = 0x7F00AAA2;
 
         /**
          * Flexible 12 bits per pixel, subsampled YUV color format with 8-bit chroma and luma
@@ -412,7 +613,7 @@ public final class MediaCodecInfo {
          * Use this format with {@link Image}. This format corresponds to
          * {@link android.graphics.ImageFormat#FLEX_RGB_888}, and can represent
          * {@link #COLOR_Format24bitBGR888} and {@link #COLOR_Format24bitRGB888} formats.
-         * @see Image#getFormat.
+         * @see Image#getFormat()
          */
         public static final int COLOR_FormatRGBFlexible               = 0x7F36B888;
 
@@ -425,7 +626,7 @@ public final class MediaCodecInfo {
          * {@link #COLOR_Format32bitBGRA8888}, {@link #COLOR_Format32bitABGR8888} and
          * {@link #COLOR_Format32bitARGB8888} formats.
          *
-         * @see Image#getFormat
+         * @see Image#getFormat()
          */
         public static final int COLOR_FormatRGBAFlexible              = 0x7F36A888;
 
@@ -433,16 +634,9 @@ public final class MediaCodecInfo {
         public static final int COLOR_QCOM_FormatYUV420SemiPlanar     = 0x7fa30c00;
 
         /**
-         * Defined in the OpenMAX IL specs, color format values are drawn from
-         * OMX_COLOR_FORMATTYPE.
+         * The color format for the media. This is one of the color constants defined in this class.
          */
         public int[] colorFormats; // NOTE this array is modifiable by user
-
-        // FEATURES
-
-        private int mFlagsSupported;
-        private int mFlagsRequired;
-        private int mFlagsVerified;
 
         /**
          * <b>video decoder only</b>: codec supports seamless resolution changes.
@@ -460,6 +654,26 @@ public final class MediaCodecInfo {
         public static final String FEATURE_TunneledPlayback       = "tunneled-playback";
 
         /**
+         * If true, the timestamp of each output buffer is derived from the timestamp of the input
+         * buffer that produced the output. If false, the timestamp of each output buffer is
+         * derived from the timestamp of the first input buffer.
+         */
+        public static final String FEATURE_DynamicTimestamp = "dynamic-timestamp";
+
+        /**
+         * <b>decoder only</b>If true, the codec supports partial (including multiple) access units
+         * per input buffer.
+         */
+        public static final String FEATURE_FrameParsing = "frame-parsing";
+
+        /**
+         * If true, the codec supports multiple access units (for decoding, or to output for
+         * encoders). If false, the codec only supports single access units. Producing multiple
+         * access units for output is an optional feature.
+         */
+        public static final String FEATURE_MultipleFrames = "multiple-frames";
+
+        /**
          * <b>video decoder only</b>: codec supports queuing partial frames.
          */
         public static final String FEATURE_PartialFrame = "partial-frame";
@@ -470,6 +684,820 @@ public final class MediaCodecInfo {
         public static final String FEATURE_IntraRefresh = "intra-refresh";
 
         /**
+         * <b>decoder only</b>: codec supports low latency decoding.
+         * If supported, clients can enable the low latency mode for the decoder.
+         * When the mode is enabled, the decoder doesn't hold input and output data more than
+         * required by the codec standards.
+         */
+        public static final String FEATURE_LowLatency = "low-latency";
+
+        /**
+         * Do not include in REGULAR_CODECS list in MediaCodecList.
+         */
+        private static final String FEATURE_SpecialCodec = "special-codec";
+
+        /**
+         * <b>video encoder only</b>: codec supports quantization parameter bounds.
+         * @see MediaFormat#KEY_VIDEO_QP_MAX
+         * @see MediaFormat#KEY_VIDEO_QP_MIN
+         */
+        @SuppressLint("AllUpper")
+        public static final String FEATURE_QpBounds = "qp-bounds";
+
+        /**
+         * <b>video encoder only</b>: codec supports exporting encoding statistics.
+         * Encoders with this feature can provide the App clients with the encoding statistics
+         * information about the frame.
+         * The scope of encoding statistics is controlled by
+         * {@link MediaFormat#KEY_VIDEO_ENCODING_STATISTICS_LEVEL}.
+         *
+         * @see MediaFormat#KEY_VIDEO_ENCODING_STATISTICS_LEVEL
+         */
+        @SuppressLint("AllUpper") // for consistency with other FEATURE_* constants
+        public static final String FEATURE_EncodingStatistics = "encoding-statistics";
+
+        /**
+         * <b>video encoder only</b>: codec supports HDR editing.
+         * <p>
+         * HDR editing support means that the codec accepts 10-bit HDR
+         * input surface, and it is capable of generating any HDR
+         * metadata required from both YUV and RGB input when the
+         * metadata is not present. This feature is only meaningful when
+         * using an HDR capable profile (and 10-bit HDR input).
+         * <p>
+         * This feature implies that the codec is capable of encoding at
+         * least one HDR format, and that it supports RGBA_1010102 as
+         * well as P010, and optionally RGBA_FP16 input formats, and
+         * that the encoder can generate HDR metadata for all supported
+         * HDR input formats.
+         */
+        @SuppressLint("AllUpper")
+        public static final String FEATURE_HdrEditing = "hdr-editing";
+
+        /**
+         * <b>video encoder only</b>: codec supports HLG editing.
+         * <p>
+         * HLG editing support means that the codec accepts 10-bit HDR
+         * input surface in both YUV and RGB pixel format. This feature
+         * is only meaningful when using a 10-bit (HLG) profile and
+         * 10-bit input.
+         * <p>
+         * This feature implies that the codec is capable of encoding
+         * 10-bit format, and that it supports RGBA_1010102 as
+         * well as P010, and optionally RGBA_FP16 input formats.
+         * <p>
+         * The difference between this feature and {@link
+         * FEATURE_HdrEditing} is that HLG does not require the
+         * generation of HDR metadata and does not use an explicit HDR
+         * profile.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_HLG_EDITING)
+        public static final String FEATURE_HlgEditing = "hlg-editing";
+
+        /**
+         * <b>video decoder only</b>: codec supports dynamically
+         * changing color aspects.
+         * <p>
+         * If true, the codec can propagate color aspect changes during
+         * decoding. This is only meaningful at session boundaries, e.g.
+         * upon processing Picture Parameter Sets prior to a new IDR.
+         * The color aspects may come from the bitstream, or may be
+         * provided using {@link MediaCodec#setParameters} calls.
+         * <p>
+         * If the codec supports both 8-bit and 10-bit profiles, this
+         * feature means that the codec can dynamically switch between 8
+         * and 10-bit profiles, but this is restricted to Surface mode
+         * only.
+         * <p>
+         * If the device supports HDR transfer functions, switching
+         * between SDR and HDR transfer is also supported. Together with
+         * the previous clause this means that switching between SDR and
+         * HDR sessions are supported in Surface mode, as SDR is
+         * typically encoded at 8-bit and HDR at 10-bit.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_DYNAMIC_COLOR_ASPECTS)
+        public static final String FEATURE_DynamicColorAspects = "dynamic-color-aspects";
+
+        /**
+         * <b>video encoder only</b>: codec supports region of interest encoding.
+         * <p>
+         * RoI encoding support means the codec accepts information that specifies the relative
+         * importance of different portions of each video frame. This allows the encoder to
+         * separate a video frame into critical and non-critical regions, and use more bits
+         * (better quality) to represent the critical regions and de-prioritize non-critical
+         * regions. In other words, the encoder chooses a negative qp bias for the critical
+         * portions and a zero or positive qp bias for the non-critical portions.
+         * <p>
+         * At a basic level, if the encoder decides to encode each frame with a uniform
+         * quantization value 'qpFrame' and a 'qpBias' is chosen/suggested for an LCU of the
+         * frame, then the actual qp of the LCU will be 'qpFrame + qpBias', although this value
+         * can be clamped basing on the min-max configured qp bounds for the current encoding
+         * session.
+         * <p>
+         * In a shot, if a group of LCUs pan out quickly they can be marked as non-critical
+         * thereby enabling the encoder to reserve fewer bits during their encoding. Contrarily,
+         * LCUs that remain in shot for a prolonged duration can be encoded at better quality in
+         * one frame thereby setting-up an excellent long-term reference for all future frames.
+         * <p>
+         * Note that by offsetting the quantization of each LCU, the overall bit allocation will
+         * differ from the originally estimated bit allocation, and the encoder will adjust the
+         * frame quantization for subsequent frames to meet the bitrate target. An effective
+         * selection of critical regions can set-up a golden reference and this can compensate
+         * for the bit burden that was introduced due to encoding RoI's at better quality.
+         * On the other hand, an ineffective choice of critical regions might increase the
+         * quality of certain parts of the image but this can hamper quality in subsequent frames.
+         * <p>
+         * @see MediaCodec#PARAMETER_KEY_QP_OFFSET_MAP
+         * @see MediaCodec#PARAMETER_KEY_QP_OFFSET_RECTS
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_REGION_OF_INTEREST)
+        public static final String FEATURE_Roi = "region-of-interest";
+
+        /**
+         * <b>video decoder only</b>: codec supports detaching the
+         * output surface when in Surface mode.
+         * <p> If true, the codec can be configured in Surface mode
+         * without an actual surface (in detached surface mode).
+         * @see MediaCodec#CONFIGURE_FLAG_DETACHED_SURFACE
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_NULL_OUTPUT_SURFACE)
+        public static final String FEATURE_DetachedSurface = "detached-surface";
+
+        /** package private */ interface CodecCapsIntf {
+            CodecCapsIntf dup();
+
+            boolean isFeatureSupported(String name);
+
+            boolean isFeatureRequired(String name);
+
+            boolean isFormatSupported(MediaFormat format);
+
+            MediaFormat getDefaultFormat();
+
+            String getMimeType();
+
+            int getMaxSupportedInstances();
+
+            AudioCapabilities getAudioCapabilities();
+
+            VideoCapabilities getVideoCapabilities();
+
+            EncoderCapabilities getEncoderCapabilities();
+
+            boolean isRegular();
+
+            String[] validFeatures();
+
+            CodecProfileLevel[] getProfileLevels();
+
+            int[] getColorFormats();
+        }
+
+        /* package private */ static final class CodecCapsLegacyImpl implements CodecCapsIntf {
+            // errors while reading profile levels - accessed from sister capabilities
+            int mError;
+
+            private CodecProfileLevel[] mProfileLevels;
+            private int[] mColorFormats;
+
+            // CLASSIFICATION
+            private String mMime;
+            private int mMaxSupportedInstances;
+
+            // FEATURES
+            private int mFlagsSupported;
+            private int mFlagsRequired;
+            private int mFlagsVerified;
+
+            // NEW-STYLE CAPABILITIES
+            // Capabilities for an audio codec.
+            @Nullable
+            private AudioCapabilities mAudioCaps;
+            // Capabilities for a video codec.
+            @Nullable
+            private VideoCapabilities mVideoCaps;
+            // Capabilities specific to an encoder (vs. a decoder).
+            @Nullable
+            private EncoderCapabilities mEncoderCaps;
+            private MediaFormat mDefaultFormat;
+
+            private MediaFormat mCapabilitiesInfo;
+
+            public CodecProfileLevel[] getProfileLevels() {
+                return mProfileLevels;
+            }
+
+            public int[] getColorFormats() {
+                return mColorFormats;
+            }
+
+            public CodecCapsLegacyImpl() {}
+
+            public CodecCapsLegacyImpl dup() {
+                CodecCapsLegacyImpl caps = new CodecCapsLegacyImpl();
+
+                caps.mProfileLevels = Arrays.copyOf(mProfileLevels, mProfileLevels.length);
+                caps.mColorFormats = Arrays.copyOf(mColorFormats, mColorFormats.length);
+
+                caps.mMime = mMime;
+                caps.mMaxSupportedInstances = mMaxSupportedInstances;
+                caps.mFlagsRequired = mFlagsRequired;
+                caps.mFlagsSupported = mFlagsSupported;
+                caps.mFlagsVerified = mFlagsVerified;
+                caps.mAudioCaps = mAudioCaps;
+                caps.mVideoCaps = mVideoCaps;
+                caps.mEncoderCaps = mEncoderCaps;
+                caps.mDefaultFormat = mDefaultFormat;
+                caps.mCapabilitiesInfo = mCapabilitiesInfo;
+
+                return caps;
+            }
+
+            public boolean isFeatureSupported(String name) {
+                return checkFeature(name, mFlagsSupported);
+            }
+
+            public boolean isFeatureRequired(String name) {
+                return checkFeature(name, mFlagsRequired);
+            }
+
+            // Flags are used for feature list creation so separate this into a private
+            // static class to delay reading the flags only when constructing the list.
+            private static class FeatureList {
+                private static Feature[] getDecoderFeatures() {
+                    ArrayList<Feature> features = new ArrayList();
+                    features.add(new Feature(FEATURE_AdaptivePlayback, (1 << 0), true));
+                    features.add(new Feature(FEATURE_SecurePlayback,   (1 << 1), false));
+                    features.add(new Feature(FEATURE_TunneledPlayback, (1 << 2), false));
+                    features.add(new Feature(FEATURE_PartialFrame,     (1 << 3), false));
+                    features.add(new Feature(FEATURE_FrameParsing,     (1 << 4), false));
+                    features.add(new Feature(FEATURE_MultipleFrames,   (1 << 5), false));
+                    features.add(new Feature(FEATURE_DynamicTimestamp, (1 << 6), false));
+                    features.add(new Feature(FEATURE_LowLatency,       (1 << 7), true));
+                    if (GetFlag(() -> android.media.codec.Flags.dynamicColorAspects())) {
+                        features.add(new Feature(FEATURE_DynamicColorAspects, (1 << 8), true));
+                    }
+                    if (GetFlag(() -> android.media.codec.Flags.nullOutputSurface())) {
+                        features.add(new Feature(FEATURE_DetachedSurface,     (1 << 9), true));
+                    }
+
+                    // feature to exclude codec from REGULAR codec list
+                    features.add(new Feature(FEATURE_SpecialCodec,     (1 << 30), false, true));
+
+                    return features.toArray(new Feature[0]);
+                };
+
+                private static Feature[] decoderFeatures = getDecoderFeatures();
+
+                private static Feature[] getEncoderFeatures() {
+                    ArrayList<Feature> features = new ArrayList();
+
+                    features.add(new Feature(FEATURE_IntraRefresh, (1 << 0), false));
+                    features.add(new Feature(FEATURE_MultipleFrames, (1 << 1), false));
+                    features.add(new Feature(FEATURE_DynamicTimestamp, (1 << 2), false));
+                    features.add(new Feature(FEATURE_QpBounds, (1 << 3), false));
+                    features.add(new Feature(FEATURE_EncodingStatistics, (1 << 4), false));
+                    features.add(new Feature(FEATURE_HdrEditing, (1 << 5), false));
+                    if (GetFlag(() -> android.media.codec.Flags.hlgEditing())) {
+                        features.add(new Feature(FEATURE_HlgEditing, (1 << 6), true));
+                    }
+                    if (GetFlag(() -> android.media.codec.Flags.regionOfInterest())) {
+                        features.add(new Feature(FEATURE_Roi, (1 << 7), true));
+                    }
+
+                    // feature to exclude codec from REGULAR codec list
+                    features.add(new Feature(FEATURE_SpecialCodec,     (1 << 30), false, true));
+
+                    return features.toArray(new Feature[0]);
+                };
+
+                private static Feature[] encoderFeatures = getEncoderFeatures();
+
+                public static Feature[] getFeatures(boolean isEncoder) {
+                    if (isEncoder) {
+                        return encoderFeatures;
+                    } else {
+                        return decoderFeatures;
+                    }
+                }
+            }
+
+            /** @hide */
+            public String[] validFeatures() {
+                Feature[] features = getValidFeatures();
+                ArrayList<String> res = new ArrayList();
+                for (int i = 0; i < features.length; i++) {
+                    if (!features[i].mInternal) {
+                        res.add(features[i].mName);
+                    }
+                }
+                return res.toArray(new String[0]);
+            }
+
+            private Feature[] getValidFeatures() {
+                return FeatureList.getFeatures(isEncoder());
+            }
+
+            private boolean checkFeature(String name, int flags) {
+                for (Feature feat: getValidFeatures()) {
+                    if (feat.mName.equals(name)) {
+                        return (flags & feat.mValue) != 0;
+                    }
+                }
+                return false;
+            }
+
+            public boolean isRegular() {
+                // regular codecs only require default features
+                for (Feature feat: getValidFeatures()) {
+                    if (!feat.mDefault && isFeatureRequired(feat.mName)) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            public boolean isFormatSupported(MediaFormat format) {
+                final Map<String, Object> map = format.getMap();
+                final String mime = (String) map.get(MediaFormat.KEY_MIME);
+
+                // mime must match if present
+                if (mime != null && !mMime.equalsIgnoreCase(mime)) {
+                    return false;
+                }
+
+                // check feature support
+                for (Feature feat: getValidFeatures()) {
+                    if (feat.mInternal) {
+                        continue;
+                    }
+
+                    Integer yesNo = (Integer) map.get(MediaFormat.KEY_FEATURE_ + feat.mName);
+                    if (yesNo == null) {
+                        continue;
+                    }
+                    if ((yesNo == 1 && !isFeatureSupported(feat.mName))
+                            || (yesNo == 0 && isFeatureRequired(feat.mName))) {
+                        return false;
+                    }
+                }
+
+                Integer profile = (Integer) map.get(MediaFormat.KEY_PROFILE);
+                Integer level = (Integer) map.get(MediaFormat.KEY_LEVEL);
+
+                if (profile != null) {
+                    if (!supportsProfileLevel(profile, level)) {
+                        return false;
+                    }
+
+                    // If we recognize this profile, check that this format is supported by the
+                    // highest level supported by the codec for that profile. (Ignore specified
+                    // level beyond the above profile/level check as level is only used as a
+                    // guidance. E.g. AVC Level 1 CIF format is supported if codec supports
+                    // level 1.1 even though max size for Level 1 is QCIF. However, MPEG2 Simple
+                    // Profile 1080p format is not supported even if codec supports Main Profile
+                    // Level High, as Simple Profile does not support 1080p.
+                    CodecCapsLegacyImpl levelCaps = null;
+                    int maxLevel = 0;
+                    for (CodecProfileLevel pl : mProfileLevels) {
+                        if (pl.profile == profile && pl.level > maxLevel) {
+                            // H.263 levels are not completely ordered:
+                            // Level45 support only implies Level10 support
+                            if (!mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_H263)
+                                    || pl.level != CodecProfileLevel.H263Level45
+                                    || maxLevel == CodecProfileLevel.H263Level10) {
+                                maxLevel = pl.level;
+                            }
+                        }
+                    }
+                    levelCaps = createFromProfileLevel(mMime, profile, maxLevel);
+                    // We must remove the profile from this format otherwise
+                    // levelCaps.isFormatSupported will get into this same condition and loop
+                    // forever. Furthermore, since levelCaps does not contain features and bitrate
+                    // specific keys, keep only keys relevant for a level check.
+                    Map<String, Object> levelCriticalFormatMap = new HashMap<>(map);
+                    final Set<String> criticalKeys = isVideo()
+                            ? VideoCapabilities.VideoCapsLegacyImpl.VIDEO_LEVEL_CRITICAL_FORMAT_KEYS
+                            : isAudio()
+                            ? AudioCapabilities.AudioCapsLegacyImpl.AUDIO_LEVEL_CRITICAL_FORMAT_KEYS
+                            : null;
+
+                    // critical keys will always contain KEY_MIME, but should also contain others
+                    // to be meaningful
+                    if (criticalKeys != null && criticalKeys.size() > 1 && levelCaps != null) {
+                        levelCriticalFormatMap.keySet().retainAll(criticalKeys);
+
+                        MediaFormat levelCriticalFormat = new MediaFormat(levelCriticalFormatMap);
+                        if (!levelCaps.isFormatSupported(levelCriticalFormat)) {
+                            return false;
+                        }
+                    }
+                }
+                if (mAudioCaps != null && !mAudioCaps.supportsFormat(format)) {
+                    return false;
+                }
+                if (mVideoCaps != null && !mVideoCaps.supportsFormat(format)) {
+                    return false;
+                }
+                if (mEncoderCaps != null && !mEncoderCaps.supportsFormat(format)) {
+                    return false;
+                }
+                return true;
+            }
+
+            private static boolean supportsBitrate(
+                    Range<Integer> bitrateRange, MediaFormat format) {
+                Map<String, Object> map = format.getMap();
+
+                // consider max bitrate over average bitrate for support
+                Integer maxBitrate = (Integer)map.get(MediaFormat.KEY_MAX_BIT_RATE);
+                Integer bitrate = (Integer)map.get(MediaFormat.KEY_BIT_RATE);
+                if (bitrate == null) {
+                    bitrate = maxBitrate;
+                } else if (maxBitrate != null) {
+                    bitrate = Math.max(bitrate, maxBitrate);
+                }
+
+                if (bitrate != null && bitrate > 0) {
+                    return bitrateRange.contains(bitrate);
+                }
+
+                return true;
+            }
+
+            private boolean supportsProfileLevel(int profile, Integer level) {
+                for (CodecProfileLevel pl: mProfileLevels) {
+                    if (pl.profile != profile) {
+                        continue;
+                    }
+
+                    // No specific level requested
+                    if (level == null) {
+                        return true;
+                    }
+
+                    // AAC doesn't use levels
+                    if (mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AAC)) {
+                        return true;
+                    }
+
+                    // DTS doesn't use levels
+                    if (mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_DTS)
+                            || mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_DTS_HD)
+                            || mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_DTS_UHD)) {
+                        return true;
+                    }
+
+                    // H.263 levels are not completely ordered:
+                    // Level45 support only implies Level10 support
+                    if (mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_H263)) {
+                        if (pl.level != level && pl.level == CodecProfileLevel.H263Level45
+                                && level > CodecProfileLevel.H263Level10) {
+                            continue;
+                        }
+                    }
+
+                    // MPEG4 levels are not completely ordered:
+                    // Level1 support only implies Level0 (and not Level0b) support
+                    if (mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_MPEG4)) {
+                        if (pl.level != level && pl.level == CodecProfileLevel.MPEG4Level1
+                                && level > CodecProfileLevel.MPEG4Level0) {
+                            continue;
+                        }
+                    }
+
+                    // HEVC levels incorporate both tiers and levels. Verify tier support.
+                    if (mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_HEVC)) {
+                        boolean supportsHighTier =
+                                (pl.level & CodecProfileLevel.HEVCHighTierLevels) != 0;
+                        boolean checkingHighTier =
+                                (level & CodecProfileLevel.HEVCHighTierLevels) != 0;
+                        // high tier levels are only supported by other high tier levels
+                        if (checkingHighTier && !supportsHighTier) {
+                            continue;
+                        }
+                    }
+
+                    if (pl.level >= level) {
+                        // if we recognize the listed profile/level, we must also recognize the
+                        // profile/level arguments.
+                        if (createFromProfileLevel(mMime, profile, pl.level) != null) {
+                            return createFromProfileLevel(mMime, profile, level) != null;
+                        }
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            public MediaFormat getDefaultFormat() {
+                return mDefaultFormat;
+            }
+
+            public String getMimeType() {
+                return mMime;
+            }
+
+            public int getMaxSupportedInstances() {
+                return mMaxSupportedInstances;
+            }
+
+            private boolean isAudio() {
+                return mAudioCaps != null;
+            }
+
+            public AudioCapabilities getAudioCapabilities() {
+                return mAudioCaps;
+            }
+
+            private boolean isEncoder() {
+                return mEncoderCaps != null;
+            }
+
+            public EncoderCapabilities getEncoderCapabilities() {
+                return mEncoderCaps;
+            }
+
+            private boolean isVideo() {
+                return mVideoCaps != null;
+            }
+
+            public VideoCapabilities getVideoCapabilities() {
+                return mVideoCaps;
+            }
+
+            public static CodecCapsLegacyImpl createFromProfileLevel(
+                    String mime, int profile, int level) {
+                CodecProfileLevel pl = new CodecProfileLevel();
+                pl.profile = profile;
+                pl.level = level;
+                MediaFormat defaultFormat = new MediaFormat();
+                defaultFormat.setString(MediaFormat.KEY_MIME, mime);
+
+                CodecCapsLegacyImpl ret = new CodecCapsLegacyImpl(
+                        new CodecProfileLevel[] { pl }, new int[0], true /* encoder */,
+                        defaultFormat, new MediaFormat() /* info */);
+                if (ret.mError != 0) {
+                    return null;
+                }
+                return ret;
+            }
+
+            /* package private */ CodecCapsLegacyImpl(
+                    CodecProfileLevel[] profLevs, int[] colFmts,
+                    boolean encoder,
+                    Map<String, Object> defaultFormatMap,
+                    Map<String, Object> capabilitiesMap) {
+                this(profLevs, colFmts, encoder,
+                        new MediaFormat(defaultFormatMap),
+                        new MediaFormat(capabilitiesMap));
+            }
+
+            /* package private */ CodecCapsLegacyImpl(
+                    CodecProfileLevel[] profLevs, int[] colFmts, boolean encoder,
+                    MediaFormat defaultFormat, MediaFormat info) {
+                final Map<String, Object> map = info.getMap();
+                mColorFormats = colFmts;
+                mFlagsVerified = 0; // TODO: remove as it is unused
+                mDefaultFormat = defaultFormat;
+                mCapabilitiesInfo = info;
+                mMime = mDefaultFormat.getString(MediaFormat.KEY_MIME);
+
+                /* VP9 introduced profiles around 2016, so some VP9 codecs may not advertise any
+                supported profiles. Determine the level for them using the info they provide. */
+                if (profLevs.length == 0
+                        && mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_VP9)) {
+                    CodecProfileLevel profLev = new CodecProfileLevel();
+                    profLev.profile = CodecProfileLevel.VP9Profile0;
+                    profLev.level = VideoCapabilities.VideoCapsLegacyImpl.equivalentVP9Level(info);
+                    profLevs = new CodecProfileLevel[] { profLev };
+                }
+                mProfileLevels = profLevs;
+
+                if (mMime.toLowerCase(Locale.ROOT).startsWith("audio/")) {
+                    mAudioCaps = AudioCapabilities.create(info, this);
+                    mAudioCaps.getDefaultFormat(mDefaultFormat);
+                } else if (mMime.toLowerCase(Locale.ROOT).startsWith("video/")
+                        || mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_IMAGE_ANDROID_HEIC)) {
+                    mVideoCaps = VideoCapabilities.create(info, this);
+                }
+                if (encoder) {
+                    mEncoderCaps = EncoderCapabilities.create(info, this);
+                    mEncoderCaps.getDefaultFormat(mDefaultFormat);
+                }
+
+                final Map<String, Object> global = MediaCodecList.getGlobalSettings();
+                mMaxSupportedInstances = Utils.parseIntSafely(
+                        global.get("max-concurrent-instances"), DEFAULT_MAX_SUPPORTED_INSTANCES);
+
+                int maxInstances = Utils.parseIntSafely(
+                        map.get("max-concurrent-instances"), mMaxSupportedInstances);
+                mMaxSupportedInstances =
+                        Range.create(1, MAX_SUPPORTED_INSTANCES_LIMIT).clamp(maxInstances);
+
+                for (Feature feat: getValidFeatures()) {
+                    String key = MediaFormat.KEY_FEATURE_ + feat.mName;
+                    Integer yesNo = (Integer)map.get(key);
+                    if (yesNo == null) {
+                        continue;
+                    }
+                    if (yesNo > 0) {
+                        mFlagsRequired |= feat.mValue;
+                    }
+                    mFlagsSupported |= feat.mValue;
+                    if (!feat.mInternal) {
+                        mDefaultFormat.setInteger(key, 1);
+                    }
+                    // TODO restrict features by mFlagsVerified once all codecs reliably verify them
+                }
+            }
+        }
+
+        /* package private */ static final class CodecCapsNativeImpl implements CodecCapsIntf {
+            private long mNativeContext; // accessed by native methods
+
+            private CodecProfileLevel[] mProfileLevels;
+            private int[] mColorFormats;
+
+            // NEW-STYLE CAPABILITIES
+            // Capabilities for an audio codec.
+            @Nullable
+            private AudioCapabilities mAudioCaps;
+            // Capabilities for a video codec.
+            @Nullable
+            private VideoCapabilities mVideoCaps;
+            // Capabilities specific to an encoder (vs. a decoder).
+            @Nullable
+            private EncoderCapabilities mEncoderCaps;
+            private MediaFormat mDefaultFormat;
+
+            public static CodecCapsNativeImpl createFromProfileLevel(
+                    String mime, int profile, int level) {
+                return native_createFromProfileLevel(mime, profile, level);
+            }
+
+            /**
+             * Constructor used by JNI.
+             *
+             * The Java CodecCapabilities object keeps these subobjects to avoid recontructing.
+             */
+            /* package private */ CodecCapsNativeImpl(CodecProfileLevel[] profLevs, int[] colFmts,
+                    MediaFormat defaultFormat, AudioCapabilities audioCaps,
+                    VideoCapabilities videoCaps, EncoderCapabilities encoderCaps) {
+                mProfileLevels = profLevs;
+                mColorFormats = colFmts;
+                mDefaultFormat = defaultFormat;
+                mAudioCaps = audioCaps;
+                mVideoCaps = videoCaps;
+                mEncoderCaps = encoderCaps;
+            }
+
+            public CodecCapsNativeImpl dup() {
+                CodecCapsNativeImpl impl = native_dup();
+                return impl;
+            }
+
+            @Override
+            protected void finalize() {
+                native_finalize();
+            }
+
+            public CodecProfileLevel[] getProfileLevels() {
+                return mProfileLevels;
+            }
+
+            public int[] getColorFormats() {
+                return mColorFormats;
+            }
+
+            public boolean isFeatureSupported(String name) {
+                return native_isFeatureSupported(name);
+            }
+
+            public boolean isFeatureRequired(String name) {
+                return native_isFeatureRequired(name);
+            }
+
+            public String[] validFeatures() {
+                return native_validFeatures();
+            }
+
+            public boolean isRegular() {
+                return native_isRegular();
+            }
+
+            public boolean isFormatSupported(MediaFormat format) {
+                if (format == null) {
+                    throw new NullPointerException();
+                }
+
+                Map<String, Object> formatMap = format.getMap();
+                String[] keys = new String[formatMap.size()];
+                Object[] values = new Object[formatMap.size()];
+
+                int i = 0;
+                for (Map.Entry<String, Object> entry: formatMap.entrySet()) {
+                    keys[i] = entry.getKey();
+                    values[i] = entry.getValue();
+                    ++i;
+                }
+
+                return native_isFormatSupported(keys, values);
+            }
+
+            public MediaFormat getDefaultFormat() {
+                return mDefaultFormat;
+            }
+
+            public String getMimeType() {
+                return native_getMimeType();
+            }
+
+            public int getMaxSupportedInstances() {
+                return native_getMaxSupportedInstances();
+            }
+
+            public AudioCapabilities getAudioCapabilities() {
+                return mAudioCaps;
+            }
+
+            public EncoderCapabilities getEncoderCapabilities() {
+                return mEncoderCaps;
+            }
+
+            public VideoCapabilities getVideoCapabilities() {
+                return mVideoCaps;
+            }
+
+            private static native void native_init();
+            private static native CodecCapsNativeImpl native_createFromProfileLevel(
+                    String mime, int profile, int level);
+            private native CodecCapsNativeImpl native_dup();
+            private native void native_finalize();
+            private native int native_getMaxSupportedInstances();
+            private native String native_getMimeType();
+            private native boolean native_isFeatureRequired(String name);
+            private native boolean native_isFeatureSupported(String name);
+            private native boolean native_isFormatSupported(@Nullable String[] keys,
+                    @Nullable Object[] values);
+            private native boolean native_isRegular();
+            private native String[] native_validFeatures();
+
+            static {
+                System.loadLibrary("media_jni");
+                native_init();
+            }
+        }
+
+        private CodecCapsIntf mImpl;
+
+        /**
+         * Retrieve the codec capabilities for a certain {@code mime type}, {@code
+         * profile} and {@code level}.  If the type, or profile-level combination
+         * is not understood by the framework, it returns null.
+         * <p class=note> In {@link android.os.Build.VERSION_CODES#M}, calling this
+         * method without calling any method of the {@link MediaCodecList} class beforehand
+         * results in a {@link NullPointerException}.</p>
+         */
+        public static CodecCapabilities createFromProfileLevel(
+                String mime, int profile, int level) {
+            CodecCapsIntf impl;
+            if (GetFlag(() -> android.media.codec.Flags.nativeCapabilites())) {
+                impl = CodecCapsNativeImpl.createFromProfileLevel(mime, profile, level);
+            } else {
+                impl = CodecCapsLegacyImpl.createFromProfileLevel(mime, profile, level);
+            }
+            return new CodecCapabilities(impl);
+        }
+
+        public CodecCapabilities() {
+            mImpl = new CodecCapsLegacyImpl();
+        }
+
+        /** package private */ CodecCapabilities(CodecCapsIntf impl) {
+            mImpl = impl;
+            profileLevels = mImpl.getProfileLevels();
+            colorFormats = mImpl.getColorFormats();
+        }
+
+        /** @hide */
+        public CodecCapabilities dup() {
+            CodecCapabilities caps = new CodecCapabilities();
+
+            // profileLevels and colorFormats may be modified by client.
+            caps.profileLevels = Arrays.copyOf(profileLevels, profileLevels.length);
+            caps.colorFormats = Arrays.copyOf(colorFormats, colorFormats.length);
+
+            caps.mImpl = mImpl.dup();
+
+            return caps;
+        }
+
+        /**
          * Query codec feature capabilities.
          * <p>
          * These features are supported to be used by the codec.  These
@@ -477,7 +1505,7 @@ public final class MediaCodecInfo {
          * features that are always on.
          */
         public final boolean isFeatureSupported(String name) {
-            return checkFeature(name, mFlagsSupported);
+            return mImpl.isFeatureSupported(name);
         }
 
         /**
@@ -487,55 +1515,17 @@ public final class MediaCodecInfo {
          * they are always turned on.
          */
         public final boolean isFeatureRequired(String name) {
-            return checkFeature(name, mFlagsRequired);
+            return mImpl.isFeatureRequired(name);
         }
-
-        private static final Feature[] decoderFeatures = {
-            new Feature(FEATURE_AdaptivePlayback, (1 << 0), true),
-            new Feature(FEATURE_SecurePlayback,   (1 << 1), false),
-            new Feature(FEATURE_TunneledPlayback, (1 << 2), false),
-            new Feature(FEATURE_PartialFrame,     (1 << 3), false),
-        };
-
-        private static final Feature[] encoderFeatures = {
-            new Feature(FEATURE_IntraRefresh, (1 << 0), false),
-        };
 
         /** @hide */
         public String[] validFeatures() {
-            Feature[] features = getValidFeatures();
-            String[] res = new String[features.length];
-            for (int i = 0; i < res.length; i++) {
-                res[i] = features[i].mName;
-            }
-            return res;
-        }
-
-        private Feature[] getValidFeatures() {
-            if (!isEncoder()) {
-                return decoderFeatures;
-            }
-            return encoderFeatures;
-        }
-
-        private boolean checkFeature(String name, int flags) {
-            for (Feature feat: getValidFeatures()) {
-                if (feat.mName.equals(name)) {
-                    return (flags & feat.mValue) != 0;
-                }
-            }
-            return false;
+            return mImpl.validFeatures();
         }
 
         /** @hide */
         public boolean isRegular() {
-            // regular codecs only require default features
-            for (Feature feat: getValidFeatures()) {
-                if (!feat.mDefault && isFeatureRequired(feat.mName)) {
-                    return false;
-                }
-            }
-            return true;
+            return mImpl.isRegular();
         }
 
         /**
@@ -550,6 +1540,9 @@ public final class MediaCodecInfo {
          * <p>
          *
          * The following table summarizes the format keys considered by this method.
+         * This is especially important to consider when targeting a higher SDK version than the
+         * minimum SDK version, as this method will disregard some keys on devices below the target
+         * SDK version.
          *
          * <table style="width: 0%">
          *  <thead>
@@ -564,7 +1557,7 @@ public final class MediaCodecInfo {
          *  </thead>
          *  <tbody>
          *   <tr>
-         *    <td>{@link android.os.Build.VERSION_CODES#LOLLIPOP}</th>
+         *    <td>{@link android.os.Build.VERSION_CODES#LOLLIPOP}</td>
          *    <td rowspan=3>{@link MediaFormat#KEY_MIME}<sup>*</sup>,<br>
          *        {@link MediaFormat#KEY_SAMPLE_RATE},<br>
          *        {@link MediaFormat#KEY_CHANNEL_COUNT},</td>
@@ -575,30 +1568,51 @@ public final class MediaCodecInfo {
          *        {@link MediaFormat#KEY_WIDTH},<br>
          *        {@link MediaFormat#KEY_HEIGHT},<br>
          *        <strong>no</strong> {@code KEY_FRAME_RATE}</td>
-         *    <td rowspan=4>{@link MediaFormat#KEY_BITRATE_MODE},<br>
+         *    <td rowspan=10>as to the left, plus<br>
+         *        {@link MediaFormat#KEY_BITRATE_MODE},<br>
          *        {@link MediaFormat#KEY_PROFILE}
          *        (and/or {@link MediaFormat#KEY_AAC_PROFILE}<sup>~</sup>),<br>
          *        <!-- {link MediaFormat#KEY_QUALITY},<br> -->
          *        {@link MediaFormat#KEY_COMPLEXITY}
          *        (and/or {@link MediaFormat#KEY_FLAC_COMPRESSION_LEVEL}<sup>~</sup>)</td>
          *   </tr><tr>
-         *    <td>{@link android.os.Build.VERSION_CODES#LOLLIPOP_MR1}</th>
+         *    <td>{@link android.os.Build.VERSION_CODES#LOLLIPOP_MR1}</td>
          *    <td rowspan=2>as above, plus<br>
          *        {@link MediaFormat#KEY_FRAME_RATE}</td>
          *   </tr><tr>
-         *    <td>{@link android.os.Build.VERSION_CODES#M}</th>
+         *    <td>{@link android.os.Build.VERSION_CODES#M}</td>
          *   </tr><tr>
-         *    <td>{@link android.os.Build.VERSION_CODES#N}</th>
-         *    <td>as above, plus<br>
+         *    <td>{@link android.os.Build.VERSION_CODES#N}</td>
+         *    <td rowspan=2>as above, plus<br>
          *        {@link MediaFormat#KEY_PROFILE},<br>
          *        <!-- {link MediaFormat#KEY_MAX_BIT_RATE},<br> -->
          *        {@link MediaFormat#KEY_BIT_RATE}</td>
-         *    <td>as above, plus<br>
+         *    <td rowspan=2>as above, plus<br>
          *        {@link MediaFormat#KEY_PROFILE},<br>
          *        {@link MediaFormat#KEY_LEVEL}<sup>+</sup>,<br>
          *        <!-- {link MediaFormat#KEY_MAX_BIT_RATE},<br> -->
          *        {@link MediaFormat#KEY_BIT_RATE},<br>
          *        {@link CodecCapabilities#FEATURE_IntraRefresh}<sup>E</sup></td>
+         *   </tr><tr>
+         *    <td>{@link android.os.Build.VERSION_CODES#N_MR1}</td>
+         *   </tr><tr>
+         *    <td>{@link android.os.Build.VERSION_CODES#O}</td>
+         *    <td rowspan=3 colspan=2>as above, plus<br>
+         *        {@link CodecCapabilities#FEATURE_PartialFrame}<sup>D</sup></td>
+         *   </tr><tr>
+         *    <td>{@link android.os.Build.VERSION_CODES#O_MR1}</td>
+         *   </tr><tr>
+         *    <td>{@link android.os.Build.VERSION_CODES#P}</td>
+         *   </tr><tr>
+         *    <td>{@link android.os.Build.VERSION_CODES#Q}</td>
+         *    <td colspan=2>as above, plus<br>
+         *        {@link CodecCapabilities#FEATURE_FrameParsing}<sup>D</sup>,<br>
+         *        {@link CodecCapabilities#FEATURE_MultipleFrames},<br>
+         *        {@link CodecCapabilities#FEATURE_DynamicTimestamp}</td>
+         *   </tr><tr>
+         *    <td>{@link android.os.Build.VERSION_CODES#R}</td>
+         *    <td colspan=2>as above, plus<br>
+         *        {@link CodecCapabilities#FEATURE_LowLatency}<sup>D</sup></td>
          *   </tr>
          *   <tr>
          *    <td colspan=4>
@@ -620,166 +1634,22 @@ public final class MediaCodecInfo {
          *         and feature requests.
          */
         public final boolean isFormatSupported(MediaFormat format) {
-            final Map<String, Object> map = format.getMap();
-            final String mime = (String)map.get(MediaFormat.KEY_MIME);
-
-            // mime must match if present
-            if (mime != null && !mMime.equalsIgnoreCase(mime)) {
-                return false;
-            }
-
-            // check feature support
-            for (Feature feat: getValidFeatures()) {
-                Integer yesNo = (Integer)map.get(MediaFormat.KEY_FEATURE_ + feat.mName);
-                if (yesNo == null) {
-                    continue;
-                }
-                if ((yesNo == 1 && !isFeatureSupported(feat.mName)) ||
-                        (yesNo == 0 && isFeatureRequired(feat.mName))) {
-                    return false;
-                }
-            }
-
-            Integer profile = (Integer)map.get(MediaFormat.KEY_PROFILE);
-            Integer level = (Integer)map.get(MediaFormat.KEY_LEVEL);
-
-            if (profile != null) {
-                if (!supportsProfileLevel(profile, level)) {
-                    return false;
-                }
-
-                // If we recognize this profile, check that this format is supported by the
-                // highest level supported by the codec for that profile. (Ignore specified
-                // level beyond the above profile/level check as level is only used as a
-                // guidance. E.g. AVC Level 1 CIF format is supported if codec supports level 1.1
-                // even though max size for Level 1 is QCIF. However, MPEG2 Simple Profile
-                // 1080p format is not supported even if codec supports Main Profile Level High,
-                // as Simple Profile does not support 1080p.
-                CodecCapabilities levelCaps = null;
-                int maxLevel = 0;
-                for (CodecProfileLevel pl : profileLevels) {
-                    if (pl.profile == profile && pl.level > maxLevel) {
-                        maxLevel = pl.level;
-                    }
-                }
-                levelCaps = createFromProfileLevel(mMime, profile, maxLevel);
-                // remove profile from this format otherwise levelCaps.isFormatSupported will
-                // get into this same conditon and loop forever.
-                Map<String, Object> mapWithoutProfile = new HashMap<>(map);
-                mapWithoutProfile.remove(MediaFormat.KEY_PROFILE);
-                MediaFormat formatWithoutProfile = new MediaFormat(mapWithoutProfile);
-                if (levelCaps != null && !levelCaps.isFormatSupported(formatWithoutProfile)) {
-                    return false;
-                }
-            }
-            if (mAudioCaps != null && !mAudioCaps.supportsFormat(format)) {
-                return false;
-            }
-            if (mVideoCaps != null && !mVideoCaps.supportsFormat(format)) {
-                return false;
-            }
-            if (mEncoderCaps != null && !mEncoderCaps.supportsFormat(format)) {
-                return false;
-            }
-            return true;
+            return mImpl.isFormatSupported(format);
         }
-
-        private static boolean supportsBitrate(
-                Range<Integer> bitrateRange, MediaFormat format) {
-            Map<String, Object> map = format.getMap();
-
-            // consider max bitrate over average bitrate for support
-            Integer maxBitrate = (Integer)map.get(MediaFormat.KEY_MAX_BIT_RATE);
-            Integer bitrate = (Integer)map.get(MediaFormat.KEY_BIT_RATE);
-            if (bitrate == null) {
-                bitrate = maxBitrate;
-            } else if (maxBitrate != null) {
-                bitrate = Math.max(bitrate, maxBitrate);
-            }
-
-            if (bitrate != null && bitrate > 0) {
-                return bitrateRange.contains(bitrate);
-            }
-
-            return true;
-        }
-
-        private boolean supportsProfileLevel(int profile, Integer level) {
-            for (CodecProfileLevel pl: profileLevels) {
-                if (pl.profile != profile) {
-                    continue;
-                }
-
-                // AAC does not use levels
-                if (level == null || mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AAC)) {
-                    return true;
-                }
-
-                // H.263 levels are not completely ordered:
-                // Level45 support only implies Level10 support
-                if (mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_H263)) {
-                    if (pl.level != level && pl.level == CodecProfileLevel.H263Level45
-                            && level > CodecProfileLevel.H263Level10) {
-                        continue;
-                    }
-                }
-
-                // MPEG4 levels are not completely ordered:
-                // Level1 support only implies Level0 (and not Level0b) support
-                if (mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_MPEG4)) {
-                    if (pl.level != level && pl.level == CodecProfileLevel.MPEG4Level1
-                            && level > CodecProfileLevel.MPEG4Level0) {
-                        continue;
-                    }
-                }
-
-                // HEVC levels incorporate both tiers and levels. Verify tier support.
-                if (mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_HEVC)) {
-                    boolean supportsHighTier =
-                        (pl.level & CodecProfileLevel.HEVCHighTierLevels) != 0;
-                    boolean checkingHighTier = (level & CodecProfileLevel.HEVCHighTierLevels) != 0;
-                    // high tier levels are only supported by other high tier levels
-                    if (checkingHighTier && !supportsHighTier) {
-                        continue;
-                    }
-                }
-
-                if (pl.level >= level) {
-                    // if we recognize the listed profile/level, we must also recognize the
-                    // profile/level arguments.
-                    if (createFromProfileLevel(mMime, profile, pl.level) != null) {
-                        return createFromProfileLevel(mMime, profile, level) != null;
-                    }
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        // errors while reading profile levels - accessed from sister capabilities
-        int mError;
-
-        private static final String TAG = "CodecCapabilities";
-
-        // NEW-STYLE CAPABILITIES
-        private AudioCapabilities mAudioCaps;
-        private VideoCapabilities mVideoCaps;
-        private EncoderCapabilities mEncoderCaps;
-        private MediaFormat mDefaultFormat;
 
         /**
          * Returns a MediaFormat object with default values for configurations that have
          * defaults.
          */
         public MediaFormat getDefaultFormat() {
-            return mDefaultFormat;
+            return mImpl.getDefaultFormat();
         }
 
         /**
          * Returns the mime type for which this codec-capability object was created.
          */
         public String getMimeType() {
-            return mMime;
+            return mImpl.getMimeType();
         }
 
         /**
@@ -791,155 +1661,31 @@ public final class MediaCodecInfo {
          * resources at time of use.
          */
         public int getMaxSupportedInstances() {
-            return mMaxSupportedInstances;
-        }
-
-        private boolean isAudio() {
-            return mAudioCaps != null;
+            return mImpl.getMaxSupportedInstances();
         }
 
         /**
          * Returns the audio capabilities or {@code null} if this is not an audio codec.
          */
+        @Nullable
         public AudioCapabilities getAudioCapabilities() {
-            return mAudioCaps;
-        }
-
-        private boolean isEncoder() {
-            return mEncoderCaps != null;
+            return mImpl.getAudioCapabilities();
         }
 
         /**
          * Returns the encoding capabilities or {@code null} if this is not an encoder.
          */
+        @Nullable
         public EncoderCapabilities getEncoderCapabilities() {
-            return mEncoderCaps;
-        }
-
-        private boolean isVideo() {
-            return mVideoCaps != null;
+            return mImpl.getEncoderCapabilities();
         }
 
         /**
          * Returns the video capabilities or {@code null} if this is not a video codec.
          */
+        @Nullable
         public VideoCapabilities getVideoCapabilities() {
-            return mVideoCaps;
-        }
-
-        /** @hide */
-        public CodecCapabilities dup() {
-            CodecCapabilities caps = new CodecCapabilities();
-
-            // profileLevels and colorFormats may be modified by client.
-            caps.profileLevels = Arrays.copyOf(profileLevels, profileLevels.length);
-            caps.colorFormats = Arrays.copyOf(colorFormats, colorFormats.length);
-
-            caps.mMime = mMime;
-            caps.mMaxSupportedInstances = mMaxSupportedInstances;
-            caps.mFlagsRequired = mFlagsRequired;
-            caps.mFlagsSupported = mFlagsSupported;
-            caps.mFlagsVerified = mFlagsVerified;
-            caps.mAudioCaps = mAudioCaps;
-            caps.mVideoCaps = mVideoCaps;
-            caps.mEncoderCaps = mEncoderCaps;
-            caps.mDefaultFormat = mDefaultFormat;
-            caps.mCapabilitiesInfo = mCapabilitiesInfo;
-
-            return caps;
-        }
-
-        /**
-         * Retrieve the codec capabilities for a certain {@code mime type}, {@code
-         * profile} and {@code level}.  If the type, or profile-level combination
-         * is not understood by the framework, it returns null.
-         * <p class=note> In {@link android.os.Build.VERSION_CODES#M}, calling this
-         * method without calling any method of the {@link MediaCodecList} class beforehand
-         * results in a {@link NullPointerException}.</p>
-         */
-        public static CodecCapabilities createFromProfileLevel(
-                String mime, int profile, int level) {
-            CodecProfileLevel pl = new CodecProfileLevel();
-            pl.profile = profile;
-            pl.level = level;
-            MediaFormat defaultFormat = new MediaFormat();
-            defaultFormat.setString(MediaFormat.KEY_MIME, mime);
-
-            CodecCapabilities ret = new CodecCapabilities(
-                new CodecProfileLevel[] { pl }, new int[0], true /* encoder */,
-                0 /* flags */, defaultFormat, new MediaFormat() /* info */);
-            if (ret.mError != 0) {
-                return null;
-            }
-            return ret;
-        }
-
-        /* package private */ CodecCapabilities(
-                CodecProfileLevel[] profLevs, int[] colFmts,
-                boolean encoder, int flags,
-                Map<String, Object>defaultFormatMap,
-                Map<String, Object>capabilitiesMap) {
-            this(profLevs, colFmts, encoder, flags,
-                    new MediaFormat(defaultFormatMap),
-                    new MediaFormat(capabilitiesMap));
-        }
-
-        private MediaFormat mCapabilitiesInfo;
-
-        /* package private */ CodecCapabilities(
-                CodecProfileLevel[] profLevs, int[] colFmts, boolean encoder, int flags,
-                MediaFormat defaultFormat, MediaFormat info) {
-            final Map<String, Object> map = info.getMap();
-            colorFormats = colFmts;
-            mFlagsVerified = flags;
-            mDefaultFormat = defaultFormat;
-            mCapabilitiesInfo = info;
-            mMime = mDefaultFormat.getString(MediaFormat.KEY_MIME);
-
-            /* VP9 introduced profiles around 2016, so some VP9 codecs may not advertise any
-               supported profiles. Determine the level for them using the info they provide. */
-            if (profLevs.length == 0 && mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_VP9)) {
-                CodecProfileLevel profLev = new CodecProfileLevel();
-                profLev.profile = CodecProfileLevel.VP9Profile0;
-                profLev.level = VideoCapabilities.equivalentVP9Level(info);
-                profLevs = new CodecProfileLevel[] { profLev };
-            }
-            profileLevels = profLevs;
-
-            if (mMime.toLowerCase().startsWith("audio/")) {
-                mAudioCaps = AudioCapabilities.create(info, this);
-                mAudioCaps.getDefaultFormat(mDefaultFormat);
-            } else if (mMime.toLowerCase().startsWith("video/")
-                    || mMime.equalsIgnoreCase(MediaFormat.MIMETYPE_IMAGE_ANDROID_HEIC)) {
-                mVideoCaps = VideoCapabilities.create(info, this);
-            }
-            if (encoder) {
-                mEncoderCaps = EncoderCapabilities.create(info, this);
-                mEncoderCaps.getDefaultFormat(mDefaultFormat);
-            }
-
-            final Map<String, Object> global = MediaCodecList.getGlobalSettings();
-            mMaxSupportedInstances = Utils.parseIntSafely(
-                    global.get("max-concurrent-instances"), DEFAULT_MAX_SUPPORTED_INSTANCES);
-
-            int maxInstances = Utils.parseIntSafely(
-                    map.get("max-concurrent-instances"), mMaxSupportedInstances);
-            mMaxSupportedInstances =
-                    Range.create(1, MAX_SUPPORTED_INSTANCES_LIMIT).clamp(maxInstances);
-
-            for (Feature feat: getValidFeatures()) {
-                String key = MediaFormat.KEY_FEATURE_ + feat.mName;
-                Integer yesNo = (Integer)map.get(key);
-                if (yesNo == null) {
-                    continue;
-                }
-                if (yesNo > 0) {
-                    mFlagsRequired |= feat.mValue;
-                }
-                mFlagsSupported |= feat.mValue;
-                mDefaultFormat.setInteger(key, 1);
-                // TODO restrict features by mFlagsVerified once all codecs reliably verify them
-            }
+            return mImpl.getVideoCapabilities();
         }
     }
 
@@ -948,20 +1694,663 @@ public final class MediaCodecInfo {
      */
     public static final class AudioCapabilities {
         private static final String TAG = "AudioCapabilities";
-        private CodecCapabilities mParent;
-        private Range<Integer> mBitrateRange;
 
-        private int[] mSampleRates;
-        private Range<Integer>[] mSampleRateRanges;
-        private int mMaxInputChannelCount;
+        /* package private */ interface AudioCapsIntf {
+            public Range<Integer> getBitrateRange();
 
-        private static final int MAX_INPUT_CHANNEL_COUNT = 30;
+            public int[] getSupportedSampleRates();
+
+            public Range<Integer>[] getSupportedSampleRateRanges();
+
+            public int getMaxInputChannelCount();
+
+            public int getMinInputChannelCount();
+
+            public Range<Integer>[] getInputChannelCountRanges();
+
+            public boolean isSampleRateSupported(int sampleRate);
+
+            public void getDefaultFormat(MediaFormat format);
+
+            public boolean supportsFormat(MediaFormat format);
+        }
+
+        /* package private */ static final class AudioCapsLegacyImpl implements AudioCapsIntf {
+            private CodecCapabilities.CodecCapsLegacyImpl mParent;
+            private Range<Integer> mBitrateRange;
+
+            private int[] mSampleRates;
+            private Range<Integer>[] mSampleRateRanges;
+            private Range<Integer>[] mInputChannelRanges;
+
+            private static final int MAX_INPUT_CHANNEL_COUNT = 30;
+
+            public Range<Integer> getBitrateRange() {
+                return mBitrateRange;
+            }
+
+            public int[] getSupportedSampleRates() {
+                return mSampleRates != null ? Arrays.copyOf(mSampleRates, mSampleRates.length)
+                        : null;
+            }
+
+            public Range<Integer>[] getSupportedSampleRateRanges() {
+                return Arrays.copyOf(mSampleRateRanges, mSampleRateRanges.length);
+            }
+
+            public int getMaxInputChannelCount() {
+                int overall_max = 0;
+                for (int i = mInputChannelRanges.length - 1; i >= 0; i--) {
+                    int lmax = mInputChannelRanges[i].getUpper();
+                    if (lmax > overall_max) {
+                        overall_max = lmax;
+                    }
+                }
+                return overall_max;
+            }
+
+            public int getMinInputChannelCount() {
+                int overall_min = MAX_INPUT_CHANNEL_COUNT;
+                for (int i = mInputChannelRanges.length - 1; i >= 0; i--) {
+                    int lmin = mInputChannelRanges[i].getLower();
+                    if (lmin < overall_min) {
+                        overall_min = lmin;
+                    }
+                }
+                return overall_min;
+            }
+
+            public Range<Integer>[] getInputChannelCountRanges() {
+                return Arrays.copyOf(mInputChannelRanges, mInputChannelRanges.length);
+            }
+
+            /* no public constructor */
+            private AudioCapsLegacyImpl() { }
+
+            public static AudioCapsLegacyImpl create(
+                    MediaFormat info, CodecCapabilities.CodecCapsLegacyImpl parent) {
+                if (GetFlag(() -> android.media.codec.Flags.nativeCapabilites())) {
+                    Log.d(TAG, "Legacy implementation is called while native flag is on.");
+                }
+
+                AudioCapsLegacyImpl caps = new AudioCapsLegacyImpl();
+                caps.init(info, parent);
+                return caps;
+            }
+
+            private void init(MediaFormat info, CodecCapabilities.CodecCapsLegacyImpl parent) {
+                mParent = parent;
+                initWithPlatformLimits();
+                applyLevelLimits();
+                parseFromInfo(info);
+            }
+
+            private void initWithPlatformLimits() {
+                mBitrateRange = Range.create(0, Integer.MAX_VALUE);
+                mInputChannelRanges = new Range[] {Range.create(1, MAX_INPUT_CHANNEL_COUNT)};
+                // mBitrateRange = Range.create(1, 320000);
+                final int minSampleRate = SystemProperties
+                        .getInt("ro.mediacodec.min_sample_rate", 7350);
+                final int maxSampleRate = SystemProperties
+                        .getInt("ro.mediacodec.max_sample_rate", 192000);
+                mSampleRateRanges = new Range[] { Range.create(minSampleRate, maxSampleRate) };
+                mSampleRates = null;
+            }
+
+            private boolean supports(Integer sampleRate, Integer inputChannels) {
+                // channels and sample rates are checked orthogonally
+                if (inputChannels != null) {
+                    int ix = Utils.binarySearchDistinctRanges(
+                            mInputChannelRanges, inputChannels);
+                    if (ix < 0) {
+                        return false;
+                    }
+                }
+                if (sampleRate != null) {
+                    int ix = Utils.binarySearchDistinctRanges(
+                            mSampleRateRanges, sampleRate);
+                    if (ix < 0) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            public boolean isSampleRateSupported(int sampleRate) {
+                return supports(sampleRate, null);
+            }
+
+            /** modifies rates */
+            private void limitSampleRates(int[] rates) {
+                Arrays.sort(rates);
+                ArrayList<Range<Integer>> ranges = new ArrayList<Range<Integer>>();
+                for (int rate: rates) {
+                    if (supports(rate, null /* channels */)) {
+                        ranges.add(Range.create(rate, rate));
+                    }
+                }
+                mSampleRateRanges = ranges.toArray(new Range[ranges.size()]);
+                createDiscreteSampleRates();
+            }
+
+            private void createDiscreteSampleRates() {
+                mSampleRates = new int[mSampleRateRanges.length];
+                for (int i = 0; i < mSampleRateRanges.length; i++) {
+                    mSampleRates[i] = mSampleRateRanges[i].getLower();
+                }
+            }
+
+            /** modifies rateRanges */
+            private void limitSampleRates(Range<Integer>[] rateRanges) {
+                sortDistinctRanges(rateRanges);
+                mSampleRateRanges = intersectSortedDistinctRanges(mSampleRateRanges, rateRanges);
+
+                // check if all values are discrete
+                for (Range<Integer> range: mSampleRateRanges) {
+                    if (!range.getLower().equals(range.getUpper())) {
+                        mSampleRates = null;
+                        return;
+                    }
+                }
+                createDiscreteSampleRates();
+            }
+
+            private static int[] MergeSortedArraysAndRemoveDuplicates(int[] a1, int[] a2) {
+                if (a1 == null) {
+                    return a2;
+                } else if (a2 == null) {
+                    return a1;
+                }
+                Integer[] v1 = Arrays.stream(a1).boxed().toArray(Integer[]::new);
+                Integer[] v2 = Arrays.stream(a2).boxed().toArray(Integer[]::new);
+                SortedSet<Integer> set = new TreeSet<>();
+                set.addAll(Arrays.asList(v1));
+                set.addAll(Arrays.asList(v2));
+                return Arrays.stream(set.toArray(new Integer[set.size()]))
+                                  .mapToInt(Integer::intValue).toArray();
+            }
+
+            private static Range<Integer>[] ConvertDiscreteSampleRatesToRanges(int[] rates) {
+                if (rates == null) {
+                    return null;
+                }
+                ArrayList<Range<Integer>> ranges = new ArrayList<Range<Integer>>();
+                for (int rate: rates) {
+                    ranges.add(Range.create(rate, rate));
+                }
+                return ranges.toArray(new Range[ranges.size()]);
+            }
+
+            private static <T extends Comparable<? super T>> Range<T>[] UnionSortedDistinctRanges(
+                    Range<T>[] a, Range<T>[] b) {
+                if (a == null) {
+                    return b;
+                } else if (b == null) {
+                    return a;
+                }
+                ArrayList<Range<T>> res = new ArrayList<>();
+                Range<T> last = null;
+                int ixA = 0;
+                int ixB = 0;
+                while (ixA < a.length || ixB < b.length) {
+                    Range<T> temp = null;
+                    // In each iteration, we pick the range with smaller lower value.
+                    if (ixB == b.length || (ixA < a.length
+                            && a[ixA].getLower().compareTo(b[ixB].getLower()) <= 0)) {
+                        temp = a[ixA];
+                        ixA++;
+                    } else {
+                        temp = b[ixB];
+                        ixB++;
+                    }
+                    if (last == null) {  // first element
+                        last = temp;
+                        continue;
+                    }
+                    // Compare the last range with current temp range
+                    if (last.getUpper().compareTo(temp.getLower()) < 0) { // no overlap
+                        res.add(last);
+                        last = temp;
+                    } else { // last and temp overlap. Merge them
+                        last = last.extend(temp);
+                    }
+                }
+                if (last != null) {
+                    res.add(last);
+                }
+                return res.toArray(new Range[res.size()]);
+            }
+
+            private void applyLevelLimits() {
+                int[] sampleRates = null;
+                Range<Integer>[] sampleRateRanges = null;
+                Range<Integer> bitRates = null;
+                int maxChannels = 1;
+                CodecProfileLevel[] profileLevels = mParent.getProfileLevels();
+                String mime = mParent.getMimeType();
+
+                if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_MPEG)) {
+                    sampleRates = new int[] {
+                            8000, 11025, 12000,
+                            16000, 22050, 24000,
+                            32000, 44100, 48000 };
+                    bitRates = Range.create(8000, 320000);
+                    maxChannels = 2;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AMR_NB)) {
+                    sampleRates = new int[] { 8000 };
+                    bitRates = Range.create(4750, 12200);
+                    maxChannels = 1;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AMR_WB)) {
+                    sampleRates = new int[] { 16000 };
+                    bitRates = Range.create(6600, 23850);
+                    maxChannels = 1;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AAC)) {
+                    sampleRates = new int[] {
+                            7350, 8000,
+                            11025, 12000, 16000,
+                            22050, 24000, 32000,
+                            44100, 48000, 64000,
+                            88200, 96000 };
+                    bitRates = Range.create(8000, 510000);
+                    maxChannels = 48;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_VORBIS)) {
+                    bitRates = Range.create(32000, 500000);
+                    sampleRateRanges = new Range[] { Range.create(8000, 192000) };
+                    maxChannels = 255;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_OPUS)) {
+                    bitRates = Range.create(6000, 510000);
+                    sampleRates = new int[] { 8000, 12000, 16000, 24000, 48000 };
+                    maxChannels = 255;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_RAW)) {
+                    sampleRateRanges = new Range[] { Range.create(1, 192000) };
+                    bitRates = Range.create(1, 10000000);
+                    maxChannels = AudioSystem.OUT_CHANNEL_COUNT_MAX;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_FLAC)) {
+                    sampleRateRanges = new Range[] { Range.create(1, 655350) };
+                    // lossless codec, so bitrate is ignored
+                    maxChannels = 255;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_G711_ALAW)
+                        || mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_G711_MLAW)) {
+                    sampleRates = new int[] { 8000 };
+                    bitRates = Range.create(64000, 64000);
+                    // platform allows multiple channels for this format
+                    maxChannels = MAX_INPUT_CHANNEL_COUNT;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_MSGSM)) {
+                    sampleRates = new int[] { 8000 };
+                    bitRates = Range.create(13000, 13000);
+                    maxChannels = 1;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AC3)) {
+                    maxChannels = 6;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_EAC3)) {
+                    maxChannels = 16;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_EAC3_JOC)) {
+                    sampleRates = new int[] { 48000 };
+                    bitRates = Range.create(32000, 6144000);
+                    maxChannels = 16;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AC4)) {
+                    sampleRates = new int[] { 44100, 48000, 96000, 192000 };
+                    bitRates = Range.create(16000, 2688000);
+                    maxChannels = 24;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_DTS)) {
+                    sampleRates = new int[] { 44100, 48000 };
+                    bitRates = Range.create(96000, 1524000);
+                    maxChannels = 6;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_DTS_HD)) {
+                    for (CodecProfileLevel profileLevel: profileLevels) {
+                        int[] SR = null;
+                        Range<Integer> BR = null;
+                        switch (profileLevel.profile) {
+                            case CodecProfileLevel.DTS_HDProfileLBR:
+                                SR = new int[]{ 22050, 24000, 44100, 48000 };
+                                BR = Range.create(32000, 768000);
+                                break;
+                            case CodecProfileLevel.DTS_HDProfileHRA:
+                            case CodecProfileLevel.DTS_HDProfileMA:
+                                SR = new int[]{ 44100, 48000, 88200, 96000, 176400, 192000 };
+                                BR = Range.create(96000, 24500000);
+                                break;
+                            default:
+                                Log.w(TAG, "Unrecognized profile "
+                                        + profileLevel.profile + " for " + mime);
+                                mParent.mError |= ERROR_UNRECOGNIZED;
+                                SR = new int[]{ 44100, 48000, 88200, 96000, 176400, 192000 };
+                                BR = Range.create(96000, 24500000);
+                        }
+                        sampleRates = MergeSortedArraysAndRemoveDuplicates(sampleRates, SR);
+                        bitRates = bitRates == null ? BR : bitRates.extend(BR);
+                    }
+                    maxChannels = 8;
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_DTS_UHD)) {
+                    for (CodecProfileLevel profileLevel: profileLevels) {
+                        int[] SR = null;
+                        Range<Integer> BR = null;
+                        int MC = 0;
+                        switch (profileLevel.profile) {
+                            case CodecProfileLevel.DTS_UHDProfileP2:
+                                SR = new int[]{ 48000 };
+                                BR = Range.create(96000, 768000);
+                                MC = 10;
+                                break;
+                            case CodecProfileLevel.DTS_UHDProfileP1:
+                                SR = new int[]{ 44100, 48000, 88200, 96000, 176400, 192000 };
+                                BR = Range.create(96000, 24500000);
+                                MC = 32;
+                                break;
+                            default:
+                                Log.w(TAG, "Unrecognized profile "
+                                        + profileLevel.profile + " for " + mime);
+                                mParent.mError |= ERROR_UNRECOGNIZED;
+                                SR = new int[]{ 44100, 48000, 88200, 96000, 176400, 192000 };
+                                BR = Range.create(96000, 24500000);
+                                MC = 32;
+                        }
+                        sampleRates = MergeSortedArraysAndRemoveDuplicates(sampleRates, SR);
+                        bitRates = bitRates == null ? BR : bitRates.extend(BR);
+                        maxChannels = Math.max(MC, maxChannels);
+                    }
+                } else if (GetFlag(() -> android.media.audio.Flags.iamfDefinitionsApi())
+                        && mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_IAMF)) {
+                    for (CodecProfileLevel profileLevel : profileLevels) {
+                        int[] SR = null;
+                        Range<Integer>[] SRR = null;
+                        Range<Integer> BR = null;
+                        int MC = 0;
+                        int iamfEncoding = profileLevel.profile & 0xff;
+                        int iamfProfile = profileLevel.profile & (0xff << 16);
+                        switch (iamfProfile) {
+                            case CodecProfileLevel.IAMF_PROFILE_SIMPLE:
+                                // Per the IAMF spec, the Simple profile can have only one Audio
+                                // Element and 16
+                                // input channels.
+                                MC = 16;
+                                break;
+                            case CodecProfileLevel.IAMF_PROFILE_BASE:
+                                // The Base profile can have up to 18 input channels.
+                                MC = 18;
+                                break;
+                            case CodecProfileLevel.IAMF_PROFILE_BASE_ENHANCED:
+                                // The Base Enhanced profile can have up to 28 input channels.
+                                MC = 28;
+                                break;
+                            default:
+                                // Set maxChannels to the max known for unknown profiles.
+                                MC = 28;
+                                Log.w(TAG, "Unrecognized IAMF profile "
+                                        + iamfProfile + " for "+ mime);
+                                mParent.mError |= ERROR_UNRECOGNIZED;
+                        }
+                        // Samplerate and bitrate are only restricted by the underlying codecs, so
+                        // for AAC,
+                        // FLAC, and Opus these numbers match their numbers above.
+                        switch (iamfEncoding) {
+                            case CodecProfileLevel.IAMF_CODEC_OPUS:
+                                SR = new int[] {48000};
+                                SRR = ConvertDiscreteSampleRatesToRanges(SR);
+                                BR = Range.create(6000, 128000 * MC);
+                                break;
+                            case CodecProfileLevel.IAMF_CODEC_AAC:
+                                SR = new int[] {
+                                            7350, 8000, 11025, 12000, 16000, 22050, 24000, 32000,
+                                            44100, 48000, 64000, 88200, 96000
+                                        };
+                                SRR = ConvertDiscreteSampleRatesToRanges(SR);
+                                BR = Range.create(6000, 128000 * MC);
+                                break;
+                            case CodecProfileLevel.IAMF_CODEC_FLAC:
+                                SRR = new Range[] { Range.create(1, 655350) };
+                                // Lossless, bitrate range ignored.  It's possible to be as wide as
+                                // Range.create(1, 21000000).
+                                BR = Range.create(1, 21000000);
+                                break;
+                            case CodecProfileLevel.IAMF_CODEC_PCM:
+                                // PCM is limited by the IAMF spec to the following.
+                                SR = new int[] {16000, 32000, 44100, 48000, 96000};
+                                SRR = ConvertDiscreteSampleRatesToRanges(SR);
+                                // Lossless, no bitrate range.
+                                BR = Range.create(1, 21000000);
+                                break;
+                            default:
+                                Log.w(TAG, "Unrecognized encoding "
+                                        + iamfEncoding + " for " + mime);
+                                mParent.mError |= ERROR_UNRECOGNIZED;
+                        }
+                        sampleRateRanges = UnionSortedDistinctRanges(sampleRateRanges, SRR);
+                        bitRates = BR == null ? bitRates
+                                              : bitRates == null ? BR
+                                                                 : bitRates.extend(BR);
+                        maxChannels = Math.max(MC, maxChannels);
+                    }
+                } else {
+                    Log.w(TAG, "Unsupported mime " + mime);
+                    maxChannels = MAX_INPUT_CHANNEL_COUNT;
+                    mParent.mError |= ERROR_UNSUPPORTED;
+                }
+
+                // restrict ranges
+                if (sampleRates != null) {
+                    limitSampleRates(sampleRates);
+                } else if (sampleRateRanges != null) {
+                    limitSampleRates(sampleRateRanges);
+                }
+
+                Range<Integer> channelRange = Range.create(1, maxChannels);
+
+                applyLimits(new Range[] { channelRange }, bitRates);
+            }
+
+            private void applyLimits(Range<Integer>[] inputChannels, Range<Integer> bitRates) {
+
+                // clamp & make a local copy
+                Range<Integer>[] myInputChannels = new Range[inputChannels.length];
+                for (int i = 0; i < inputChannels.length; i++) {
+                    int lower = inputChannels[i].clamp(1);
+                    int upper = inputChannels[i].clamp(MAX_INPUT_CHANNEL_COUNT);
+                    myInputChannels[i] = Range.create(lower, upper);
+                }
+
+                // sort, intersect with existing, & save channel list
+                sortDistinctRanges(myInputChannels);
+                Range<Integer>[] joinedChannelList =
+                                intersectSortedDistinctRanges(myInputChannels, mInputChannelRanges);
+                mInputChannelRanges = joinedChannelList;
+
+                if (bitRates != null) {
+                    mBitrateRange = mBitrateRange.intersect(bitRates);
+                }
+            }
+
+            private void parseFromInfo(MediaFormat info) {
+                int maxInputChannels = MAX_INPUT_CHANNEL_COUNT;
+                Range<Integer>[] channels = new Range[] { Range.create(1, maxInputChannels)};
+                Range<Integer> bitRates = POSITIVE_INTEGERS;
+
+                if (info.containsKey("sample-rate-ranges")) {
+                    String[] rateStrings = info.getString("sample-rate-ranges").split(",");
+                    Range<Integer>[] rateRanges = new Range[rateStrings.length];
+                    for (int i = 0; i < rateStrings.length; i++) {
+                        rateRanges[i] = Utils.parseIntRange(rateStrings[i], null);
+                    }
+                    limitSampleRates(rateRanges);
+                }
+
+                // we will prefer channel-ranges over max-channel-count
+                if (info.containsKey("channel-ranges")) {
+                    String[] channelStrings = info.getString("channel-ranges").split(",");
+                    Range<Integer>[] channelRanges = new Range[channelStrings.length];
+                    for (int i = 0; i < channelStrings.length; i++) {
+                        channelRanges[i] = Utils.parseIntRange(channelStrings[i], null);
+                    }
+                    channels = channelRanges;
+                } else if (info.containsKey("channel-range")) {
+                    Range<Integer> oneRange = Utils.parseIntRange(info.getString("channel-range"),
+                                                                null);
+                    channels = new Range[] { oneRange };
+                } else if (info.containsKey("max-channel-count")) {
+                    maxInputChannels = Utils.parseIntSafely(
+                            info.getString("max-channel-count"), maxInputChannels);
+                    if (maxInputChannels == 0) {
+                        channels = new Range[] {Range.create(0, 0)};
+                    } else {
+                        channels = new Range[] {Range.create(1, maxInputChannels)};
+                    }
+                } else if ((mParent.mError & ERROR_UNSUPPORTED) != 0) {
+                    maxInputChannels = 0;
+                    channels = new Range[] {Range.create(0, 0)};
+                }
+
+                if (info.containsKey("bitrate-range")) {
+                    bitRates = bitRates.intersect(
+                            Utils.parseIntRange(info.getString("bitrate-range"), bitRates));
+                }
+
+                applyLimits(channels, bitRates);
+            }
+
+            /** @hide */
+            public void getDefaultFormat(MediaFormat format) {
+                // report settings that have only a single choice
+                if (mBitrateRange.getLower().equals(mBitrateRange.getUpper())) {
+                    format.setInteger(MediaFormat.KEY_BIT_RATE, mBitrateRange.getLower());
+                }
+                if (getMaxInputChannelCount() == 1) {
+                    // mono-only format
+                    format.setInteger(MediaFormat.KEY_CHANNEL_COUNT, 1);
+                }
+                if (mSampleRates != null && mSampleRates.length == 1) {
+                    format.setInteger(MediaFormat.KEY_SAMPLE_RATE, mSampleRates[0]);
+                }
+            }
+
+            /* package private */
+            // must not contain KEY_PROFILE
+            static final Set<String> AUDIO_LEVEL_CRITICAL_FORMAT_KEYS = Set.of(
+                    // We don't set level-specific limits for audio codecs today. Key candidates
+                    // would be sample rate, bit rate or channel count.
+                    // MediaFormat.KEY_SAMPLE_RATE,
+                    // MediaFormat.KEY_CHANNEL_COUNT,
+                    // MediaFormat.KEY_BIT_RATE,
+                    MediaFormat.KEY_MIME);
+
+            /** @hide */
+            public boolean supportsFormat(MediaFormat format) {
+                Map<String, Object> map = format.getMap();
+                Integer sampleRate = (Integer)map.get(MediaFormat.KEY_SAMPLE_RATE);
+                Integer channels = (Integer)map.get(MediaFormat.KEY_CHANNEL_COUNT);
+
+                if (!supports(sampleRate, channels)) {
+                    return false;
+                }
+
+                if (!CodecCapabilities.CodecCapsLegacyImpl.supportsBitrate(mBitrateRange, format)) {
+                    return false;
+                }
+
+                // nothing to do for:
+                // KEY_CHANNEL_MASK: codecs don't get this
+                // KEY_IS_ADTS:      required feature for all AAC decoders
+                return true;
+            }
+        }
+
+        /* package private */ static final class AudioCapsNativeImpl implements AudioCapsIntf {
+            private long mNativeContext; // accessed by native methods
+
+            private Range<Integer> mBitrateRange;
+            private int[] mSampleRates;
+            private Range<Integer>[] mSampleRateRanges;
+            private Range<Integer>[] mInputChannelRanges;
+
+            /**
+             * Constructor used by JNI.
+             *
+             * The Java AudioCapabilities object keeps these subobjects to avoid recontruction.
+             */
+            /* package private */ AudioCapsNativeImpl(Range<Integer> bitrateRange,
+                    int[] sampleRates, Range<Integer>[] sampleRateRanges,
+                    Range<Integer>[] inputChannelRanges) {
+                mBitrateRange = bitrateRange;
+                mSampleRates = sampleRates;
+                mSampleRateRanges = sampleRateRanges;
+                mInputChannelRanges = inputChannelRanges;
+            }
+
+            /* no public constructor */
+            private AudioCapsNativeImpl() { }
+
+            public Range<Integer> getBitrateRange() {
+                return mBitrateRange;
+            }
+
+            public int[] getSupportedSampleRates() {
+                return mSampleRates != null ? Arrays.copyOf(mSampleRates, mSampleRates.length)
+                        : null;
+            }
+
+            public Range<Integer>[] getSupportedSampleRateRanges() {
+                return Arrays.copyOf(mSampleRateRanges, mSampleRateRanges.length);
+            }
+
+            public Range<Integer>[] getInputChannelCountRanges() {
+                return Arrays.copyOf(mInputChannelRanges, mInputChannelRanges.length);
+            }
+
+            public int getMaxInputChannelCount() {
+                return native_getMaxInputChannelCount();
+            }
+
+            public int getMinInputChannelCount() {
+                return native_getMinInputChannelCount();
+            }
+
+            public boolean isSampleRateSupported(int sampleRate) {
+                return native_isSampleRateSupported(sampleRate);
+            }
+
+            // This API is for internal Java implementation only. Should not be called.
+            public void getDefaultFormat(MediaFormat format) {
+                throw new UnsupportedOperationException(
+                    "Java Implementation should not call native implemenatation");
+            }
+
+            // This API is for internal Java implementation only. Should not be called.
+            public boolean supportsFormat(MediaFormat format) {
+                throw new UnsupportedOperationException(
+                    "Java Implementation should not call native implemenatation");
+            }
+
+            private native int native_getMaxInputChannelCount();
+            private native int native_getMinInputChannelCount();
+            private native boolean native_isSampleRateSupported(int sampleRate);
+            private static native void native_init();
+
+            static {
+                System.loadLibrary("media_jni");
+                native_init();
+            }
+        }
+
+        private AudioCapsIntf mImpl;
+
+        /** @hide */
+        public static AudioCapabilities create(
+                MediaFormat info, CodecCapabilities.CodecCapsLegacyImpl parent) {
+            AudioCapsLegacyImpl impl = AudioCapsLegacyImpl.create(info, parent);
+            AudioCapabilities caps = new AudioCapabilities(impl);
+            return caps;
+        }
+
+        /* package private */ AudioCapabilities(AudioCapsIntf impl) {
+            mImpl = impl;
+        }
+
+        /* no public constructor */
+        private AudioCapabilities() { }
 
         /**
          * Returns the range of supported bitrates in bits/second.
          */
         public Range<Integer> getBitrateRange() {
-            return mBitrateRange;
+            return mImpl.getBitrateRange();
         }
 
         /**
@@ -970,7 +2359,7 @@ public final class MediaCodecInfo {
          * {@code null}.  The array is sorted in ascending order.
          */
         public int[] getSupportedSampleRates() {
-            return Arrays.copyOf(mSampleRates, mSampleRates.length);
+            return mImpl.getSupportedSampleRates();
         }
 
         /**
@@ -979,241 +2368,121 @@ public final class MediaCodecInfo {
          * distinct.
          */
         public Range<Integer>[] getSupportedSampleRateRanges() {
-            return Arrays.copyOf(mSampleRateRanges, mSampleRateRanges.length);
+            return mImpl.getSupportedSampleRateRanges();
+        }
+
+        /*
+         * Returns an array of ranges representing the number of input channels supported.
+         * The codec supports any number of input channels within this range.
+         *
+         * This supersedes the {@link #getMaxInputChannelCount} method.
+         *
+         * For many codecs, this will be a single range [1..N], for some N.
+         */
+        @SuppressLint("ArrayReturn")
+        @NonNull
+        public Range<Integer>[] getInputChannelCountRanges() {
+            return mImpl.getInputChannelCountRanges();
         }
 
         /**
-         * Returns the maximum number of input channels supported.  The codec
-         * supports any number of channels between 1 and this maximum value.
+         * Returns the maximum number of input channels supported.
+         *
+         * Through {@link android.os.Build.VERSION_CODES#R}, this method indicated support
+         * for any number of input channels between 1 and this maximum value.
+         *
+         * As of {@link android.os.Build.VERSION_CODES#S},
+         * the implied lower limit of 1 channel is no longer valid.
+         * As of {@link android.os.Build.VERSION_CODES#S}, {@link #getMaxInputChannelCount} is
+         * superseded by {@link #getInputChannelCountRanges},
+         * which returns an array of ranges of channels.
+         * The {@link #getMaxInputChannelCount} method will return the highest value
+         * in the ranges returned by {@link #getInputChannelCountRanges}
+         *
          */
+        @IntRange(from = 1, to = 255)
         public int getMaxInputChannelCount() {
-            return mMaxInputChannelCount;
+            return mImpl.getMaxInputChannelCount();
         }
 
-        /* no public constructor */
-        private AudioCapabilities() { }
-
-        /** @hide */
-        public static AudioCapabilities create(
-                MediaFormat info, CodecCapabilities parent) {
-            AudioCapabilities caps = new AudioCapabilities();
-            caps.init(info, parent);
-            return caps;
-        }
-
-        private void init(MediaFormat info, CodecCapabilities parent) {
-            mParent = parent;
-            initWithPlatformLimits();
-            applyLevelLimits();
-            parseFromInfo(info);
-        }
-
-        private void initWithPlatformLimits() {
-            mBitrateRange = Range.create(0, Integer.MAX_VALUE);
-            mMaxInputChannelCount = MAX_INPUT_CHANNEL_COUNT;
-            // mBitrateRange = Range.create(1, 320000);
-            mSampleRateRanges = new Range[] { Range.create(8000, 96000) };
-            mSampleRates = null;
-        }
-
-        private boolean supports(Integer sampleRate, Integer inputChannels) {
-            // channels and sample rates are checked orthogonally
-            if (inputChannels != null &&
-                    (inputChannels < 1 || inputChannels > mMaxInputChannelCount)) {
-                return false;
-            }
-            if (sampleRate != null) {
-                int ix = Utils.binarySearchDistinctRanges(
-                        mSampleRateRanges, sampleRate);
-                if (ix < 0) {
-                    return false;
-                }
-            }
-            return true;
+        /**
+         * Returns the minimum number of input channels supported.
+         * This is often 1, but does vary for certain mime types.
+         *
+         * This returns the lowest channel count in the ranges returned by
+         * {@link #getInputChannelCountRanges}.
+         */
+        @IntRange(from = 1, to = 255)
+        public int getMinInputChannelCount() {
+            return mImpl.getMinInputChannelCount();
         }
 
         /**
          * Query whether the sample rate is supported by the codec.
          */
         public boolean isSampleRateSupported(int sampleRate) {
-            return supports(sampleRate, null);
-        }
-
-        /** modifies rates */
-        private void limitSampleRates(int[] rates) {
-            Arrays.sort(rates);
-            ArrayList<Range<Integer>> ranges = new ArrayList<Range<Integer>>();
-            for (int rate: rates) {
-                if (supports(rate, null /* channels */)) {
-                    ranges.add(Range.create(rate, rate));
-                }
-            }
-            mSampleRateRanges = ranges.toArray(new Range[ranges.size()]);
-            createDiscreteSampleRates();
-        }
-
-        private void createDiscreteSampleRates() {
-            mSampleRates = new int[mSampleRateRanges.length];
-            for (int i = 0; i < mSampleRateRanges.length; i++) {
-                mSampleRates[i] = mSampleRateRanges[i].getLower();
-            }
-        }
-
-        /** modifies rateRanges */
-        private void limitSampleRates(Range<Integer>[] rateRanges) {
-            sortDistinctRanges(rateRanges);
-            mSampleRateRanges = intersectSortedDistinctRanges(mSampleRateRanges, rateRanges);
-
-            // check if all values are discrete
-            for (Range<Integer> range: mSampleRateRanges) {
-                if (!range.getLower().equals(range.getUpper())) {
-                    mSampleRates = null;
-                    return;
-                }
-            }
-            createDiscreteSampleRates();
-        }
-
-        private void applyLevelLimits() {
-            int[] sampleRates = null;
-            Range<Integer> sampleRateRange = null, bitRates = null;
-            int maxChannels = MAX_INPUT_CHANNEL_COUNT;
-            String mime = mParent.getMimeType();
-
-            if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_MPEG)) {
-                sampleRates = new int[] {
-                        8000, 11025, 12000,
-                        16000, 22050, 24000,
-                        32000, 44100, 48000 };
-                bitRates = Range.create(8000, 320000);
-                maxChannels = 2;
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AMR_NB)) {
-                sampleRates = new int[] { 8000 };
-                bitRates = Range.create(4750, 12200);
-                maxChannels = 1;
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AMR_WB)) {
-                sampleRates = new int[] { 16000 };
-                bitRates = Range.create(6600, 23850);
-                maxChannels = 1;
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AAC)) {
-                sampleRates = new int[] {
-                        7350, 8000,
-                        11025, 12000, 16000,
-                        22050, 24000, 32000,
-                        44100, 48000, 64000,
-                        88200, 96000 };
-                bitRates = Range.create(8000, 510000);
-                maxChannels = 48;
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_VORBIS)) {
-                bitRates = Range.create(32000, 500000);
-                sampleRateRange = Range.create(8000, 192000);
-                maxChannels = 255;
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_OPUS)) {
-                bitRates = Range.create(6000, 510000);
-                sampleRates = new int[] { 8000, 12000, 16000, 24000, 48000 };
-                maxChannels = 255;
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_RAW)) {
-                sampleRateRange = Range.create(1, 96000);
-                bitRates = Range.create(1, 10000000);
-                maxChannels = AudioTrack.CHANNEL_COUNT_MAX;
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_FLAC)) {
-                sampleRateRange = Range.create(1, 655350);
-                // lossless codec, so bitrate is ignored
-                maxChannels = 255;
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_G711_ALAW)
-                    || mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_G711_MLAW)) {
-                sampleRates = new int[] { 8000 };
-                bitRates = Range.create(64000, 64000);
-                // platform allows multiple channels for this format
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_MSGSM)) {
-                sampleRates = new int[] { 8000 };
-                bitRates = Range.create(13000, 13000);
-                maxChannels = 1;
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AC3)) {
-                maxChannels = 6;
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_EAC3)) {
-                maxChannels = 16;
-            } else {
-                Log.w(TAG, "Unsupported mime " + mime);
-                mParent.mError |= ERROR_UNSUPPORTED;
-            }
-
-            // restrict ranges
-            if (sampleRates != null) {
-                limitSampleRates(sampleRates);
-            } else if (sampleRateRange != null) {
-                limitSampleRates(new Range[] { sampleRateRange });
-            }
-            applyLimits(maxChannels, bitRates);
-        }
-
-        private void applyLimits(int maxInputChannels, Range<Integer> bitRates) {
-            mMaxInputChannelCount = Range.create(1, mMaxInputChannelCount)
-                    .clamp(maxInputChannels);
-            if (bitRates != null) {
-                mBitrateRange = mBitrateRange.intersect(bitRates);
-            }
-        }
-
-        private void parseFromInfo(MediaFormat info) {
-            int maxInputChannels = MAX_INPUT_CHANNEL_COUNT;
-            Range<Integer> bitRates = POSITIVE_INTEGERS;
-
-            if (info.containsKey("sample-rate-ranges")) {
-                String[] rateStrings = info.getString("sample-rate-ranges").split(",");
-                Range<Integer>[] rateRanges = new Range[rateStrings.length];
-                for (int i = 0; i < rateStrings.length; i++) {
-                    rateRanges[i] = Utils.parseIntRange(rateStrings[i], null);
-                }
-                limitSampleRates(rateRanges);
-            }
-            if (info.containsKey("max-channel-count")) {
-                maxInputChannels = Utils.parseIntSafely(
-                        info.getString("max-channel-count"), maxInputChannels);
-            } else if ((mParent.mError & ERROR_UNSUPPORTED) != 0) {
-                maxInputChannels = 0;
-            }
-            if (info.containsKey("bitrate-range")) {
-                bitRates = bitRates.intersect(
-                        Utils.parseIntRange(info.getString("bitrate-range"), bitRates));
-            }
-            applyLimits(maxInputChannels, bitRates);
+            return mImpl.isSampleRateSupported(sampleRate);
         }
 
         /** @hide */
         public void getDefaultFormat(MediaFormat format) {
-            // report settings that have only a single choice
-            if (mBitrateRange.getLower().equals(mBitrateRange.getUpper())) {
-                format.setInteger(MediaFormat.KEY_BIT_RATE, mBitrateRange.getLower());
-            }
-            if (mMaxInputChannelCount == 1) {
-                // mono-only format
-                format.setInteger(MediaFormat.KEY_CHANNEL_COUNT, 1);
-            }
-            if (mSampleRates != null && mSampleRates.length == 1) {
-                format.setInteger(MediaFormat.KEY_SAMPLE_RATE, mSampleRates[0]);
-            }
+            mImpl.getDefaultFormat(format);
         }
 
         /** @hide */
         public boolean supportsFormat(MediaFormat format) {
-            Map<String, Object> map = format.getMap();
-            Integer sampleRate = (Integer)map.get(MediaFormat.KEY_SAMPLE_RATE);
-            Integer channels = (Integer)map.get(MediaFormat.KEY_CHANNEL_COUNT);
-
-            if (!supports(sampleRate, channels)) {
-                return false;
-            }
-
-            if (!CodecCapabilities.supportsBitrate(mBitrateRange, format)) {
-                return false;
-            }
-
-            // nothing to do for:
-            // KEY_CHANNEL_MASK: codecs don't get this
-            // KEY_IS_ADTS:      required feature for all AAC decoders
-            return true;
+            return mImpl.supportsFormat(format);
         }
+    }
+
+    /** @hide */
+    @IntDef(prefix = {"SECURITY_MODEL_"}, value = {
+        SECURITY_MODEL_SANDBOXED,
+        SECURITY_MODEL_MEMORY_SAFE,
+        SECURITY_MODEL_TRUSTED_CONTENT_ONLY,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface SecurityModel {}
+
+    /**
+     * In this model the codec is running in a sandboxed process. Even if a
+     * malicious content was fed to the codecs in this model, the impact will
+     * be contained in the sandboxed process.
+     */
+    @FlaggedApi(FLAG_IN_PROCESS_SW_AUDIO_CODEC)
+    public static final int SECURITY_MODEL_SANDBOXED = 0;
+    /**
+     * In this model the codec is not running in a sandboxed process, but
+     * written in a memory-safe way. It typically means that the software
+     * implementation of the codec is written in a memory-safe language such
+     * as Rust.
+     */
+    @FlaggedApi(FLAG_IN_PROCESS_SW_AUDIO_CODEC)
+    public static final int SECURITY_MODEL_MEMORY_SAFE = 1;
+    /**
+     * In this model the codec is suitable only for trusted content where
+     * the input can be verified to be well-formed and no malicious actor
+     * can alter it. For example, codecs in this model are not suitable
+     * for arbitrary media downloaded from the internet or present in a user
+     * directory. On the other hand, they could be suitable for media encoded
+     * in the backend that the app developer wholly controls.
+     * <p>
+     * Codecs with this security model is not included in
+     * {@link MediaCodecList#REGULAR_CODECS}, but included in
+     * {@link MediaCodecList#ALL_CODECS}.
+     *
+     * @hide
+     */
+    @FlaggedApi(FLAG_IN_PROCESS_SW_AUDIO_CODEC)
+    public static final int SECURITY_MODEL_TRUSTED_CONTENT_ONLY = 2;
+
+    /**
+     * Query the security model of the codec.
+     */
+    @FlaggedApi(FLAG_IN_PROCESS_SW_AUDIO_CODEC)
+    @SecurityModel
+    public int getSecurityModel() {
+        return mSecurityModel;
     }
 
     /**
@@ -1221,47 +2490,2317 @@ public final class MediaCodecInfo {
      */
     public static final class VideoCapabilities {
         private static final String TAG = "VideoCapabilities";
-        private CodecCapabilities mParent;
-        private Range<Integer> mBitrateRange;
 
-        private Range<Integer> mHeightRange;
-        private Range<Integer> mWidthRange;
-        private Range<Integer> mBlockCountRange;
-        private Range<Integer> mHorizontalBlockRange;
-        private Range<Integer> mVerticalBlockRange;
-        private Range<Rational> mAspectRatioRange;
-        private Range<Rational> mBlockAspectRatioRange;
-        private Range<Long> mBlocksPerSecondRange;
-        private Map<Size, Range<Long>> mMeasuredFrameRates;
-        private Range<Integer> mFrameRateRange;
+        /**
+         * Video performance points are a set of standard performance points defined by number of
+         * pixels, pixel rate and frame rate. Performance point represents an upper bound. This
+         * means that it covers all performance points with fewer pixels, pixel rate and frame
+         * rate.
+         */
+        public static final class PerformancePoint {
+            private Size mBlockSize; // codec block size in macroblocks
+            private int mWidth; // width in macroblocks
+            private int mHeight; // height in macroblocks
+            private int mMaxFrameRate; // max frames per second
+            private long mMaxMacroBlockRate; // max macro block rate
 
-        private int mBlockWidth;
-        private int mBlockHeight;
-        private int mWidthAlignment;
-        private int mHeightAlignment;
-        private int mSmallerDimensionUpperLimit;
+            /**
+             * Maximum number of macroblocks in the frame.
+             *
+             * Video frames are conceptually divided into 16-by-16 pixel blocks called macroblocks.
+             * Most coding standards operate on these 16-by-16 pixel blocks; thus, codec performance
+             * is characterized using such blocks.
+             *
+             * @hide
+             */
+            @TestApi
+            public int getMaxMacroBlocks() {
+                return saturateLongToInt(mWidth * (long)mHeight);
+            }
 
-        private boolean mAllowMbOverride; // allow XML to override calculated limits
+            /**
+             * Width in macroblocks.
+             *
+             * @hide
+             */
+            /** package private */ int getWidth() {
+                return mWidth;
+            }
+
+            /**
+             * Height in macroblocks.
+             *
+             * @hide
+             */
+            /** package private */ int getHeight() {
+                return mHeight;
+            }
+
+            /**
+             * Maximum frame rate in frames per second.
+             *
+             * @hide
+             */
+            @TestApi
+            public int getMaxFrameRate() {
+                return mMaxFrameRate;
+            }
+
+            /**
+             * Maximum number of macroblocks processed per second.
+             *
+             * @hide
+             */
+            @TestApi
+            public long getMaxMacroBlockRate() {
+                return mMaxMacroBlockRate;
+            }
+
+            /**
+             * Codec block width in macroblocks.
+             *
+             * @hide
+             */
+            /** package private */ int getBlockWidth() {
+                return mBlockSize.getWidth();
+            }
+
+            /**
+             * Codec block height in macroblocks.
+             *
+             * @hide
+             */
+            /** package private */ int getBlockHeight() {
+                return mBlockSize.getHeight();
+            }
+
+            /** Convert to a debug string */
+            public String toString() {
+                int blockWidth = 16 * mBlockSize.getWidth();
+                int blockHeight = 16 * mBlockSize.getHeight();
+                int origRate = (int)Utils.divUp(mMaxMacroBlockRate, getMaxMacroBlocks());
+                String info = (mWidth * 16) + "x" + (mHeight * 16) + "@" + origRate;
+                if (origRate < mMaxFrameRate) {
+                    info += ", max " + mMaxFrameRate + "fps";
+                }
+                if (blockWidth > 16 || blockHeight > 16) {
+                    info += ", " + blockWidth + "x" + blockHeight + " blocks";
+                }
+                return "PerformancePoint(" + info + ")";
+            }
+
+            @Override
+            public int hashCode() {
+                // only max frame rate must equal between performance points that equal to one
+                // another
+                return mMaxFrameRate;
+            }
+
+            /**
+             * Create a detailed performance point with custom max frame rate and macroblock size.
+             *
+             * @param width  frame width in pixels
+             * @param height frame height in pixels
+             * @param frameRate frames per second for frame width and height
+             * @param maxFrameRate maximum frames per second for any frame size
+             * @param blockSize block size for codec implementation. Must be powers of two in both
+             *        width and height.
+             *
+             * @throws IllegalArgumentException if the blockSize dimensions are not powers of two.
+             *
+             * @hide
+             */
+            @TestApi
+            public PerformancePoint(
+                    int width, int height, int frameRate, int maxFrameRate,
+                    @NonNull Size blockSize) {
+                checkPowerOfTwo(blockSize.getWidth(), "block width");
+                checkPowerOfTwo(blockSize.getHeight(), "block height");
+
+                mBlockSize = new Size(Utils.divUp(blockSize.getWidth(), 16),
+                                      Utils.divUp(blockSize.getHeight(), 16));
+                // these are guaranteed not to overflow as we decimate by 16
+                mWidth = (int)(Utils.divUp(Math.max(1L, width),
+                                           Math.max(blockSize.getWidth(), 16))
+                               * mBlockSize.getWidth());
+                mHeight = (int)(Utils.divUp(Math.max(1L, height),
+                                            Math.max(blockSize.getHeight(), 16))
+                                * mBlockSize.getHeight());
+                mMaxFrameRate = Math.max(1, Math.max(frameRate, maxFrameRate));
+                mMaxMacroBlockRate = Math.max(1, frameRate) * getMaxMacroBlocks();
+            }
+
+            /**
+             * Convert a performance point to a larger blocksize.
+             *
+             * @param pp performance point
+             * @param blockSize block size for codec implementation
+             *
+             * @hide
+             */
+            @TestApi
+            public PerformancePoint(@NonNull PerformancePoint pp, @NonNull Size newBlockSize) {
+                this(
+                        pp.mWidth * 16, pp.mHeight * 16,
+                        // guaranteed not to overflow as these were multiplied at construction
+                        (int)Utils.divUp(pp.mMaxMacroBlockRate, pp.getMaxMacroBlocks()),
+                        pp.mMaxFrameRate,
+                        new Size(Math.max(newBlockSize.getWidth(), pp.mBlockSize.getWidth() * 16),
+                                 Math.max(newBlockSize.getHeight(), pp.mBlockSize.getHeight() * 16))
+                );
+            }
+
+            /**
+             * Create a performance point for a given frame size and frame rate.
+             *
+             * @param width width of the frame in pixels
+             * @param height height of the frame in pixels
+             * @param frameRate frame rate in frames per second
+             */
+            public PerformancePoint(int width, int height, int frameRate) {
+                this(width, height, frameRate, frameRate /* maxFrameRate */, new Size(16, 16));
+            }
+
+            /* package private */ PerformancePoint(int width, int height, int maxFrameRate,
+                    long maxMacroBlockRate, int blockSizeWidth, int blockSizeHeight) {
+                mWidth = width;
+                mHeight = height;
+                mMaxFrameRate = maxFrameRate;
+                mMaxMacroBlockRate = maxMacroBlockRate;
+                mBlockSize = new Size(blockSizeWidth, blockSizeHeight);
+            }
+
+            private PerformancePoint(PerformancePoint pp) {
+                this(pp.mWidth, pp.mHeight, pp.mMaxFrameRate, pp.mMaxMacroBlockRate,
+                        pp.mBlockSize.getWidth(), pp.mBlockSize.getHeight());
+            }
+
+            /** Saturates a long value to int */
+            private int saturateLongToInt(long value) {
+                if (value < Integer.MIN_VALUE) {
+                    return Integer.MIN_VALUE;
+                } else if (value > Integer.MAX_VALUE) {
+                    return Integer.MAX_VALUE;
+                } else {
+                    return (int)value;
+                }
+            }
+
+            /* This method may overflow */
+            private int align(int value, int alignment) {
+                return Utils.divUp(value, alignment) * alignment;
+            }
+
+            /** Checks that value is a power of two. */
+            private void checkPowerOfTwo2(int value, @NonNull String description) {
+                if (value == 0 || (value & (value - 1)) != 0) {
+                    throw new IllegalArgumentException(
+                            description + " (" + value + ") must be a power of 2");
+                }
+            }
+
+            /**
+             * Checks whether the performance point covers a media format.
+             *
+             * @param format Stream format considered
+             *
+             * @return {@code true} if the performance point covers the format.
+             */
+            public boolean covers(@NonNull MediaFormat format) {
+                PerformancePoint other = new PerformancePoint(
+                        format.getInteger(MediaFormat.KEY_WIDTH, 0),
+                        format.getInteger(MediaFormat.KEY_HEIGHT, 0),
+                        // safely convert ceil(double) to int through float cast and Math.round
+                        Math.round((float)(
+                                Math.ceil(format.getNumber(MediaFormat.KEY_FRAME_RATE, 0)
+                                        .doubleValue()))));
+                return covers(other);
+            }
+
+            /**
+             * Checks whether the performance point covers another performance point. Use this
+             * method to determine if a performance point advertised by a codec covers the
+             * performance point required. This method can also be used for loose ordering as this
+             * method is transitive.
+             *
+             * @param other other performance point considered
+             *
+             * @return {@code true} if the performance point covers the other.
+             */
+            public boolean covers(@NonNull PerformancePoint other) {
+                if (GetFlag(() -> android.media.codec.Flags.nativeCapabilites())) {
+                    return native_covers(other);
+                } else {
+                    // convert performance points to common block size
+                    Size commonSize = getCommonBlockSize(other);
+                    PerformancePoint aligned = new PerformancePoint(this, commonSize);
+                    PerformancePoint otherAligned = new PerformancePoint(other, commonSize);
+
+                    return (aligned.getMaxMacroBlocks() >= otherAligned.getMaxMacroBlocks()
+                            && aligned.mMaxFrameRate >= otherAligned.mMaxFrameRate
+                            && aligned.mMaxMacroBlockRate >= otherAligned.mMaxMacroBlockRate);
+                }
+            }
+
+            private @NonNull Size getCommonBlockSize(@NonNull PerformancePoint other) {
+                return new Size(
+                        Math.max(mBlockSize.getWidth(), other.mBlockSize.getWidth()) * 16,
+                        Math.max(mBlockSize.getHeight(), other.mBlockSize.getHeight()) * 16);
+            }
+
+            @Override
+            public boolean equals(Object o) {
+                if (o instanceof PerformancePoint) {
+                    // convert performance points to common block size
+                    PerformancePoint other = (PerformancePoint)o;
+                    if (GetFlag(() -> android.media.codec.Flags.nativeCapabilites())) {
+                        return native_equals(other);
+                    } else {
+                        Size commonSize = getCommonBlockSize(other);
+                        PerformancePoint aligned = new PerformancePoint(this, commonSize);
+                        PerformancePoint otherAligned = new PerformancePoint(other, commonSize);
+
+                        return (aligned.getMaxMacroBlocks() == otherAligned.getMaxMacroBlocks()
+                                && aligned.mMaxFrameRate == otherAligned.mMaxFrameRate
+                                && aligned.mMaxMacroBlockRate == otherAligned.mMaxMacroBlockRate);
+                    }
+                }
+                return false;
+            }
+
+            private native boolean native_covers(PerformancePoint other);
+            private native boolean native_equals(PerformancePoint other);
+
+            static {
+                System.loadLibrary("media_jni");
+            }
+
+            /** 480p 24fps */
+            @NonNull
+            public static final PerformancePoint SD_24 = new PerformancePoint(720, 480, 24);
+            /** 576p 25fps */
+            @NonNull
+            public static final PerformancePoint SD_25 = new PerformancePoint(720, 576, 25);
+            /** 480p 30fps */
+            @NonNull
+            public static final PerformancePoint SD_30 = new PerformancePoint(720, 480, 30);
+            /** 480p 48fps */
+            @NonNull
+            public static final PerformancePoint SD_48 = new PerformancePoint(720, 480, 48);
+            /** 576p 50fps */
+            @NonNull
+            public static final PerformancePoint SD_50 = new PerformancePoint(720, 576, 50);
+            /** 480p 60fps */
+            @NonNull
+            public static final PerformancePoint SD_60 = new PerformancePoint(720, 480, 60);
+
+            /** 720p 24fps */
+            @NonNull
+            public static final PerformancePoint HD_24 = new PerformancePoint(1280, 720, 24);
+            /** 720p 25fps */
+            @NonNull
+            public static final PerformancePoint HD_25 = new PerformancePoint(1280, 720, 25);
+            /** 720p 30fps */
+            @NonNull
+            public static final PerformancePoint HD_30 = new PerformancePoint(1280, 720, 30);
+            /** 720p 50fps */
+            @NonNull
+            public static final PerformancePoint HD_50 = new PerformancePoint(1280, 720, 50);
+            /** 720p 60fps */
+            @NonNull
+            public static final PerformancePoint HD_60 = new PerformancePoint(1280, 720, 60);
+            /** 720p 100fps */
+            @NonNull
+            public static final PerformancePoint HD_100 = new PerformancePoint(1280, 720, 100);
+            /** 720p 120fps */
+            @NonNull
+            public static final PerformancePoint HD_120 = new PerformancePoint(1280, 720, 120);
+            /** 720p 200fps */
+            @NonNull
+            public static final PerformancePoint HD_200 = new PerformancePoint(1280, 720, 200);
+            /** 720p 240fps */
+            @NonNull
+            public static final PerformancePoint HD_240 = new PerformancePoint(1280, 720, 240);
+
+            /** 1080p 24fps */
+            @NonNull
+            public static final PerformancePoint FHD_24 = new PerformancePoint(1920, 1080, 24);
+            /** 1080p 25fps */
+            @NonNull
+            public static final PerformancePoint FHD_25 = new PerformancePoint(1920, 1080, 25);
+            /** 1080p 30fps */
+            @NonNull
+            public static final PerformancePoint FHD_30 = new PerformancePoint(1920, 1080, 30);
+            /** 1080p 50fps */
+            @NonNull
+            public static final PerformancePoint FHD_50 = new PerformancePoint(1920, 1080, 50);
+            /** 1080p 60fps */
+            @NonNull
+            public static final PerformancePoint FHD_60 = new PerformancePoint(1920, 1080, 60);
+            /** 1080p 100fps */
+            @NonNull
+            public static final PerformancePoint FHD_100 = new PerformancePoint(1920, 1080, 100);
+            /** 1080p 120fps */
+            @NonNull
+            public static final PerformancePoint FHD_120 = new PerformancePoint(1920, 1080, 120);
+            /** 1080p 200fps */
+            @NonNull
+            public static final PerformancePoint FHD_200 = new PerformancePoint(1920, 1080, 200);
+            /** 1080p 240fps */
+            @NonNull
+            public static final PerformancePoint FHD_240 = new PerformancePoint(1920, 1080, 240);
+
+            /** 2160p 24fps */
+            @NonNull
+            public static final PerformancePoint UHD_24 = new PerformancePoint(3840, 2160, 24);
+            /** 2160p 25fps */
+            @NonNull
+            public static final PerformancePoint UHD_25 = new PerformancePoint(3840, 2160, 25);
+            /** 2160p 30fps */
+            @NonNull
+            public static final PerformancePoint UHD_30 = new PerformancePoint(3840, 2160, 30);
+            /** 2160p 50fps */
+            @NonNull
+            public static final PerformancePoint UHD_50 = new PerformancePoint(3840, 2160, 50);
+            /** 2160p 60fps */
+            @NonNull
+            public static final PerformancePoint UHD_60 = new PerformancePoint(3840, 2160, 60);
+            /** 2160p 100fps */
+            @NonNull
+            public static final PerformancePoint UHD_100 = new PerformancePoint(3840, 2160, 100);
+            /** 2160p 120fps */
+            @NonNull
+            public static final PerformancePoint UHD_120 = new PerformancePoint(3840, 2160, 120);
+            /** 2160p 200fps */
+            @NonNull
+            public static final PerformancePoint UHD_200 = new PerformancePoint(3840, 2160, 200);
+            /** 2160p 240fps */
+            @NonNull
+            public static final PerformancePoint UHD_240 = new PerformancePoint(3840, 2160, 240);
+        }
+
+        /* package private */ interface VideoCapsIntf {
+            public Range<Integer> getBitrateRange();
+
+            public Range<Integer> getSupportedWidths();
+
+            public Range<Integer> getSupportedHeights();
+
+            public int getWidthAlignment();
+
+            public int getHeightAlignment();
+
+            public int getSmallerDimensionUpperLimit();
+
+            public Range<Integer> getSupportedFrameRates();
+
+            public Range<Integer> getSupportedWidthsFor(int height);
+
+            public Range<Integer> getSupportedHeightsFor(int width);
+
+            public Range<Double> getSupportedFrameRatesFor(int width, int height);
+
+            public Range<Double> getAchievableFrameRatesFor(int width, int height);
+
+            public boolean areSizeAndRateSupported(int width, int height, double frameRate);
+
+            public boolean isSizeSupported(int width, int height);
+
+            public boolean supportsFormat(MediaFormat format);
+
+            public List<PerformancePoint> getSupportedPerformancePoints();
+        }
+
+        /* package private */ static final class VideoCapsLegacyImpl implements VideoCapsIntf {
+            /* package private */
+            // must not contain KEY_PROFILE
+            static final Set<String> VIDEO_LEVEL_CRITICAL_FORMAT_KEYS = Set.of(
+                    MediaFormat.KEY_WIDTH,
+                    MediaFormat.KEY_HEIGHT,
+                    MediaFormat.KEY_FRAME_RATE,
+                    MediaFormat.KEY_BIT_RATE,
+                    MediaFormat.KEY_MIME);
+
+            private CodecCapabilities.CodecCapsLegacyImpl mParent;
+            private Range<Integer> mBitrateRange;
+
+            private Range<Integer> mHeightRange;
+            private Range<Integer> mWidthRange;
+            private Range<Integer> mBlockCountRange;
+            private Range<Integer> mHorizontalBlockRange;
+            private Range<Integer> mVerticalBlockRange;
+            private Range<Rational> mAspectRatioRange;
+            private Range<Rational> mBlockAspectRatioRange;
+            private Range<Long> mBlocksPerSecondRange;
+            private Map<Size, Range<Long>> mMeasuredFrameRates;
+            private List<PerformancePoint> mPerformancePoints;
+            private Range<Integer> mFrameRateRange;
+
+            private int mBlockWidth;
+            private int mBlockHeight;
+            private int mWidthAlignment;
+            private int mHeightAlignment;
+            private int mSmallerDimensionUpperLimit;
+
+            private boolean mAllowMbOverride; // allow XML to override calculated limits
+
+            /* no public constructor */
+            private VideoCapsLegacyImpl() { }
+
+            @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+            public static VideoCapsLegacyImpl create(
+                    MediaFormat info, CodecCapabilities.CodecCapsLegacyImpl parent) {
+                if (GetFlag(() -> android.media.codec.Flags.nativeCapabilites())) {
+                    Log.d(TAG, "Legacy implementation is called while native flag is on.");
+                }
+
+                VideoCapsLegacyImpl caps = new VideoCapsLegacyImpl();
+                caps.init(info, parent);
+                return caps;
+            }
+
+            private void init(MediaFormat info, CodecCapabilities.CodecCapsLegacyImpl parent) {
+                mParent = parent;
+                initWithPlatformLimits();
+                applyLevelLimits();
+                parseFromInfo(info);
+                updateLimits();
+            }
+
+            public Range<Integer> getBitrateRange() {
+                return mBitrateRange;
+            }
+
+            public Range<Integer> getSupportedWidths() {
+                return mWidthRange;
+            }
+
+            public Range<Integer> getSupportedHeights() {
+                return mHeightRange;
+            }
+
+            public int getWidthAlignment() {
+                return mWidthAlignment;
+            }
+
+            public int getHeightAlignment() {
+                return mHeightAlignment;
+            }
+
+            /** @hide */
+            public int getSmallerDimensionUpperLimit() {
+                return mSmallerDimensionUpperLimit;
+            }
+
+            public Range<Integer> getSupportedFrameRates() {
+                return mFrameRateRange;
+            }
+
+            public Range<Integer> getSupportedWidthsFor(int height) {
+                try {
+                    Range<Integer> range = mWidthRange;
+                    if (!mHeightRange.contains(height)
+                            || (height % mHeightAlignment) != 0) {
+                        throw new IllegalArgumentException("unsupported height");
+                    }
+                    final int heightInBlocks = Utils.divUp(height, mBlockHeight);
+
+                    // constrain by block count and by block aspect ratio
+                    final int minWidthInBlocks = Math.max(
+                            Utils.divUp(mBlockCountRange.getLower(), heightInBlocks),
+                            (int) Math.ceil(mBlockAspectRatioRange.getLower().doubleValue()
+                                    * heightInBlocks));
+                    final int maxWidthInBlocks = Math.min(
+                            mBlockCountRange.getUpper() / heightInBlocks,
+                            (int) (mBlockAspectRatioRange.getUpper().doubleValue()
+                                    * heightInBlocks));
+                    range = range.intersect(
+                            (minWidthInBlocks - 1) * mBlockWidth + mWidthAlignment,
+                            maxWidthInBlocks * mBlockWidth);
+
+                    // constrain by smaller dimension limit
+                    if (height > mSmallerDimensionUpperLimit) {
+                        range = range.intersect(1, mSmallerDimensionUpperLimit);
+                    }
+
+                    // constrain by aspect ratio
+                    range = range.intersect(
+                            (int) Math.ceil(mAspectRatioRange.getLower().doubleValue()
+                                    * height),
+                            (int) (mAspectRatioRange.getUpper().doubleValue() * height));
+                    return range;
+                } catch (IllegalArgumentException e) {
+                    // height is not supported because there are no suitable widths
+                    Log.v(TAG, "could not get supported widths for " + height);
+                    throw new IllegalArgumentException("unsupported height");
+                }
+            }
+
+            public Range<Integer> getSupportedHeightsFor(int width) {
+                try {
+                    Range<Integer> range = mHeightRange;
+                    if (!mWidthRange.contains(width)
+                            || (width % mWidthAlignment) != 0) {
+                        throw new IllegalArgumentException("unsupported width");
+                    }
+                    final int widthInBlocks = Utils.divUp(width, mBlockWidth);
+
+                    // constrain by block count and by block aspect ratio
+                    final int minHeightInBlocks = Math.max(
+                            Utils.divUp(mBlockCountRange.getLower(), widthInBlocks),
+                            (int) Math.ceil(widthInBlocks
+                                    / mBlockAspectRatioRange.getUpper().doubleValue()));
+                    final int maxHeightInBlocks = Math.min(
+                            mBlockCountRange.getUpper() / widthInBlocks,
+                            (int) (widthInBlocks
+                                    / mBlockAspectRatioRange.getLower().doubleValue()));
+                    range = range.intersect(
+                            (minHeightInBlocks - 1) * mBlockHeight + mHeightAlignment,
+                            maxHeightInBlocks * mBlockHeight);
+
+                    // constrain by smaller dimension limit
+                    if (width > mSmallerDimensionUpperLimit) {
+                        range = range.intersect(1, mSmallerDimensionUpperLimit);
+                    }
+
+                    // constrain by aspect ratio
+                    range = range.intersect(
+                            (int) Math.ceil(width
+                                    / mAspectRatioRange.getUpper().doubleValue()),
+                            (int) (width / mAspectRatioRange.getLower().doubleValue()));
+                    return range;
+                } catch (IllegalArgumentException e) {
+                    // width is not supported because there are no suitable heights
+                    Log.v(TAG, "could not get supported heights for " + width);
+                    throw new IllegalArgumentException("unsupported width");
+                }
+            }
+
+            public Range<Double> getSupportedFrameRatesFor(int width, int height) {
+                Range<Integer> range = mHeightRange;
+                if (!supports(width, height, null)) {
+                    throw new IllegalArgumentException("unsupported size");
+                }
+                final int blockCount =
+                        Utils.divUp(width, mBlockWidth) * Utils.divUp(height, mBlockHeight);
+
+                return Range.create(
+                        Math.max(mBlocksPerSecondRange.getLower() / (double) blockCount,
+                                (double) mFrameRateRange.getLower()),
+                        Math.min(mBlocksPerSecondRange.getUpper() / (double) blockCount,
+                                (double) mFrameRateRange.getUpper()));
+            }
+
+            private int getBlockCount(int width, int height) {
+                return Utils.divUp(width, mBlockWidth) * Utils.divUp(height, mBlockHeight);
+            }
+
+            @NonNull
+            private Size findClosestSize(int width, int height) {
+                int targetBlockCount = getBlockCount(width, height);
+                Size closestSize = null;
+                int minDiff = Integer.MAX_VALUE;
+                for (Size size : mMeasuredFrameRates.keySet()) {
+                    int diff = Math.abs(targetBlockCount
+                            - getBlockCount(size.getWidth(), size.getHeight()));
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closestSize = size;
+                    }
+                }
+                return closestSize;
+            }
+
+            private Range<Double> estimateFrameRatesFor(int width, int height) {
+                Size size = findClosestSize(width, height);
+                Range<Long> range = mMeasuredFrameRates.get(size);
+                Double ratio = getBlockCount(size.getWidth(), size.getHeight())
+                        / (double)Math.max(getBlockCount(width, height), 1);
+                return Range.create(range.getLower() * ratio, range.getUpper() * ratio);
+            }
+
+            /** @throws IllegalArgumentException if the video size is not supported. */
+            @Nullable
+            public Range<Double> getAchievableFrameRatesFor(int width, int height) {
+                if (!supports(width, height, null)) {
+                    throw new IllegalArgumentException("unsupported size");
+                }
+
+                if (mMeasuredFrameRates == null || mMeasuredFrameRates.size() <= 0) {
+                    Log.w(TAG, "Codec did not publish any measurement data.");
+                    return null;
+                }
+
+                return estimateFrameRatesFor(width, height);
+            }
+
+            @Nullable
+            public List<PerformancePoint> getSupportedPerformancePoints() {
+                return mPerformancePoints;
+            }
+
+            public boolean areSizeAndRateSupported(
+                    int width, int height, double frameRate) {
+                return supports(width, height, frameRate);
+            }
+
+            public boolean isSizeSupported(int width, int height) {
+                return supports(width, height, null);
+            }
+
+            private boolean supports(Integer width, Integer height, Number rate) {
+                boolean ok = true;
+
+                if (ok && width != null) {
+                    ok = mWidthRange.contains(width)
+                            && (width % mWidthAlignment == 0);
+                }
+                if (ok && height != null) {
+                    ok = mHeightRange.contains(height)
+                            && (height % mHeightAlignment == 0);
+                }
+                if (ok && rate != null) {
+                    ok = mFrameRateRange.contains(Utils.intRangeFor(rate.doubleValue()));
+                }
+                if (ok && height != null && width != null) {
+                    ok = Math.min(height, width) <= mSmallerDimensionUpperLimit;
+
+                    final int widthInBlocks = Utils.divUp(width, mBlockWidth);
+                    final int heightInBlocks = Utils.divUp(height, mBlockHeight);
+                    final int blockCount = widthInBlocks * heightInBlocks;
+                    ok = ok && mBlockCountRange.contains(blockCount)
+                            && mBlockAspectRatioRange.contains(
+                                    new Rational(widthInBlocks, heightInBlocks))
+                            && mAspectRatioRange.contains(new Rational(width, height));
+                    if (ok && rate != null) {
+                        double blocksPerSec = blockCount * rate.doubleValue();
+                        ok = mBlocksPerSecondRange.contains(
+                                Utils.longRangeFor(blocksPerSec));
+                    }
+                }
+                return ok;
+            }
+
+            /**
+             * @hide
+             * @throws java.lang.ClassCastException */
+            public boolean supportsFormat(MediaFormat format) {
+                final Map<String, Object> map = format.getMap();
+                Integer width = (Integer)map.get(MediaFormat.KEY_WIDTH);
+                Integer height = (Integer)map.get(MediaFormat.KEY_HEIGHT);
+                Number rate = (Number)map.get(MediaFormat.KEY_FRAME_RATE);
+
+                if (!supports(width, height, rate)) {
+                    return false;
+                }
+
+                if (!CodecCapabilities.CodecCapsLegacyImpl.supportsBitrate(mBitrateRange, format)) {
+                    return false;
+                }
+
+                // we ignore color-format for now as it is not reliably reported by codec
+                return true;
+            }
+
+            /** @hide */
+            public Size getBlockSize() {
+                return new Size(mBlockWidth, mBlockHeight);
+            }
+
+            /** @hide */
+            public Range<Integer> getBlockCountRange() {
+                return mBlockCountRange;
+            }
+
+            /** @hide */
+            public Range<Long> getBlocksPerSecondRange() {
+                return mBlocksPerSecondRange;
+            }
+
+            /** @hide */
+            public Range<Rational> getAspectRatioRange(boolean blocks) {
+                return blocks ? mBlockAspectRatioRange : mAspectRatioRange;
+            }
+
+            private void initWithPlatformLimits() {
+                mBitrateRange = BITRATE_RANGE;
+
+                mWidthRange  = getSizeRange();
+                mHeightRange = getSizeRange();
+                mFrameRateRange = FRAME_RATE_RANGE;
+
+                mHorizontalBlockRange = getSizeRange();
+                mVerticalBlockRange   = getSizeRange();
+
+                // full positive ranges are supported as these get calculated
+                mBlockCountRange      = POSITIVE_INTEGERS;
+                mBlocksPerSecondRange = POSITIVE_LONGS;
+
+                mBlockAspectRatioRange = POSITIVE_RATIONALS;
+                mAspectRatioRange      = POSITIVE_RATIONALS;
+
+                mWidthAlignment = 1;
+                mHeightAlignment = 1;
+                mBlockWidth = 1;
+                mBlockHeight = 1;
+                mSmallerDimensionUpperLimit = getSizeRange().getUpper();
+            }
+
+            private @Nullable List<PerformancePoint> getPerformancePoints(Map<String, Object> map) {
+                Vector<PerformancePoint> ret = new Vector<>();
+                final String prefix = "performance-point-";
+                Set<String> keys = map.keySet();
+                for (String key : keys) {
+                    // looking for: performance-point-WIDTHxHEIGHT-range
+                    if (!key.startsWith(prefix)) {
+                        continue;
+                    }
+                    String subKey = key.substring(prefix.length());
+                    if (subKey.equals("none") && ret.size() == 0) {
+                        // This means that component knowingly did not publish performance points.
+                        // This is different from when the component forgot to publish performance
+                        // points.
+                        return Collections.unmodifiableList(ret);
+                    }
+                    String[] temp = key.split("-");
+                    if (temp.length != 4) {
+                        continue;
+                    }
+                    String sizeStr = temp[2];
+                    Size size = Utils.parseSize(sizeStr, null);
+                    if (size == null || size.getWidth() * size.getHeight() <= 0) {
+                        continue;
+                    }
+                    Range<Long> range = Utils.parseLongRange(map.get(key), null);
+                    if (range == null || range.getLower() < 0 || range.getUpper() < 0) {
+                        continue;
+                    }
+                    PerformancePoint given = new PerformancePoint(
+                            size.getWidth(), size.getHeight(), range.getLower().intValue(),
+                            range.getUpper().intValue(), new Size(mBlockWidth, mBlockHeight));
+                    PerformancePoint rotated = new PerformancePoint(
+                            size.getHeight(), size.getWidth(), range.getLower().intValue(),
+                            range.getUpper().intValue(), new Size(mBlockWidth, mBlockHeight));
+                    ret.add(given);
+                    if (!given.covers(rotated)) {
+                        ret.add(rotated);
+                    }
+                }
+
+                // check if the component specified no performance point indication
+                if (ret.size() == 0) {
+                    return null;
+                }
+
+                // sort reversed by area first, then by frame rate
+                ret.sort((a, b) ->
+                        -((a.getMaxMacroBlocks() != b.getMaxMacroBlocks())
+                                ? (a.getMaxMacroBlocks() < b.getMaxMacroBlocks() ? -1 : 1) :
+                        (a.getMaxMacroBlockRate() != b.getMaxMacroBlockRate())
+                                ? (a.getMaxMacroBlockRate() < b.getMaxMacroBlockRate() ? -1 : 1) :
+                        (a.getMaxFrameRate() != b.getMaxFrameRate())
+                                ? (a.getMaxFrameRate() < b.getMaxFrameRate() ? -1 : 1) : 0));
+
+                return Collections.unmodifiableList(ret);
+            }
+
+            private Map<Size, Range<Long>> getMeasuredFrameRates(Map<String, Object> map) {
+                Map<Size, Range<Long>> ret = new HashMap<Size, Range<Long>>();
+                final String prefix = "measured-frame-rate-";
+                Set<String> keys = map.keySet();
+                for (String key : keys) {
+                    // looking for: measured-frame-rate-WIDTHxHEIGHT-range
+                    if (!key.startsWith(prefix)) {
+                        continue;
+                    }
+                    String subKey = key.substring(prefix.length());
+                    String[] temp = key.split("-");
+                    if (temp.length != 5) {
+                        continue;
+                    }
+                    String sizeStr = temp[3];
+                    Size size = Utils.parseSize(sizeStr, null);
+                    if (size == null || size.getWidth() * size.getHeight() <= 0) {
+                        continue;
+                    }
+                    Range<Long> range = Utils.parseLongRange(map.get(key), null);
+                    if (range == null || range.getLower() < 0 || range.getUpper() < 0) {
+                        continue;
+                    }
+                    ret.put(size, range);
+                }
+                return ret;
+            }
+
+            private static Pair<Range<Integer>, Range<Integer>> parseWidthHeightRanges(Object o) {
+                Pair<Size, Size> range = Utils.parseSizeRange(o);
+                if (range != null) {
+                    try {
+                        return Pair.create(
+                                Range.create(range.first.getWidth(), range.second.getWidth()),
+                                Range.create(range.first.getHeight(), range.second.getHeight()));
+                    } catch (IllegalArgumentException e) {
+                        Log.w(TAG, "could not parse size range '" + o + "'");
+                    }
+                }
+                return null;
+            }
+
+            /** @hide */
+            public static int equivalentVP9Level(MediaFormat info) {
+                final Map<String, Object> map = info.getMap();
+
+                Size blockSize = Utils.parseSize(map.get("block-size"), new Size(8, 8));
+                int BS = blockSize.getWidth() * blockSize.getHeight();
+
+                Range<Integer> counts = Utils.parseIntRange(map.get("block-count-range"), null);
+                int FS = counts == null ? 0 : BS * counts.getUpper();
+
+                Range<Long> blockRates =
+                        Utils.parseLongRange(map.get("blocks-per-second-range"), null);
+                long SR = blockRates == null ? 0 : BS * blockRates.getUpper();
+
+                Pair<Range<Integer>, Range<Integer>> dimensionRanges =
+                        parseWidthHeightRanges(map.get("size-range"));
+                int D = dimensionRanges == null ? 0 : Math.max(
+                        dimensionRanges.first.getUpper(), dimensionRanges.second.getUpper());
+
+                Range<Integer> bitRates = Utils.parseIntRange(map.get("bitrate-range"), null);
+                int BR = bitRates == null ? 0 : Utils.divUp(bitRates.getUpper(), 1000);
+
+                if (SR <=      829440 && FS <=    36864 && BR <=    200 && D <=   512)
+                    return CodecProfileLevel.VP9Level1;
+                if (SR <=     2764800 && FS <=    73728 && BR <=    800 && D <=   768)
+                    return CodecProfileLevel.VP9Level11;
+                if (SR <=     4608000 && FS <=   122880 && BR <=   1800 && D <=   960)
+                    return CodecProfileLevel.VP9Level2;
+                if (SR <=     9216000 && FS <=   245760 && BR <=   3600 && D <=  1344)
+                    return CodecProfileLevel.VP9Level21;
+                if (SR <=    20736000 && FS <=   552960 && BR <=   7200 && D <=  2048)
+                    return CodecProfileLevel.VP9Level3;
+                if (SR <=    36864000 && FS <=   983040 && BR <=  12000 && D <=  2752)
+                    return CodecProfileLevel.VP9Level31;
+                if (SR <=    83558400 && FS <=  2228224 && BR <=  18000 && D <=  4160)
+                    return CodecProfileLevel.VP9Level4;
+                if (SR <=   160432128 && FS <=  2228224 && BR <=  30000 && D <=  4160)
+                    return CodecProfileLevel.VP9Level41;
+                if (SR <=   311951360 && FS <=  8912896 && BR <=  60000 && D <=  8384)
+                    return CodecProfileLevel.VP9Level5;
+                if (SR <=   588251136 && FS <=  8912896 && BR <= 120000 && D <=  8384)
+                    return CodecProfileLevel.VP9Level51;
+                if (SR <=  1176502272 && FS <=  8912896 && BR <= 180000 && D <=  8384)
+                    return CodecProfileLevel.VP9Level52;
+                if (SR <=  1176502272 && FS <= 35651584 && BR <= 180000 && D <= 16832)
+                    return CodecProfileLevel.VP9Level6;
+                if (SR <= 2353004544L && FS <= 35651584 && BR <= 240000 && D <= 16832)
+                    return CodecProfileLevel.VP9Level61;
+                if (SR <= 4706009088L && FS <= 35651584 && BR <= 480000 && D <= 16832)
+                    return CodecProfileLevel.VP9Level62;
+                // returning largest level
+                return CodecProfileLevel.VP9Level62;
+            }
+
+            private void parseFromInfo(MediaFormat info) {
+                final Map<String, Object> map = info.getMap();
+                Size blockSize = new Size(mBlockWidth, mBlockHeight);
+                Size alignment = new Size(mWidthAlignment, mHeightAlignment);
+                Range<Integer> counts = null, widths = null, heights = null;
+                Range<Integer> frameRates = null, bitRates = null;
+                Range<Long> blockRates = null;
+                Range<Rational> ratios = null, blockRatios = null;
+
+                blockSize = Utils.parseSize(map.get("block-size"), blockSize);
+                alignment = Utils.parseSize(map.get("alignment"), alignment);
+                counts = Utils.parseIntRange(map.get("block-count-range"), null);
+                blockRates =
+                    Utils.parseLongRange(map.get("blocks-per-second-range"), null);
+                mMeasuredFrameRates = getMeasuredFrameRates(map);
+                mPerformancePoints = getPerformancePoints(map);
+                Pair<Range<Integer>, Range<Integer>> sizeRanges =
+                        parseWidthHeightRanges(map.get("size-range"));
+                if (sizeRanges != null) {
+                    widths = sizeRanges.first;
+                    heights = sizeRanges.second;
+                }
+                // for now this just means using the smaller max size as 2nd
+                // upper limit.
+                // for now we are keeping the profile specific "width/height
+                // in macroblocks" limits.
+                if (map.containsKey("feature-can-swap-width-height")) {
+                    if (widths != null) {
+                        mSmallerDimensionUpperLimit =
+                            Math.min(widths.getUpper(), heights.getUpper());
+                        widths = heights = widths.extend(heights);
+                    } else {
+                        Log.w(TAG, "feature can-swap-width-height is best used with size-range");
+                        mSmallerDimensionUpperLimit =
+                            Math.min(mWidthRange.getUpper(), mHeightRange.getUpper());
+                        mWidthRange = mHeightRange = mWidthRange.extend(mHeightRange);
+                    }
+                }
+
+                ratios = Utils.parseRationalRange(
+                        map.get("block-aspect-ratio-range"), null);
+                blockRatios = Utils.parseRationalRange(
+                        map.get("pixel-aspect-ratio-range"), null);
+                frameRates = Utils.parseIntRange(map.get("frame-rate-range"), null);
+                if (frameRates != null) {
+                    try {
+                        frameRates = frameRates.intersect(FRAME_RATE_RANGE);
+                    } catch (IllegalArgumentException e) {
+                        Log.w(TAG, "frame rate range (" + frameRates
+                                + ") is out of limits: " + FRAME_RATE_RANGE);
+                        frameRates = null;
+                    }
+                }
+                bitRates = Utils.parseIntRange(map.get("bitrate-range"), null);
+                if (bitRates != null) {
+                    try {
+                        bitRates = bitRates.intersect(BITRATE_RANGE);
+                    } catch (IllegalArgumentException e) {
+                        Log.w(TAG,  "bitrate range (" + bitRates
+                                + ") is out of limits: " + BITRATE_RANGE);
+                        bitRates = null;
+                    }
+                }
+
+                checkPowerOfTwo(
+                        blockSize.getWidth(), "block-size width must be power of two");
+                checkPowerOfTwo(
+                        blockSize.getHeight(), "block-size height must be power of two");
+
+                checkPowerOfTwo(
+                        alignment.getWidth(), "alignment width must be power of two");
+                checkPowerOfTwo(
+                        alignment.getHeight(), "alignment height must be power of two");
+
+                // update block-size and alignment
+                applyMacroBlockLimits(
+                        Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE,
+                        Long.MAX_VALUE, blockSize.getWidth(), blockSize.getHeight(),
+                        alignment.getWidth(), alignment.getHeight());
+
+                if ((mParent.mError & ERROR_UNSUPPORTED) != 0 || mAllowMbOverride) {
+                    // codec supports profiles that we don't know.
+                    // Use supplied values clipped to platform limits
+                    if (widths != null) {
+                        mWidthRange = getSizeRange().intersect(widths);
+                    }
+                    if (heights != null) {
+                        mHeightRange = getSizeRange().intersect(heights);
+                    }
+                    if (counts != null) {
+                        mBlockCountRange = POSITIVE_INTEGERS.intersect(
+                                Utils.factorRange(counts, mBlockWidth * mBlockHeight
+                                        / blockSize.getWidth() / blockSize.getHeight()));
+                    }
+                    if (blockRates != null) {
+                        mBlocksPerSecondRange = POSITIVE_LONGS.intersect(
+                                Utils.factorRange(blockRates, mBlockWidth * mBlockHeight
+                                        / blockSize.getWidth() / blockSize.getHeight()));
+                    }
+                    if (blockRatios != null) {
+                        mBlockAspectRatioRange = POSITIVE_RATIONALS.intersect(
+                                Utils.scaleRange(blockRatios,
+                                        mBlockHeight / blockSize.getHeight(),
+                                        mBlockWidth / blockSize.getWidth()));
+                    }
+                    if (ratios != null) {
+                        mAspectRatioRange = POSITIVE_RATIONALS.intersect(ratios);
+                    }
+                    if (frameRates != null) {
+                        mFrameRateRange = FRAME_RATE_RANGE.intersect(frameRates);
+                    }
+                    if (bitRates != null) {
+                        // only allow bitrate override if unsupported profiles were encountered
+                        if ((mParent.mError & ERROR_UNSUPPORTED) != 0) {
+                            mBitrateRange = BITRATE_RANGE.intersect(bitRates);
+                        } else {
+                            mBitrateRange = mBitrateRange.intersect(bitRates);
+                        }
+                    }
+                } else {
+                    // no unsupported profile/levels, so restrict values to known limits
+                    if (widths != null) {
+                        mWidthRange = mWidthRange.intersect(widths);
+                    }
+                    if (heights != null) {
+                        mHeightRange = mHeightRange.intersect(heights);
+                    }
+                    if (counts != null) {
+                        mBlockCountRange = mBlockCountRange.intersect(
+                                Utils.factorRange(counts, mBlockWidth * mBlockHeight
+                                        / blockSize.getWidth() / blockSize.getHeight()));
+                    }
+                    if (blockRates != null) {
+                        mBlocksPerSecondRange = mBlocksPerSecondRange.intersect(
+                                Utils.factorRange(blockRates, mBlockWidth * mBlockHeight
+                                        / blockSize.getWidth() / blockSize.getHeight()));
+                    }
+                    if (blockRatios != null) {
+                        mBlockAspectRatioRange = mBlockAspectRatioRange.intersect(
+                                Utils.scaleRange(blockRatios,
+                                        mBlockHeight / blockSize.getHeight(),
+                                        mBlockWidth / blockSize.getWidth()));
+                    }
+                    if (ratios != null) {
+                        mAspectRatioRange = mAspectRatioRange.intersect(ratios);
+                    }
+                    if (frameRates != null) {
+                        mFrameRateRange = mFrameRateRange.intersect(frameRates);
+                    }
+                    if (bitRates != null) {
+                        mBitrateRange = mBitrateRange.intersect(bitRates);
+                    }
+                }
+                updateLimits();
+            }
+
+            private void applyBlockLimits(
+                    int blockWidth, int blockHeight,
+                    Range<Integer> counts, Range<Long> rates, Range<Rational> ratios) {
+                checkPowerOfTwo(blockWidth, "blockWidth must be a power of two");
+                checkPowerOfTwo(blockHeight, "blockHeight must be a power of two");
+
+                final int newBlockWidth = Math.max(blockWidth, mBlockWidth);
+                final int newBlockHeight = Math.max(blockHeight, mBlockHeight);
+
+                // factor will always be a power-of-2
+                int factor =
+                        newBlockWidth * newBlockHeight / mBlockWidth / mBlockHeight;
+                if (factor != 1) {
+                    mBlockCountRange = Utils.factorRange(mBlockCountRange, factor);
+                    mBlocksPerSecondRange = Utils.factorRange(
+                            mBlocksPerSecondRange, factor);
+                    mBlockAspectRatioRange = Utils.scaleRange(
+                            mBlockAspectRatioRange,
+                            newBlockHeight / mBlockHeight,
+                            newBlockWidth / mBlockWidth);
+                    mHorizontalBlockRange = Utils.factorRange(
+                            mHorizontalBlockRange, newBlockWidth / mBlockWidth);
+                    mVerticalBlockRange = Utils.factorRange(
+                            mVerticalBlockRange, newBlockHeight / mBlockHeight);
+                }
+                factor = newBlockWidth * newBlockHeight / blockWidth / blockHeight;
+                if (factor != 1) {
+                    counts = Utils.factorRange(counts, factor);
+                    rates = Utils.factorRange(rates, factor);
+                    ratios = Utils.scaleRange(
+                            ratios, newBlockHeight / blockHeight,
+                            newBlockWidth / blockWidth);
+                }
+                mBlockCountRange = mBlockCountRange.intersect(counts);
+                mBlocksPerSecondRange = mBlocksPerSecondRange.intersect(rates);
+                mBlockAspectRatioRange = mBlockAspectRatioRange.intersect(ratios);
+                mBlockWidth = newBlockWidth;
+                mBlockHeight = newBlockHeight;
+            }
+
+            private void applyAlignment(int widthAlignment, int heightAlignment) {
+                checkPowerOfTwo(widthAlignment, "widthAlignment must be a power of two");
+                checkPowerOfTwo(heightAlignment, "heightAlignment must be a power of two");
+
+                if (widthAlignment > mBlockWidth || heightAlignment > mBlockHeight) {
+                    // maintain assumption that 0 < alignment <= block-size
+                    applyBlockLimits(
+                            Math.max(widthAlignment, mBlockWidth),
+                            Math.max(heightAlignment, mBlockHeight),
+                            POSITIVE_INTEGERS, POSITIVE_LONGS, POSITIVE_RATIONALS);
+                }
+
+                mWidthAlignment = Math.max(widthAlignment, mWidthAlignment);
+                mHeightAlignment = Math.max(heightAlignment, mHeightAlignment);
+
+                mWidthRange = Utils.alignRange(mWidthRange, mWidthAlignment);
+                mHeightRange = Utils.alignRange(mHeightRange, mHeightAlignment);
+            }
+
+            private void updateLimits() {
+                // pixels -> blocks <- counts
+                mHorizontalBlockRange = mHorizontalBlockRange.intersect(
+                        Utils.factorRange(mWidthRange, mBlockWidth));
+                mHorizontalBlockRange = mHorizontalBlockRange.intersect(
+                        Range.create(
+                                mBlockCountRange.getLower() / mVerticalBlockRange.getUpper(),
+                                mBlockCountRange.getUpper() / mVerticalBlockRange.getLower()));
+                mVerticalBlockRange = mVerticalBlockRange.intersect(
+                        Utils.factorRange(mHeightRange, mBlockHeight));
+                mVerticalBlockRange = mVerticalBlockRange.intersect(
+                        Range.create(
+                                mBlockCountRange.getLower() / mHorizontalBlockRange.getUpper(),
+                                mBlockCountRange.getUpper() / mHorizontalBlockRange.getLower()));
+                mBlockCountRange = mBlockCountRange.intersect(
+                        Range.create(
+                                mHorizontalBlockRange.getLower()
+                                        * mVerticalBlockRange.getLower(),
+                                mHorizontalBlockRange.getUpper()
+                                        * mVerticalBlockRange.getUpper()));
+                mBlockAspectRatioRange = mBlockAspectRatioRange.intersect(
+                        new Rational(
+                                mHorizontalBlockRange.getLower(), mVerticalBlockRange.getUpper()),
+                        new Rational(
+                                mHorizontalBlockRange.getUpper(), mVerticalBlockRange.getLower()));
+
+                // blocks -> pixels
+                mWidthRange = mWidthRange.intersect(
+                        (mHorizontalBlockRange.getLower() - 1) * mBlockWidth + mWidthAlignment,
+                        mHorizontalBlockRange.getUpper() * mBlockWidth);
+                mHeightRange = mHeightRange.intersect(
+                        (mVerticalBlockRange.getLower() - 1) * mBlockHeight + mHeightAlignment,
+                        mVerticalBlockRange.getUpper() * mBlockHeight);
+                mAspectRatioRange = mAspectRatioRange.intersect(
+                        new Rational(mWidthRange.getLower(), mHeightRange.getUpper()),
+                        new Rational(mWidthRange.getUpper(), mHeightRange.getLower()));
+
+                mSmallerDimensionUpperLimit = Math.min(
+                        mSmallerDimensionUpperLimit,
+                        Math.min(mWidthRange.getUpper(), mHeightRange.getUpper()));
+
+                // blocks -> rate
+                mBlocksPerSecondRange = mBlocksPerSecondRange.intersect(
+                        mBlockCountRange.getLower() * (long)mFrameRateRange.getLower(),
+                        mBlockCountRange.getUpper() * (long)mFrameRateRange.getUpper());
+                mFrameRateRange = mFrameRateRange.intersect(
+                        (int)Math.ceil(mBlocksPerSecondRange.getLower()
+                                / (double)mBlockCountRange.getUpper()),
+                        (int)(mBlocksPerSecondRange.getUpper()
+                                / (double)mBlockCountRange.getLower()));
+            }
+
+            private void applyMacroBlockLimits(
+                    int maxHorizontalBlocks, int maxVerticalBlocks,
+                    int maxBlocks, long maxBlocksPerSecond,
+                    int blockWidth, int blockHeight,
+                    int widthAlignment, int heightAlignment) {
+                applyMacroBlockLimits(
+                        1 /* minHorizontalBlocks */, 1 /* minVerticalBlocks */,
+                        maxHorizontalBlocks, maxVerticalBlocks,
+                        maxBlocks, maxBlocksPerSecond,
+                        blockWidth, blockHeight, widthAlignment, heightAlignment);
+            }
+
+            private void applyMacroBlockLimits(
+                    int minHorizontalBlocks, int minVerticalBlocks,
+                    int maxHorizontalBlocks, int maxVerticalBlocks,
+                    int maxBlocks, long maxBlocksPerSecond,
+                    int blockWidth, int blockHeight,
+                    int widthAlignment, int heightAlignment) {
+                applyAlignment(widthAlignment, heightAlignment);
+                applyBlockLimits(
+                        blockWidth, blockHeight, Range.create(1, maxBlocks),
+                        Range.create(1L, maxBlocksPerSecond),
+                        Range.create(
+                                new Rational(1, maxVerticalBlocks),
+                                new Rational(maxHorizontalBlocks, 1)));
+                mHorizontalBlockRange =
+                        mHorizontalBlockRange.intersect(
+                                Utils.divUp(minHorizontalBlocks, (mBlockWidth / blockWidth)),
+                                maxHorizontalBlocks / (mBlockWidth / blockWidth));
+                mVerticalBlockRange =
+                        mVerticalBlockRange.intersect(
+                                Utils.divUp(minVerticalBlocks, (mBlockHeight / blockHeight)),
+                                maxVerticalBlocks / (mBlockHeight / blockHeight));
+            }
+
+            private void applyLevelLimits() {
+                long maxBlocksPerSecond = 0;
+                int maxBlocks = 0;
+                int maxBps = 0;
+                int maxDPBBlocks = 0;
+
+                int errors = ERROR_NONE_SUPPORTED;
+                CodecProfileLevel[] profileLevels = mParent.getProfileLevels();
+                String mime = mParent.getMimeType();
+
+                if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_AVC)) {
+                    maxBlocks = 99;
+                    maxBlocksPerSecond = 1485;
+                    maxBps = 64000;
+                    maxDPBBlocks = 396;
+                    for (CodecProfileLevel profileLevel: profileLevels) {
+                        int MBPS = 0, FS = 0, BR = 0, DPB = 0;
+                        boolean supported = true;
+                        switch (profileLevel.level) {
+                            case CodecProfileLevel.AVCLevel1:
+                                MBPS =     1485; FS =     99; BR =     64; DPB =    396; break;
+                            case CodecProfileLevel.AVCLevel1b:
+                                MBPS =     1485; FS =     99; BR =    128; DPB =    396; break;
+                            case CodecProfileLevel.AVCLevel11:
+                                MBPS =     3000; FS =    396; BR =    192; DPB =    900; break;
+                            case CodecProfileLevel.AVCLevel12:
+                                MBPS =     6000; FS =    396; BR =    384; DPB =   2376; break;
+                            case CodecProfileLevel.AVCLevel13:
+                                MBPS =    11880; FS =    396; BR =    768; DPB =   2376; break;
+                            case CodecProfileLevel.AVCLevel2:
+                                MBPS =    11880; FS =    396; BR =   2000; DPB =   2376; break;
+                            case CodecProfileLevel.AVCLevel21:
+                                MBPS =    19800; FS =    792; BR =   4000; DPB =   4752; break;
+                            case CodecProfileLevel.AVCLevel22:
+                                MBPS =    20250; FS =   1620; BR =   4000; DPB =   8100; break;
+                            case CodecProfileLevel.AVCLevel3:
+                                MBPS =    40500; FS =   1620; BR =  10000; DPB =   8100; break;
+                            case CodecProfileLevel.AVCLevel31:
+                                MBPS =   108000; FS =   3600; BR =  14000; DPB =  18000; break;
+                            case CodecProfileLevel.AVCLevel32:
+                                MBPS =   216000; FS =   5120; BR =  20000; DPB =  20480; break;
+                            case CodecProfileLevel.AVCLevel4:
+                                MBPS =   245760; FS =   8192; BR =  20000; DPB =  32768; break;
+                            case CodecProfileLevel.AVCLevel41:
+                                MBPS =   245760; FS =   8192; BR =  50000; DPB =  32768; break;
+                            case CodecProfileLevel.AVCLevel42:
+                                MBPS =   522240; FS =   8704; BR =  50000; DPB =  34816; break;
+                            case CodecProfileLevel.AVCLevel5:
+                                MBPS =   589824; FS =  22080; BR = 135000; DPB = 110400; break;
+                            case CodecProfileLevel.AVCLevel51:
+                                MBPS =   983040; FS =  36864; BR = 240000; DPB = 184320; break;
+                            case CodecProfileLevel.AVCLevel52:
+                                MBPS =  2073600; FS =  36864; BR = 240000; DPB = 184320; break;
+                            case CodecProfileLevel.AVCLevel6:
+                                MBPS =  4177920; FS = 139264; BR = 240000; DPB = 696320; break;
+                            case CodecProfileLevel.AVCLevel61:
+                                MBPS =  8355840; FS = 139264; BR = 480000; DPB = 696320; break;
+                            case CodecProfileLevel.AVCLevel62:
+                                MBPS = 16711680; FS = 139264; BR = 800000; DPB = 696320; break;
+                            default:
+                                Log.w(TAG, "Unrecognized level "
+                                        + profileLevel.level + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        switch (profileLevel.profile) {
+                            case CodecProfileLevel.AVCProfileConstrainedHigh:
+                            case CodecProfileLevel.AVCProfileHigh:
+                                BR *= 1250; break;
+                            case CodecProfileLevel.AVCProfileHigh10:
+                                BR *= 3000; break;
+                            case CodecProfileLevel.AVCProfileExtended:
+                            case CodecProfileLevel.AVCProfileHigh422:
+                            case CodecProfileLevel.AVCProfileHigh444:
+                                Log.w(TAG, "Unsupported profile "
+                                        + profileLevel.profile + " for " + mime);
+                                errors |= ERROR_UNSUPPORTED;
+                                supported = false;
+                                // fall through - treat as base profile
+                            case CodecProfileLevel.AVCProfileConstrainedBaseline:
+                            case CodecProfileLevel.AVCProfileBaseline:
+                            case CodecProfileLevel.AVCProfileMain:
+                                BR *= 1000; break;
+                            default:
+                                Log.w(TAG, "Unrecognized profile "
+                                        + profileLevel.profile + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                                BR *= 1000;
+                        }
+                        if (supported) {
+                            errors &= ~ERROR_NONE_SUPPORTED;
+                        }
+                        maxBlocksPerSecond = Math.max(MBPS, maxBlocksPerSecond);
+                        maxBlocks = Math.max(FS, maxBlocks);
+                        maxBps = Math.max(BR, maxBps);
+                        maxDPBBlocks = Math.max(maxDPBBlocks, DPB);
+                    }
+
+                    int maxLengthInBlocks = (int)(Math.sqrt(maxBlocks * 8));
+                    applyMacroBlockLimits(
+                            maxLengthInBlocks, maxLengthInBlocks,
+                            maxBlocks, maxBlocksPerSecond,
+                            16 /* blockWidth */, 16 /* blockHeight */,
+                            1 /* widthAlignment */, 1 /* heightAlignment */);
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_MPEG2)) {
+                    int maxWidth = 11, maxHeight = 9, maxRate = 15;
+                    maxBlocks = 99;
+                    maxBlocksPerSecond = 1485;
+                    maxBps = 64000;
+                    for (CodecProfileLevel profileLevel: profileLevels) {
+                        int MBPS = 0, FS = 0, BR = 0, FR = 0, W = 0, H = 0;
+                        boolean supported = true;
+                        switch (profileLevel.profile) {
+                            case CodecProfileLevel.MPEG2ProfileSimple:
+                                switch (profileLevel.level) {
+                                    case CodecProfileLevel.MPEG2LevelML:
+                                        FR = 30; W = 45; H =  36; MBPS =  40500; FS =  1620; BR =  15000; break;
+                                    default:
+                                        Log.w(TAG, "Unrecognized profile/level "
+                                                + profileLevel.profile + "/"
+                                                + profileLevel.level + " for " + mime);
+                                        errors |= ERROR_UNRECOGNIZED;
+                                }
+                                break;
+                            case CodecProfileLevel.MPEG2ProfileMain:
+                                switch (profileLevel.level) {
+                                    case CodecProfileLevel.MPEG2LevelLL:
+                                        FR = 30; W = 22; H =  18; MBPS =  11880; FS =   396; BR =  4000; break;
+                                    case CodecProfileLevel.MPEG2LevelML:
+                                        FR = 30; W = 45; H =  36; MBPS =  40500; FS =  1620; BR = 15000; break;
+                                    case CodecProfileLevel.MPEG2LevelH14:
+                                        FR = 60; W = 90; H =  68; MBPS = 183600; FS =  6120; BR = 60000; break;
+                                    case CodecProfileLevel.MPEG2LevelHL:
+                                        FR = 60; W = 120; H = 68; MBPS = 244800; FS =  8160; BR = 80000; break;
+                                    case CodecProfileLevel.MPEG2LevelHP:
+                                        FR = 60; W = 120; H = 68; MBPS = 489600; FS =  8160; BR = 80000; break;
+                                    default:
+                                        Log.w(TAG, "Unrecognized profile/level "
+                                                + profileLevel.profile + "/"
+                                                + profileLevel.level + " for " + mime);
+                                        errors |= ERROR_UNRECOGNIZED;
+                                }
+                                break;
+                            case CodecProfileLevel.MPEG2Profile422:
+                            case CodecProfileLevel.MPEG2ProfileSNR:
+                            case CodecProfileLevel.MPEG2ProfileSpatial:
+                            case CodecProfileLevel.MPEG2ProfileHigh:
+                                Log.i(TAG, "Unsupported profile "
+                                        + profileLevel.profile + " for " + mime);
+                                errors |= ERROR_UNSUPPORTED;
+                                supported = false;
+                                break;
+                            default:
+                                Log.w(TAG, "Unrecognized profile "
+                                        + profileLevel.profile + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        if (supported) {
+                            errors &= ~ERROR_NONE_SUPPORTED;
+                        }
+                        maxBlocksPerSecond = Math.max(MBPS, maxBlocksPerSecond);
+                        maxBlocks = Math.max(FS, maxBlocks);
+                        maxBps = Math.max(BR * 1000, maxBps);
+                        maxWidth = Math.max(W, maxWidth);
+                        maxHeight = Math.max(H, maxHeight);
+                        maxRate = Math.max(FR, maxRate);
+                    }
+                    applyMacroBlockLimits(maxWidth, maxHeight,
+                            maxBlocks, maxBlocksPerSecond,
+                            16 /* blockWidth */, 16 /* blockHeight */,
+                            1 /* widthAlignment */, 1 /* heightAlignment */);
+                    mFrameRateRange = mFrameRateRange.intersect(12, maxRate);
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_MPEG4)) {
+                    int maxWidth = 11, maxHeight = 9, maxRate = 15;
+                    maxBlocks = 99;
+                    maxBlocksPerSecond = 1485;
+                    maxBps = 64000;
+                    for (CodecProfileLevel profileLevel: profileLevels) {
+                        int MBPS = 0, FS = 0, BR = 0, FR = 0, W = 0, H = 0;
+                        boolean strict = false; // true: W, H and FR are individual max limits
+                        boolean supported = true;
+                        switch (profileLevel.profile) {
+                            case CodecProfileLevel.MPEG4ProfileSimple:
+                                switch (profileLevel.level) {
+                                    case CodecProfileLevel.MPEG4Level0:
+                                        strict = true;
+                                        FR = 15; W = 11; H =  9; MBPS =  1485; FS =  99; BR =  64; break;
+                                    case CodecProfileLevel.MPEG4Level1:
+                                        FR = 30; W = 11; H =  9; MBPS =  1485; FS =  99; BR =  64; break;
+                                    case CodecProfileLevel.MPEG4Level0b:
+                                        strict = true;
+                                        FR = 15; W = 11; H =  9; MBPS =  1485; FS =  99; BR = 128; break;
+                                    case CodecProfileLevel.MPEG4Level2:
+                                        FR = 30; W = 22; H = 18; MBPS =  5940; FS = 396; BR = 128; break;
+                                    case CodecProfileLevel.MPEG4Level3:
+                                        FR = 30; W = 22; H = 18; MBPS = 11880; FS = 396; BR = 384; break;
+                                    case CodecProfileLevel.MPEG4Level4a:
+                                        FR = 30; W = 40; H = 30; MBPS = 36000; FS = 1200; BR = 4000; break;
+                                    case CodecProfileLevel.MPEG4Level5:
+                                        FR = 30; W = 45; H = 36; MBPS = 40500; FS = 1620; BR = 8000; break;
+                                    case CodecProfileLevel.MPEG4Level6:
+                                        FR = 30; W = 80; H = 45; MBPS = 108000; FS = 3600; BR = 12000; break;
+                                    default:
+                                        Log.w(TAG, "Unrecognized profile/level "
+                                                + profileLevel.profile + "/"
+                                                + profileLevel.level + " for " + mime);
+                                        errors |= ERROR_UNRECOGNIZED;
+                                }
+                                break;
+                            case CodecProfileLevel.MPEG4ProfileAdvancedSimple:
+                                switch (profileLevel.level) {
+                                    case CodecProfileLevel.MPEG4Level0:
+                                    case CodecProfileLevel.MPEG4Level1:
+                                        FR = 30; W = 11; H =  9; MBPS =  2970; FS =   99; BR =  128; break;
+                                    case CodecProfileLevel.MPEG4Level2:
+                                        FR = 30; W = 22; H = 18; MBPS =  5940; FS =  396; BR =  384; break;
+                                    case CodecProfileLevel.MPEG4Level3:
+                                        FR = 30; W = 22; H = 18; MBPS = 11880; FS =  396; BR =  768; break;
+                                    case CodecProfileLevel.MPEG4Level3b:
+                                        FR = 30; W = 22; H = 18; MBPS = 11880; FS =  396; BR = 1500; break;
+                                    case CodecProfileLevel.MPEG4Level4:
+                                        FR = 30; W = 44; H = 36; MBPS = 23760; FS =  792; BR = 3000; break;
+                                    case CodecProfileLevel.MPEG4Level5:
+                                        FR = 30; W = 45; H = 36; MBPS = 48600; FS = 1620; BR = 8000; break;
+                                    default:
+                                        Log.w(TAG, "Unrecognized profile/level "
+                                                + profileLevel.profile + "/"
+                                                + profileLevel.level + " for " + mime);
+                                        errors |= ERROR_UNRECOGNIZED;
+                                }
+                                break;
+                            case CodecProfileLevel.MPEG4ProfileMain:             // 2-4
+                            case CodecProfileLevel.MPEG4ProfileNbit:             // 2
+                            case CodecProfileLevel.MPEG4ProfileAdvancedRealTime: // 1-4
+                            case CodecProfileLevel.MPEG4ProfileCoreScalable:     // 1-3
+                            case CodecProfileLevel.MPEG4ProfileAdvancedCoding:   // 1-4
+                            case CodecProfileLevel.MPEG4ProfileCore:             // 1-2
+                            case CodecProfileLevel.MPEG4ProfileAdvancedCore:     // 1-4
+                            case CodecProfileLevel.MPEG4ProfileSimpleScalable:   // 0-2
+                            case CodecProfileLevel.MPEG4ProfileHybrid:           // 1-2
+
+                            // Studio profiles are not supported by our codecs.
+
+                            // Only profiles that can decode simple object types are considered.
+                            // The following profiles are not able to.
+                            case CodecProfileLevel.MPEG4ProfileBasicAnimated:    // 1-2
+                            case CodecProfileLevel.MPEG4ProfileScalableTexture:  // 1
+                            case CodecProfileLevel.MPEG4ProfileSimpleFace:       // 1-2
+                            case CodecProfileLevel.MPEG4ProfileAdvancedScalable: // 1-3
+                            case CodecProfileLevel.MPEG4ProfileSimpleFBA:        // 1-2
+                                Log.i(TAG, "Unsupported profile "
+                                        + profileLevel.profile + " for " + mime);
+                                errors |= ERROR_UNSUPPORTED;
+                                supported = false;
+                                break;
+                            default:
+                                Log.w(TAG, "Unrecognized profile "
+                                        + profileLevel.profile + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        if (supported) {
+                            errors &= ~ERROR_NONE_SUPPORTED;
+                        }
+                        maxBlocksPerSecond = Math.max(MBPS, maxBlocksPerSecond);
+                        maxBlocks = Math.max(FS, maxBlocks);
+                        maxBps = Math.max(BR * 1000, maxBps);
+                        if (strict) {
+                            maxWidth = Math.max(W, maxWidth);
+                            maxHeight = Math.max(H, maxHeight);
+                            maxRate = Math.max(FR, maxRate);
+                        } else {
+                            // assuming max 60 fps frame rate and 1:2 aspect ratio
+                            int maxDim = (int)Math.sqrt(FS * 2);
+                            maxWidth = Math.max(maxDim, maxWidth);
+                            maxHeight = Math.max(maxDim, maxHeight);
+                            maxRate = Math.max(Math.max(FR, 60), maxRate);
+                        }
+                    }
+                    applyMacroBlockLimits(maxWidth, maxHeight,
+                            maxBlocks, maxBlocksPerSecond,
+                            16 /* blockWidth */, 16 /* blockHeight */,
+                            1 /* widthAlignment */, 1 /* heightAlignment */);
+                    mFrameRateRange = mFrameRateRange.intersect(12, maxRate);
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_H263)) {
+                    int maxWidth = 11, maxHeight = 9, maxRate = 15;
+                    int minWidth = maxWidth, minHeight = maxHeight;
+                    int minAlignment = 16;
+                    maxBlocks = 99;
+                    maxBlocksPerSecond = 1485;
+                    maxBps = 64000;
+                    for (CodecProfileLevel profileLevel: profileLevels) {
+                        int MBPS = 0, BR = 0, FR = 0, W = 0, H = 0, minW = minWidth, minH = minHeight;
+                        boolean strict = false; // true: support only sQCIF, QCIF (maybe CIF)
+                        switch (profileLevel.level) {
+                            case CodecProfileLevel.H263Level10:
+                                strict = true; // only supports sQCIF & QCIF
+                                FR = 15; W = 11; H =  9; BR =   1; MBPS =  W * H * FR; break;
+                            case CodecProfileLevel.H263Level20:
+                                strict = true; // only supports sQCIF, QCIF & CIF
+                                FR = 30; W = 22; H = 18; BR =   2; MBPS =  W * H * 15; break;
+                            case CodecProfileLevel.H263Level30:
+                                strict = true; // only supports sQCIF, QCIF & CIF
+                                FR = 30; W = 22; H = 18; BR =   6; MBPS =  W * H * FR; break;
+                            case CodecProfileLevel.H263Level40:
+                                strict = true; // only supports sQCIF, QCIF & CIF
+                                FR = 30; W = 22; H = 18; BR =  32; MBPS =  W * H * FR; break;
+                            case CodecProfileLevel.H263Level45:
+                                // only implies level 10 support
+                                strict = profileLevel.profile == CodecProfileLevel.H263ProfileBaseline
+                                        || profileLevel.profile
+                                                == CodecProfileLevel.H263ProfileBackwardCompatible;
+                                if (!strict) {
+                                    minW = 1; minH = 1; minAlignment = 4;
+                                }
+                                FR = 15; W = 11; H =  9; BR =   2; MBPS =  W * H * FR; break;
+                            case CodecProfileLevel.H263Level50:
+                                // only supports 50fps for H > 15
+                                minW = 1; minH = 1; minAlignment = 4;
+                                FR = 60; W = 22; H = 18; BR =  64; MBPS =  W * H * 50; break;
+                            case CodecProfileLevel.H263Level60:
+                                // only supports 50fps for H > 15
+                                minW = 1; minH = 1; minAlignment = 4;
+                                FR = 60; W = 45; H = 18; BR = 128; MBPS =  W * H * 50; break;
+                            case CodecProfileLevel.H263Level70:
+                                // only supports 50fps for H > 30
+                                minW = 1; minH = 1; minAlignment = 4;
+                                FR = 60; W = 45; H = 36; BR = 256; MBPS =  W * H * 50; break;
+                            default:
+                                Log.w(TAG, "Unrecognized profile/level " + profileLevel.profile
+                                        + "/" + profileLevel.level + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        switch (profileLevel.profile) {
+                            case CodecProfileLevel.H263ProfileBackwardCompatible:
+                            case CodecProfileLevel.H263ProfileBaseline:
+                            case CodecProfileLevel.H263ProfileH320Coding:
+                            case CodecProfileLevel.H263ProfileHighCompression:
+                            case CodecProfileLevel.H263ProfileHighLatency:
+                            case CodecProfileLevel.H263ProfileInterlace:
+                            case CodecProfileLevel.H263ProfileInternet:
+                            case CodecProfileLevel.H263ProfileISWV2:
+                            case CodecProfileLevel.H263ProfileISWV3:
+                                break;
+                            default:
+                                Log.w(TAG, "Unrecognized profile "
+                                        + profileLevel.profile + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        if (strict) {
+                            // Strict levels define sub-QCIF min size and enumerated sizes. We
+                            // cannot express support for "only sQCIF & QCIF (& CIF)" using
+                            // VideoCapabilities but we can express "only QCIF (& CIF)", so set
+                            // minimume size at QCIF.minW = 8; minH = 6;
+                            minW = 11; minH = 9;
+                        } else {
+                            // any support for non-strict levels (including unrecognized profiles or
+                            // levels) allow custom frame size support beyond supported limits
+                            // (other than bitrate)
+                            mAllowMbOverride = true;
+                        }
+                        errors &= ~ERROR_NONE_SUPPORTED;
+                        maxBlocksPerSecond = Math.max(MBPS, maxBlocksPerSecond);
+                        maxBlocks = Math.max(W * H, maxBlocks);
+                        maxBps = Math.max(BR * 64000, maxBps);
+                        maxWidth = Math.max(W, maxWidth);
+                        maxHeight = Math.max(H, maxHeight);
+                        maxRate = Math.max(FR, maxRate);
+                        minWidth = Math.min(minW, minWidth);
+                        minHeight = Math.min(minH, minHeight);
+                    }
+                    // unless we encountered custom frame size support, limit size to QCIF and CIF
+                    // using aspect ratio.
+                    if (!mAllowMbOverride) {
+                        mBlockAspectRatioRange =
+                            Range.create(new Rational(11, 9), new Rational(11, 9));
+                    }
+                    applyMacroBlockLimits(
+                            minWidth, minHeight,
+                            maxWidth, maxHeight,
+                            maxBlocks, maxBlocksPerSecond,
+                            16 /* blockWidth */, 16 /* blockHeight */,
+                            minAlignment /* widthAlignment */, minAlignment /* heightAlignment */);
+                    mFrameRateRange = Range.create(1, maxRate);
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_VP8)) {
+                    maxBlocks = Integer.MAX_VALUE;
+                    maxBlocksPerSecond = Integer.MAX_VALUE;
+
+                    // TODO: set to 100Mbps for now, need a number for VP8
+                    maxBps = 100000000;
+
+                    // profile levels are not indicative for VPx, but verify
+                    // them nonetheless
+                    for (CodecProfileLevel profileLevel: profileLevels) {
+                        switch (profileLevel.level) {
+                            case CodecProfileLevel.VP8Level_Version0:
+                            case CodecProfileLevel.VP8Level_Version1:
+                            case CodecProfileLevel.VP8Level_Version2:
+                            case CodecProfileLevel.VP8Level_Version3:
+                                break;
+                            default:
+                                Log.w(TAG, "Unrecognized level "
+                                        + profileLevel.level + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        switch (profileLevel.profile) {
+                            case CodecProfileLevel.VP8ProfileMain:
+                                break;
+                            default:
+                                Log.w(TAG, "Unrecognized profile "
+                                        + profileLevel.profile + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        errors &= ~ERROR_NONE_SUPPORTED;
+                    }
+
+                    final int blockSize = 16;
+                    applyMacroBlockLimits(Short.MAX_VALUE, Short.MAX_VALUE,
+                            maxBlocks, maxBlocksPerSecond, blockSize, blockSize,
+                            1 /* widthAlignment */, 1 /* heightAlignment */);
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_VP9)) {
+                    maxBlocksPerSecond = 829440;
+                    maxBlocks = 36864;
+                    maxBps = 200000;
+                    int maxDim = 512;
+
+                    for (CodecProfileLevel profileLevel: profileLevels) {
+                        long SR = 0; // luma sample rate
+                        int FS = 0;  // luma picture size
+                        int BR = 0;  // bit rate kbps
+                        int D = 0;   // luma dimension
+                        switch (profileLevel.level) {
+                            case CodecProfileLevel.VP9Level1:
+                                SR =      829440; FS =    36864; BR =    200; D =   512; break;
+                            case CodecProfileLevel.VP9Level11:
+                                SR =     2764800; FS =    73728; BR =    800; D =   768; break;
+                            case CodecProfileLevel.VP9Level2:
+                                SR =     4608000; FS =   122880; BR =   1800; D =   960; break;
+                            case CodecProfileLevel.VP9Level21:
+                                SR =     9216000; FS =   245760; BR =   3600; D =  1344; break;
+                            case CodecProfileLevel.VP9Level3:
+                                SR =    20736000; FS =   552960; BR =   7200; D =  2048; break;
+                            case CodecProfileLevel.VP9Level31:
+                                SR =    36864000; FS =   983040; BR =  12000; D =  2752; break;
+                            case CodecProfileLevel.VP9Level4:
+                                SR =    83558400; FS =  2228224; BR =  18000; D =  4160; break;
+                            case CodecProfileLevel.VP9Level41:
+                                SR =   160432128; FS =  2228224; BR =  30000; D =  4160; break;
+                            case CodecProfileLevel.VP9Level5:
+                                SR =   311951360; FS =  8912896; BR =  60000; D =  8384; break;
+                            case CodecProfileLevel.VP9Level51:
+                                SR =   588251136; FS =  8912896; BR = 120000; D =  8384; break;
+                            case CodecProfileLevel.VP9Level52:
+                                SR =  1176502272; FS =  8912896; BR = 180000; D =  8384; break;
+                            case CodecProfileLevel.VP9Level6:
+                                SR =  1176502272; FS = 35651584; BR = 180000; D = 16832; break;
+                            case CodecProfileLevel.VP9Level61:
+                                SR = 2353004544L; FS = 35651584; BR = 240000; D = 16832; break;
+                            case CodecProfileLevel.VP9Level62:
+                                SR = 4706009088L; FS = 35651584; BR = 480000; D = 16832; break;
+                            default:
+                                Log.w(TAG, "Unrecognized level "
+                                        + profileLevel.level + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        switch (profileLevel.profile) {
+                            case CodecProfileLevel.VP9Profile0:
+                            case CodecProfileLevel.VP9Profile1:
+                            case CodecProfileLevel.VP9Profile2:
+                            case CodecProfileLevel.VP9Profile3:
+                            case CodecProfileLevel.VP9Profile2HDR:
+                            case CodecProfileLevel.VP9Profile3HDR:
+                            case CodecProfileLevel.VP9Profile2HDR10Plus:
+                            case CodecProfileLevel.VP9Profile3HDR10Plus:
+                                break;
+                            default:
+                                Log.w(TAG, "Unrecognized profile "
+                                        + profileLevel.profile + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        errors &= ~ERROR_NONE_SUPPORTED;
+                        maxBlocksPerSecond = Math.max(SR, maxBlocksPerSecond);
+                        maxBlocks = Math.max(FS, maxBlocks);
+                        maxBps = Math.max(BR * 1000, maxBps);
+                        maxDim = Math.max(D, maxDim);
+                    }
+
+                    final int blockSize = 8;
+                    int maxLengthInBlocks = Utils.divUp(maxDim, blockSize);
+                    maxBlocks = Utils.divUp(maxBlocks, blockSize * blockSize);
+                    maxBlocksPerSecond = Utils.divUp(maxBlocksPerSecond, blockSize * blockSize);
+
+                    applyMacroBlockLimits(
+                            maxLengthInBlocks, maxLengthInBlocks,
+                            maxBlocks, maxBlocksPerSecond,
+                            blockSize, blockSize,
+                            1 /* widthAlignment */, 1 /* heightAlignment */);
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_HEVC)) {
+                    // CTBs are at least 8x8 so use 8x8 block size
+                    maxBlocks = 36864 >> 6; // 192x192 pixels == 576 8x8 blocks
+                    maxBlocksPerSecond = maxBlocks * 15;
+                    maxBps = 128000;
+                    for (CodecProfileLevel profileLevel: profileLevels) {
+                        double FR = 0;
+                        int FS = 0;
+                        int BR = 0;
+                        switch (profileLevel.level) {
+                            /* The HEVC spec talks only in a very convoluted manner about the
+                            existence of levels 1-3.1 for High tier, which could also be
+                            understood as 'decoders and encoders should treat these levels
+                            as if they were Main tier', so we do that. */
+                            case CodecProfileLevel.HEVCMainTierLevel1:
+                            case CodecProfileLevel.HEVCHighTierLevel1:
+                                FR =    15; FS =    36864; BR =    128; break;
+                            case CodecProfileLevel.HEVCMainTierLevel2:
+                            case CodecProfileLevel.HEVCHighTierLevel2:
+                                FR =    30; FS =   122880; BR =   1500; break;
+                            case CodecProfileLevel.HEVCMainTierLevel21:
+                            case CodecProfileLevel.HEVCHighTierLevel21:
+                                FR =    30; FS =   245760; BR =   3000; break;
+                            case CodecProfileLevel.HEVCMainTierLevel3:
+                            case CodecProfileLevel.HEVCHighTierLevel3:
+                                FR =    30; FS =   552960; BR =   6000; break;
+                            case CodecProfileLevel.HEVCMainTierLevel31:
+                            case CodecProfileLevel.HEVCHighTierLevel31:
+                                FR = 33.75; FS =   983040; BR =  10000; break;
+                            case CodecProfileLevel.HEVCMainTierLevel4:
+                                FR =    30; FS =  2228224; BR =  12000; break;
+                            case CodecProfileLevel.HEVCHighTierLevel4:
+                                FR =    30; FS =  2228224; BR =  30000; break;
+                            case CodecProfileLevel.HEVCMainTierLevel41:
+                                FR =    60; FS =  2228224; BR =  20000; break;
+                            case CodecProfileLevel.HEVCHighTierLevel41:
+                                FR =    60; FS =  2228224; BR =  50000; break;
+                            case CodecProfileLevel.HEVCMainTierLevel5:
+                                FR =    30; FS =  8912896; BR =  25000; break;
+                            case CodecProfileLevel.HEVCHighTierLevel5:
+                                FR =    30; FS =  8912896; BR = 100000; break;
+                            case CodecProfileLevel.HEVCMainTierLevel51:
+                                FR =    60; FS =  8912896; BR =  40000; break;
+                            case CodecProfileLevel.HEVCHighTierLevel51:
+                                FR =    60; FS =  8912896; BR = 160000; break;
+                            case CodecProfileLevel.HEVCMainTierLevel52:
+                                FR =   120; FS =  8912896; BR =  60000; break;
+                            case CodecProfileLevel.HEVCHighTierLevel52:
+                                FR =   120; FS =  8912896; BR = 240000; break;
+                            case CodecProfileLevel.HEVCMainTierLevel6:
+                                FR =    30; FS = 35651584; BR =  60000; break;
+                            case CodecProfileLevel.HEVCHighTierLevel6:
+                                FR =    30; FS = 35651584; BR = 240000; break;
+                            case CodecProfileLevel.HEVCMainTierLevel61:
+                                FR =    60; FS = 35651584; BR = 120000; break;
+                            case CodecProfileLevel.HEVCHighTierLevel61:
+                                FR =    60; FS = 35651584; BR = 480000; break;
+                            case CodecProfileLevel.HEVCMainTierLevel62:
+                                FR =   120; FS = 35651584; BR = 240000; break;
+                            case CodecProfileLevel.HEVCHighTierLevel62:
+                                FR =   120; FS = 35651584; BR = 800000; break;
+                            default:
+                                Log.w(TAG, "Unrecognized level "
+                                        + profileLevel.level + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        switch (profileLevel.profile) {
+                            case CodecProfileLevel.HEVCProfileMain:
+                            case CodecProfileLevel.HEVCProfileMain10:
+                            case CodecProfileLevel.HEVCProfileMainStill:
+                            case CodecProfileLevel.HEVCProfileMain10HDR10:
+                            case CodecProfileLevel.HEVCProfileMain10HDR10Plus:
+                                break;
+                            case CodecProfileLevel.HEVCProfileMain400:
+                            case CodecProfileLevel.HEVCProfileMain444:
+                                if (GetFlag(() ->
+                                        android.media.codec.Flags.format400444Support())) {
+                                    break;
+                                }
+                            // fall-through
+
+                            default:
+                                Log.w(TAG, "Unrecognized profile "
+                                        + profileLevel.profile + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+
+                        /* DPB logic:
+                        if      (width * height <= FS / 4)    DPB = 16;
+                        else if (width * height <= FS / 2)    DPB = 12;
+                        else if (width * height <= FS * 0.75) DPB = 8;
+                        else                                  DPB = 6;
+                        */
+
+                        FS >>= 6; // convert pixels to blocks
+                        errors &= ~ERROR_NONE_SUPPORTED;
+                        maxBlocksPerSecond = Math.max((int)(FR * FS), maxBlocksPerSecond);
+                        maxBlocks = Math.max(FS, maxBlocks);
+                        maxBps = Math.max(BR * 1000, maxBps);
+                    }
+
+                    int maxLengthInBlocks = (int)(Math.sqrt(maxBlocks * 8));
+                    applyMacroBlockLimits(
+                            maxLengthInBlocks, maxLengthInBlocks,
+                            maxBlocks, maxBlocksPerSecond,
+                            8 /* blockWidth */, 8 /* blockHeight */,
+                            1 /* widthAlignment */, 1 /* heightAlignment */);
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_AV1)) {
+                    maxBlocksPerSecond = 829440;
+                    maxBlocks = 36864;
+                    maxBps = 200000;
+                    int maxDim = 512;
+
+                    // Sample rate, Picture Size, Bit rate and luma dimension for AV1 Codec,
+                    // corresponding to the definitions in
+                    // "AV1 Bitstream & Decoding Process Specification", Annex A
+                    // found at https://aomedia.org/av1-bitstream-and-decoding-process-specification/
+                    for (CodecProfileLevel profileLevel: profileLevels) {
+                        long SR = 0; // luma sample rate
+                        int FS = 0;  // luma picture size
+                        int BR = 0;  // bit rate kbps
+                        int D = 0;   // luma D
+                        switch (profileLevel.level) {
+                            case CodecProfileLevel.AV1Level2:
+                                SR =     5529600; FS =   147456; BR =   1500; D =  2048; break;
+                            case CodecProfileLevel.AV1Level21:
+                            case CodecProfileLevel.AV1Level22:
+                            case CodecProfileLevel.AV1Level23:
+                                SR =    10454400; FS =   278784; BR =   3000; D =  2816; break;
+
+                            case CodecProfileLevel.AV1Level3:
+                                SR =    24969600; FS =   665856; BR =   6000; D =  4352; break;
+                            case CodecProfileLevel.AV1Level31:
+                            case CodecProfileLevel.AV1Level32:
+                            case CodecProfileLevel.AV1Level33:
+                                SR =    39938400; FS =  1065024; BR =  10000; D =  5504; break;
+
+                            case CodecProfileLevel.AV1Level4:
+                                SR =    77856768; FS =  2359296; BR =  12000; D =  6144; break;
+                            case CodecProfileLevel.AV1Level41:
+                            case CodecProfileLevel.AV1Level42:
+                            case CodecProfileLevel.AV1Level43:
+                                SR =   155713536; FS =  2359296; BR =  20000; D =  6144; break;
+
+                            case CodecProfileLevel.AV1Level5:
+                                SR =   273715200; FS =  8912896; BR =  30000; D =  8192; break;
+                            case CodecProfileLevel.AV1Level51:
+                                SR =   547430400; FS =  8912896; BR =  40000; D =  8192; break;
+                            case CodecProfileLevel.AV1Level52:
+                                SR =  1094860800; FS =  8912896; BR =  60000; D =  8192; break;
+                            case CodecProfileLevel.AV1Level53:
+                                SR =  1176502272; FS =  8912896; BR =  60000; D =  8192; break;
+
+                            case CodecProfileLevel.AV1Level6:
+                                SR =  1176502272; FS = 35651584; BR =  60000; D = 16384; break;
+                            case CodecProfileLevel.AV1Level61:
+                                SR = 2189721600L; FS = 35651584; BR = 100000; D = 16384; break;
+                            case CodecProfileLevel.AV1Level62:
+                                SR = 4379443200L; FS = 35651584; BR = 160000; D = 16384; break;
+                            case CodecProfileLevel.AV1Level63:
+                                SR = 4706009088L; FS = 35651584; BR = 160000; D = 16384; break;
+
+                            default:
+                                Log.w(TAG, "Unrecognized level "
+                                        + profileLevel.level + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        switch (profileLevel.profile) {
+                            case CodecProfileLevel.AV1ProfileMain8:
+                            case CodecProfileLevel.AV1ProfileMain10:
+                            case CodecProfileLevel.AV1ProfileMain10HDR10:
+                            case CodecProfileLevel.AV1ProfileMain10HDR10Plus:
+                                break;
+                            default:
+                                Log.w(TAG, "Unrecognized profile "
+                                        + profileLevel.profile + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        errors &= ~ERROR_NONE_SUPPORTED;
+                        maxBlocksPerSecond = Math.max(SR, maxBlocksPerSecond);
+                        maxBlocks = Math.max(FS, maxBlocks);
+                        maxBps = Math.max(BR * 1000, maxBps);
+                        maxDim = Math.max(D, maxDim);
+                    }
+
+                    final int blockSize = 8;
+                    int maxLengthInBlocks = Utils.divUp(maxDim, blockSize);
+                    maxBlocks = Utils.divUp(maxBlocks, blockSize * blockSize);
+                    maxBlocksPerSecond = Utils.divUp(maxBlocksPerSecond, blockSize * blockSize);
+                    applyMacroBlockLimits(
+                            maxLengthInBlocks, maxLengthInBlocks,
+                            maxBlocks, maxBlocksPerSecond,
+                            blockSize, blockSize,
+                            1 /* widthAlignment */, 1 /* heightAlignment */);
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_APV)) {
+                    maxBlocksPerSecond = 11880;
+                    maxBps = 7000000;
+
+                    // Sample rate, and Bit rate for APV Codec,
+                    // corresponding to the definitions in
+                    // "10.1.4. Levels and bands"
+                    // found at https://www.ietf.org/archive/id/draft-lim-apv-03.html
+                    for (CodecProfileLevel profileLevel: profileLevels) {
+                        long SR = 0; // luma sample rate
+                        int BR = 0;  // bit rate bps
+                        switch (profileLevel.level) {
+                            case CodecProfileLevel.APVLevel1Band0:
+                                SR =      3041280; BR =    7000000; break;
+                            case CodecProfileLevel.APVLevel1Band1:
+                                SR =      3041280; BR =   11000000; break;
+                            case CodecProfileLevel.APVLevel1Band2:
+                                SR =      3041280; BR =   14000000; break;
+                            case CodecProfileLevel.APVLevel1Band3:
+                                SR =      3041280; BR =   21000000; break;
+                            case CodecProfileLevel.APVLevel11Band0:
+                                SR =      6082560; BR =   14000000; break;
+                            case CodecProfileLevel.APVLevel11Band1:
+                                SR =      6082560; BR =   21000000; break;
+                            case CodecProfileLevel.APVLevel11Band2:
+                                SR =      6082560; BR =   28000000; break;
+                            case CodecProfileLevel.APVLevel11Band3:
+                                SR =      6082560; BR =   42000000; break;
+                            case CodecProfileLevel.APVLevel2Band0:
+                                SR =     15667200; BR =   36000000; break;
+                            case CodecProfileLevel.APVLevel2Band1:
+                                SR =     15667200; BR =   53000000; break;
+                            case CodecProfileLevel.APVLevel2Band2:
+                                SR =     15667200; BR =   71000000; break;
+                            case CodecProfileLevel.APVLevel2Band3:
+                                SR =     15667200; BR =  106000000; break;
+                            case CodecProfileLevel.APVLevel21Band0:
+                                SR =     31334400; BR =   71000000; break;
+                            case CodecProfileLevel.APVLevel21Band1:
+                                SR =     31334400; BR =  106000000; break;
+                            case CodecProfileLevel.APVLevel21Band2:
+                                SR =     31334400; BR =  141000000; break;
+                            case CodecProfileLevel.APVLevel21Band3:
+                                SR =     31334400; BR =  212000000; break;
+                            case CodecProfileLevel.APVLevel3Band0:
+                                SR =     66846720; BR =  101000000; break;
+                            case CodecProfileLevel.APVLevel3Band1:
+                                SR =     66846720; BR =  151000000; break;
+                            case CodecProfileLevel.APVLevel3Band2:
+                                SR =     66846720; BR =  201000000; break;
+                            case CodecProfileLevel.APVLevel3Band3:
+                                SR =     66846720; BR =  301000000; break;
+                            case CodecProfileLevel.APVLevel31Band0:
+                                SR =    133693440; BR =  201000000; break;
+                            case CodecProfileLevel.APVLevel31Band1:
+                                SR =    133693440; BR =  301000000; break;
+                            case CodecProfileLevel.APVLevel31Band2:
+                                SR =    133693440; BR =  401000000; break;
+                            case CodecProfileLevel.APVLevel31Band3:
+                                SR =    133693440; BR =  602000000; break;
+                            case CodecProfileLevel.APVLevel4Band0:
+                                SR =    265420800; BR =  401000000; break;
+                            case CodecProfileLevel.APVLevel4Band1:
+                                SR =    265420800; BR =  602000000; break;
+                            case CodecProfileLevel.APVLevel4Band2:
+                                SR =    265420800; BR =  780000000; break;
+                            case CodecProfileLevel.APVLevel4Band3:
+                                SR =    265420800; BR = 1170000000; break;
+                            case CodecProfileLevel.APVLevel41Band0:
+                                SR =    530841600; BR =  780000000; break;
+                            case CodecProfileLevel.APVLevel41Band1:
+                                SR =    530841600; BR = 1170000000; break;
+                            case CodecProfileLevel.APVLevel41Band2:
+                                SR =    530841600; BR = 1560000000; break;
+                            case CodecProfileLevel.APVLevel41Band3:
+                                // Current API allows bitrates only up to Max Integer
+                                // Hence we are limiting internal limits to Integer.MAX_VALUE
+                                // even when actual Level/Band limits are higher
+                                SR =    530841600; BR = Integer.MAX_VALUE; break;
+                            case CodecProfileLevel.APVLevel5Band0:
+                                SR =   1061683200; BR = 1560000000; break;
+                            case CodecProfileLevel.APVLevel5Band1:
+                                SR =   1061683200; BR = Integer.MAX_VALUE; break;
+                            case CodecProfileLevel.APVLevel5Band2:
+                                SR =   1061683200; BR = Integer.MAX_VALUE; break;
+                            case CodecProfileLevel.APVLevel5Band3:
+                                SR =   1061683200; BR = Integer.MAX_VALUE; break;
+                            case CodecProfileLevel.APVLevel51Band0:
+                            case CodecProfileLevel.APVLevel51Band1:
+                            case CodecProfileLevel.APVLevel51Band2:
+                            case CodecProfileLevel.APVLevel51Band3:
+                                SR =   2123366400; BR = Integer.MAX_VALUE; break;
+                            case CodecProfileLevel.APVLevel6Band0:
+                            case CodecProfileLevel.APVLevel6Band1:
+                            case CodecProfileLevel.APVLevel6Band2:
+                            case CodecProfileLevel.APVLevel6Band3:
+                                SR =  4777574400L; BR = Integer.MAX_VALUE; break;
+                            case CodecProfileLevel.APVLevel61Band0:
+                            case CodecProfileLevel.APVLevel61Band1:
+                            case CodecProfileLevel.APVLevel61Band2:
+                            case CodecProfileLevel.APVLevel61Band3:
+                                SR =  8493465600L; BR = Integer.MAX_VALUE; break;
+                            case CodecProfileLevel.APVLevel7Band0:
+                            case CodecProfileLevel.APVLevel7Band1:
+                            case CodecProfileLevel.APVLevel7Band2:
+                            case CodecProfileLevel.APVLevel7Band3:
+                                SR = 16986931200L; BR = Integer.MAX_VALUE; break;
+                            case CodecProfileLevel.APVLevel71Band0:
+                            case CodecProfileLevel.APVLevel71Band1:
+                            case CodecProfileLevel.APVLevel71Band2:
+                            case CodecProfileLevel.APVLevel71Band3:
+                                SR = 33973862400L; BR = Integer.MAX_VALUE; break;
+                            default:
+                                Log.w(TAG, "Unrecognized level "
+                                        + profileLevel.level + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        switch (profileLevel.profile) {
+                            case CodecProfileLevel.APVProfile422_10:
+                            case CodecProfileLevel.APVProfile422_10HDR10:
+                            case CodecProfileLevel.APVProfile422_10HDR10Plus:
+                                break;
+                            default:
+                                Log.w(TAG, "Unrecognized profile "
+                                        + profileLevel.profile + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        errors &= ~ERROR_NONE_SUPPORTED;
+                        maxBlocksPerSecond = Math.max(SR, maxBlocksPerSecond);
+                        maxBps = Math.max(BR, maxBps);
+                    }
+
+                    final int blockSize = 16;
+                    maxBlocks = Integer.MAX_VALUE;
+                    maxBlocksPerSecond = Utils.divUp(maxBlocksPerSecond, blockSize * blockSize);
+                    maxBlocks = (int) Math.min((long) maxBlocks, maxBlocksPerSecond);
+                    // Max frame size in APV is 2^24
+                    int maxLengthInBlocks = Utils.divUp((int) Math.pow(2, 24), blockSize);
+                    maxLengthInBlocks = Math.min(maxLengthInBlocks, maxBlocks);
+                    applyMacroBlockLimits(
+                            maxLengthInBlocks, maxLengthInBlocks,
+                            maxBlocks, maxBlocksPerSecond,
+                            blockSize, blockSize,
+                            2 /* widthAlignment */, 1 /* heightAlignment */);
+                } else if (GetFlag(() -> android.media.codec.Flags.vvcSupport())
+                        && mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_VVC)) {
+                    // CTBs are at least 4x4 so use 4x4 block size
+                    maxBlocks = 36864 >> 4; // 192x192 pixels == 2304 4x4 blocks
+                    maxBlocksPerSecond = maxBlocks * 15L;
+                    maxBps = 128000;
+                    for (CodecProfileLevel profileLevel: profileLevels) {
+                        double FR = 0;
+                        int FS = 0;
+                        int BR = 0;
+                        switch (profileLevel.level) {
+                            case CodecProfileLevel.VVCMainTierLevel10:
+                                FR =    15; FS =    36864; BR =    128; break;
+                            case CodecProfileLevel.VVCMainTierLevel20:
+                                FR =    30; FS =   122880; BR =   1500; break;
+                            case CodecProfileLevel.VVCMainTierLevel21:
+                                FR =    30; FS =   245760; BR =   3000; break;
+                            case CodecProfileLevel.VVCMainTierLevel30:
+                                FR =    30; FS =   552960; BR =   6000; break;
+                            case CodecProfileLevel.VVCMainTierLevel31:
+                                FR = 33.75; FS =   983040; BR =  10000; break;
+                            case CodecProfileLevel.VVCMainTierLevel40:
+                                FR =    30; FS =  2228224; BR =  12000; break;
+                            case CodecProfileLevel.VVCHighTierLevel40:
+                                FR =    30; FS =  2228224; BR =  30000; break;
+                            case CodecProfileLevel.VVCMainTierLevel41:
+                                FR =    60; FS =  2228224; BR =  20000; break;
+                            case CodecProfileLevel.VVCHighTierLevel41:
+                                FR =    60; FS =  2228224; BR =  50000; break;
+                            case CodecProfileLevel.VVCMainTierLevel50:
+                                FR =    30; FS =  8912896; BR =  25000; break;
+                            case CodecProfileLevel.VVCHighTierLevel50:
+                                FR =    30; FS =  8912896; BR = 100000; break;
+                            case CodecProfileLevel.VVCMainTierLevel51:
+                                FR =    60; FS =  8912896; BR =  40000; break;
+                            case CodecProfileLevel.VVCHighTierLevel51:
+                                FR =    60; FS =  8912896; BR = 160000; break;
+                            case CodecProfileLevel.VVCMainTierLevel52:
+                                FR =   120; FS =  8912896; BR =  60000; break;
+                            case CodecProfileLevel.VVCHighTierLevel52:
+                                FR =   120; FS =  8912896; BR = 240000; break;
+                            case CodecProfileLevel.VVCMainTierLevel60:
+                                FR =    30; FS = 35651584; BR =  60000; break;
+                            case CodecProfileLevel.VVCHighTierLevel60:
+                                FR =    30; FS = 35651584; BR = 240000; break;
+                            case CodecProfileLevel.VVCMainTierLevel61:
+                                FR =    60; FS = 35651584; BR = 120000; break;
+                            case CodecProfileLevel.VVCHighTierLevel61:
+                                FR =    60; FS = 35651584; BR = 480000; break;
+                            case CodecProfileLevel.VVCMainTierLevel62:
+                                FR =   120; FS = 35651584; BR = 240000; break;
+                            case CodecProfileLevel.VVCHighTierLevel62:
+                                FR =   120; FS = 35651584; BR = 800000; break;
+                            case CodecProfileLevel.VVCMainTierLevel63:
+                                FR =   60; FS = 80216064; BR =  320000; break;
+                            case CodecProfileLevel.VVCHighTierLevel63:
+                                FR =   60; FS = 80216064; BR = 1600000; break;
+                            default:
+                                Log.w(TAG, "Unrecognized level "
+                                        + profileLevel.level + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+                        switch (profileLevel.profile) {
+                            case CodecProfileLevel.VVCProfileMain8:
+                            case CodecProfileLevel.VVCProfileMain10:
+                            case CodecProfileLevel.VVCProfileMain10Still:
+                            case CodecProfileLevel.VVCProfileMain10HDR10:
+                            case CodecProfileLevel.VVCProfileMain10HDR10Plus:
+                                break;
+                            default:
+                                Log.w(TAG, "Unrecognized profile "
+                                        + profileLevel.profile + " for " + mime);
+                                errors |= ERROR_UNRECOGNIZED;
+                        }
+
+                        /* DPB logic:
+                        if      (width * height <= FS / 4)    DPB = 16;
+                        else if (width * height <= FS / 2)    DPB = 12;
+                        else if (width * height <= FS * 0.75) DPB = 8;
+                        else                                  DPB = 6;
+                        */
+
+                        FS >>= 4; // convert pixels to blocks
+                        errors &= ~ERROR_NONE_SUPPORTED;
+                        maxBlocksPerSecond = Math.max((int) (FR * FS), maxBlocksPerSecond);
+                        maxBlocks = Math.max(FS, maxBlocks);
+                        maxBps = Math.max(BR * 1000, maxBps);
+                    }
+
+                    int maxLengthInBlocks = (int) (Math.sqrt(maxBlocks * 8));
+                    applyMacroBlockLimits(
+                            maxLengthInBlocks, maxLengthInBlocks,
+                            maxBlocks, maxBlocksPerSecond,
+                            4 /* blockWidth */, 4 /* blockHeight */,
+                            1 /* widthAlignment */, 1 /* heightAlignment */);
+                } else {
+                    Log.w(TAG, "Unsupported mime " + mime);
+                    // using minimal bitrate here.  should be overridden by
+                    // info from media_codecs.xml
+                    maxBps = 64000;
+                    errors |= ERROR_UNSUPPORTED;
+                }
+                mBitrateRange = Range.create(1, maxBps);
+                mParent.mError |= errors;
+            }
+        }
+
+        /* package private */ static final class VideoCapsNativeImpl implements VideoCapsIntf {
+            private long mNativeContext; // accessed by native methods
+
+            private Range<Integer> mBitrateRange;
+            private Range<Integer> mHeightRange;
+            private Range<Integer> mWidthRange;
+            private Range<Integer> mFrameRateRange;
+            private List<PerformancePoint> mPerformancePoints;
+
+            private int mWidthAlignment;
+            private int mHeightAlignment;
+
+            // Used by JNI to construct Java VideoCapsNativeImpl
+            /** package private */ VideoCapsNativeImpl(Range<Integer> bitrateRange,
+                    Range<Integer> widthRange, Range<Integer> heightRange,
+                    Range<Integer> frameRateRange, List<PerformancePoint> performancePoints,
+                    int widthAlignment, int heightAlignment) {
+                mBitrateRange = new Range<Integer>(bitrateRange.getLower(),
+                        bitrateRange.getUpper());
+                mWidthRange = new Range<Integer>(widthRange.getLower(), widthRange.getUpper());
+                mHeightRange = new Range<Integer>(heightRange.getLower(), heightRange.getUpper());
+                mFrameRateRange = new Range<Integer>(frameRateRange.getLower(),
+                        frameRateRange.getUpper());
+                mPerformancePoints = new ArrayList<PerformancePoint>();
+                for (PerformancePoint pp : performancePoints) {
+                    mPerformancePoints.add(new PerformancePoint(pp));
+                }
+                mWidthAlignment = widthAlignment;
+                mHeightAlignment = heightAlignment;
+            }
+
+            /* no public constructor */
+            private VideoCapsNativeImpl() { }
+
+            public Range<Integer> getBitrateRange() {
+                return mBitrateRange;
+            }
+
+            public Range<Integer> getSupportedWidths() {
+                return mWidthRange;
+            }
+
+            public Range<Integer> getSupportedHeights() {
+                return mHeightRange;
+            }
+
+            public int getWidthAlignment() {
+                return mWidthAlignment;
+            }
+
+            public int getHeightAlignment() {
+                return mHeightAlignment;
+            }
+
+            /** @hide */
+            public int getSmallerDimensionUpperLimit() {
+                return native_getSmallerDimensionUpperLimit();
+            }
+
+            public Range<Integer> getSupportedFrameRates() {
+                return mFrameRateRange;
+            }
+
+            @Nullable
+            public List<PerformancePoint> getSupportedPerformancePoints() {
+                return mPerformancePoints;
+            }
+
+            public Range<Integer> getSupportedWidthsFor(int height) {
+                return native_getSupportedWidthsFor(height);
+            }
+
+            public Range<Integer> getSupportedHeightsFor(int width) {
+                return native_getSupportedHeightsFor(width);
+            }
+
+            public Range<Double> getSupportedFrameRatesFor(int width, int height) {
+                return native_getSupportedFrameRatesFor(width, height);
+            }
+
+            /** @throws IllegalArgumentException if the video size is not supported. */
+            @Nullable
+            public Range<Double> getAchievableFrameRatesFor(int width, int height) {
+                return native_getAchievableFrameRatesFor(width, height);
+            }
+
+            public boolean areSizeAndRateSupported(int width, int height, double frameRate) {
+                return native_areSizeAndRateSupported(width, height, frameRate);
+            }
+
+            public boolean isSizeSupported(int width, int height) {
+                return native_isSizeSupported(width, height);
+            }
+
+            /** @hide */
+            public boolean supportsFormat(MediaFormat format) {
+                throw new UnsupportedOperationException(
+                    "Java Implementation should not call native implemenatation");
+            }
+
+            private native Range<Integer> native_getSupportedWidthsFor(int height);
+            private native Range<Integer> native_getSupportedHeightsFor(int width);
+            private native Range<Double> native_getSupportedFrameRatesFor(int width, int height);
+            private native Range<Double> native_getAchievableFrameRatesFor(int width, int height);
+            private native boolean native_areSizeAndRateSupported(
+                    int width, int height, double frameRate);
+            private native boolean native_isSizeSupported(int width, int height);
+            private native int native_getSmallerDimensionUpperLimit();
+
+            private static native void native_init();
+
+            static {
+                System.loadLibrary("media_jni");
+                native_init();
+            }
+        }
+
+        private VideoCapsIntf mImpl;
+
+        /** @hide */
+        public static VideoCapabilities create(
+                MediaFormat info, CodecCapabilities.CodecCapsLegacyImpl parent) {
+            VideoCapsLegacyImpl impl = VideoCapsLegacyImpl.create(info, parent);
+            VideoCapabilities caps = new VideoCapabilities(impl);
+            return caps;
+        }
+
+        /* package private */ VideoCapabilities(VideoCapsIntf impl) {
+            mImpl = impl;
+        }
+
+        /* no public constructor */
+        private VideoCapabilities() { }
 
         /**
          * Returns the range of supported bitrates in bits/second.
          */
         public Range<Integer> getBitrateRange() {
-            return mBitrateRange;
+            return mImpl.getBitrateRange();
         }
 
         /**
          * Returns the range of supported video widths.
+         * <p class=note>
+         * 32-bit processes will not support resolutions larger than 4096x4096 due to
+         * the limited address space.
          */
         public Range<Integer> getSupportedWidths() {
-            return mWidthRange;
+            return mImpl.getSupportedWidths();
         }
 
         /**
          * Returns the range of supported video heights.
+         * <p class=note>
+         * 32-bit processes will not support resolutions larger than 4096x4096 due to
+         * the limited address space.
          */
         public Range<Integer> getSupportedHeights() {
-            return mHeightRange;
+            return mImpl.getSupportedHeights();
         }
 
         /**
@@ -1271,7 +4810,7 @@ public final class MediaCodecInfo {
          * multiple of.
          */
         public int getWidthAlignment() {
-            return mWidthAlignment;
+            return mImpl.getWidthAlignment();
         }
 
         /**
@@ -1281,7 +4820,7 @@ public final class MediaCodecInfo {
          * multiple of.
          */
         public int getHeightAlignment() {
-            return mHeightAlignment;
+            return mImpl.getWidthAlignment();
         }
 
         /**
@@ -1298,7 +4837,7 @@ public final class MediaCodecInfo {
          * @hide
          */
         public int getSmallerDimensionUpperLimit() {
-            return mSmallerDimensionUpperLimit;
+            return mImpl.getSmallerDimensionUpperLimit();
         }
 
         /**
@@ -1310,7 +4849,7 @@ public final class MediaCodecInfo {
          * or the decoding of such material in non-realtime.
          */
         public Range<Integer> getSupportedFrameRates() {
-            return mFrameRateRange;
+            return mImpl.getSupportedFrameRates();
         }
 
         /**
@@ -1318,43 +4857,7 @@ public final class MediaCodecInfo {
          * @param height the height of the video
          */
         public Range<Integer> getSupportedWidthsFor(int height) {
-            try {
-                Range<Integer> range = mWidthRange;
-                if (!mHeightRange.contains(height)
-                        || (height % mHeightAlignment) != 0) {
-                    throw new IllegalArgumentException("unsupported height");
-                }
-                final int heightInBlocks = Utils.divUp(height, mBlockHeight);
-
-                // constrain by block count and by block aspect ratio
-                final int minWidthInBlocks = Math.max(
-                        Utils.divUp(mBlockCountRange.getLower(), heightInBlocks),
-                        (int)Math.ceil(mBlockAspectRatioRange.getLower().doubleValue()
-                                * heightInBlocks));
-                final int maxWidthInBlocks = Math.min(
-                        mBlockCountRange.getUpper() / heightInBlocks,
-                        (int)(mBlockAspectRatioRange.getUpper().doubleValue()
-                                * heightInBlocks));
-                range = range.intersect(
-                        (minWidthInBlocks - 1) * mBlockWidth + mWidthAlignment,
-                        maxWidthInBlocks * mBlockWidth);
-
-                // constrain by smaller dimension limit
-                if (height > mSmallerDimensionUpperLimit) {
-                    range = range.intersect(1, mSmallerDimensionUpperLimit);
-                }
-
-                // constrain by aspect ratio
-                range = range.intersect(
-                        (int)Math.ceil(mAspectRatioRange.getLower().doubleValue()
-                                * height),
-                        (int)(mAspectRatioRange.getUpper().doubleValue() * height));
-                return range;
-            } catch (IllegalArgumentException e) {
-                // height is not supported because there are no suitable widths
-                Log.v(TAG, "could not get supported widths for " + height);
-                throw new IllegalArgumentException("unsupported height");
-            }
+            return mImpl.getSupportedWidthsFor(height);
         }
 
         /**
@@ -1362,43 +4865,7 @@ public final class MediaCodecInfo {
          * @param width the width of the video
          */
         public Range<Integer> getSupportedHeightsFor(int width) {
-            try {
-                Range<Integer> range = mHeightRange;
-                if (!mWidthRange.contains(width)
-                        || (width % mWidthAlignment) != 0) {
-                    throw new IllegalArgumentException("unsupported width");
-                }
-                final int widthInBlocks = Utils.divUp(width, mBlockWidth);
-
-                // constrain by block count and by block aspect ratio
-                final int minHeightInBlocks = Math.max(
-                        Utils.divUp(mBlockCountRange.getLower(), widthInBlocks),
-                        (int)Math.ceil(widthInBlocks /
-                                mBlockAspectRatioRange.getUpper().doubleValue()));
-                final int maxHeightInBlocks = Math.min(
-                        mBlockCountRange.getUpper() / widthInBlocks,
-                        (int)(widthInBlocks /
-                                mBlockAspectRatioRange.getLower().doubleValue()));
-                range = range.intersect(
-                        (minHeightInBlocks - 1) * mBlockHeight + mHeightAlignment,
-                        maxHeightInBlocks * mBlockHeight);
-
-                // constrain by smaller dimension limit
-                if (width > mSmallerDimensionUpperLimit) {
-                    range = range.intersect(1, mSmallerDimensionUpperLimit);
-                }
-
-                // constrain by aspect ratio
-                range = range.intersect(
-                        (int)Math.ceil(width /
-                                mAspectRatioRange.getUpper().doubleValue()),
-                        (int)(width / mAspectRatioRange.getLower().doubleValue()));
-                return range;
-            } catch (IllegalArgumentException e) {
-                // width is not supported because there are no suitable heights
-                Log.v(TAG, "could not get supported heights for " + width);
-                throw new IllegalArgumentException("unsupported width");
-            }
+            return mImpl.getSupportedHeightsFor(width);
         }
 
         /**
@@ -1413,46 +4880,7 @@ public final class MediaCodecInfo {
          * @param height the height of the video
          */
         public Range<Double> getSupportedFrameRatesFor(int width, int height) {
-            Range<Integer> range = mHeightRange;
-            if (!supports(width, height, null)) {
-                throw new IllegalArgumentException("unsupported size");
-            }
-            final int blockCount =
-                Utils.divUp(width, mBlockWidth) * Utils.divUp(height, mBlockHeight);
-
-            return Range.create(
-                    Math.max(mBlocksPerSecondRange.getLower() / (double) blockCount,
-                            (double) mFrameRateRange.getLower()),
-                    Math.min(mBlocksPerSecondRange.getUpper() / (double) blockCount,
-                            (double) mFrameRateRange.getUpper()));
-        }
-
-        private int getBlockCount(int width, int height) {
-            return Utils.divUp(width, mBlockWidth) * Utils.divUp(height, mBlockHeight);
-        }
-
-        @NonNull
-        private Size findClosestSize(int width, int height) {
-            int targetBlockCount = getBlockCount(width, height);
-            Size closestSize = null;
-            int minDiff = Integer.MAX_VALUE;
-            for (Size size : mMeasuredFrameRates.keySet()) {
-                int diff = Math.abs(targetBlockCount -
-                        getBlockCount(size.getWidth(), size.getHeight()));
-                if (diff < minDiff) {
-                    minDiff = diff;
-                    closestSize = size;
-                }
-            }
-            return closestSize;
-        }
-
-        private Range<Double> estimateFrameRatesFor(int width, int height) {
-            Size size = findClosestSize(width, height);
-            Range<Long> range = mMeasuredFrameRates.get(size);
-            Double ratio = getBlockCount(size.getWidth(), size.getHeight())
-                    / (double)Math.max(getBlockCount(width, height), 1);
-            return Range.create(range.getLower() * ratio, range.getUpper() * ratio);
+            return mImpl.getSupportedFrameRatesFor(width, height);
         }
 
         /**
@@ -1501,25 +4929,41 @@ public final class MediaCodecInfo {
          */
         @Nullable
         public Range<Double> getAchievableFrameRatesFor(int width, int height) {
-            if (!supports(width, height, null)) {
-                throw new IllegalArgumentException("unsupported size");
-            }
+            return mImpl.getAchievableFrameRatesFor(width, height);
+        }
 
-            if (mMeasuredFrameRates == null || mMeasuredFrameRates.size() <= 0) {
-                Log.w(TAG, "Codec did not publish any measurement data.");
-                return null;
-            }
-
-            return estimateFrameRatesFor(width, height);
+        /**
+         * Returns the supported performance points. May return {@code null} if the codec did not
+         * publish any performance point information (e.g. the vendor codecs have not been updated
+         * to the latest android release). May return an empty list if the codec published that
+         * if does not guarantee any performance points.
+         * <p>
+         * This is a performance guarantee provided by the device manufacturer for hardware codecs
+         * based on hardware capabilities of the device.
+         * <p>
+         * The returned list is sorted first by decreasing number of pixels, then by decreasing
+         * width, and finally by decreasing frame rate.
+         * Performance points assume a single active codec. For use cases where multiple
+         * codecs are active, should use that highest pixel count, and add the frame rates of
+         * each individual codec.
+         * <p class=note>
+         * 32-bit processes will not support resolutions larger than 4096x4096 due to
+         * the limited address space, but performance points will be presented as is.
+         * In other words, even though a component publishes a performance point for
+         * a resolution higher than 4096x4096, it does not mean that the resolution is supported
+         * for 32-bit processes.
+         */
+        @Nullable
+        public List<PerformancePoint> getSupportedPerformancePoints() {
+            return mImpl.getSupportedPerformancePoints();
         }
 
         /**
          * Returns whether a given video size ({@code width} and
          * {@code height}) and {@code frameRate} combination is supported.
          */
-        public boolean areSizeAndRateSupported(
-                int width, int height, double frameRate) {
-            return supports(width, height, frameRate);
+        public boolean areSizeAndRateSupported(int width, int height, double frameRate) {
+            return mImpl.areSizeAndRateSupported(width, height, frameRate);
         }
 
         /**
@@ -1527,1117 +4971,16 @@ public final class MediaCodecInfo {
          * {@code height}) is supported.
          */
         public boolean isSizeSupported(int width, int height) {
-            return supports(width, height, null);
-        }
-
-        private boolean supports(Integer width, Integer height, Number rate) {
-            boolean ok = true;
-
-            if (ok && width != null) {
-                ok = mWidthRange.contains(width)
-                        && (width % mWidthAlignment == 0);
-            }
-            if (ok && height != null) {
-                ok = mHeightRange.contains(height)
-                        && (height % mHeightAlignment == 0);
-            }
-            if (ok && rate != null) {
-                ok = mFrameRateRange.contains(Utils.intRangeFor(rate.doubleValue()));
-            }
-            if (ok && height != null && width != null) {
-                ok = Math.min(height, width) <= mSmallerDimensionUpperLimit;
-
-                final int widthInBlocks = Utils.divUp(width, mBlockWidth);
-                final int heightInBlocks = Utils.divUp(height, mBlockHeight);
-                final int blockCount = widthInBlocks * heightInBlocks;
-                ok = ok && mBlockCountRange.contains(blockCount)
-                        && mBlockAspectRatioRange.contains(
-                                new Rational(widthInBlocks, heightInBlocks))
-                        && mAspectRatioRange.contains(new Rational(width, height));
-                if (ok && rate != null) {
-                    double blocksPerSec = blockCount * rate.doubleValue();
-                    ok = mBlocksPerSecondRange.contains(
-                            Utils.longRangeFor(blocksPerSec));
-                }
-            }
-            return ok;
+            return mImpl.isSizeSupported(width, height);
         }
 
         /**
          * @hide
-         * @throws java.lang.ClassCastException */
+         * @throws java.lang.ClassCastException
+         * @throws java.lang.UnsupportedOperationException
+         */
         public boolean supportsFormat(MediaFormat format) {
-            final Map<String, Object> map = format.getMap();
-            Integer width = (Integer)map.get(MediaFormat.KEY_WIDTH);
-            Integer height = (Integer)map.get(MediaFormat.KEY_HEIGHT);
-            Number rate = (Number)map.get(MediaFormat.KEY_FRAME_RATE);
-
-            if (!supports(width, height, rate)) {
-                return false;
-            }
-
-            if (!CodecCapabilities.supportsBitrate(mBitrateRange, format)) {
-                return false;
-            }
-
-            // we ignore color-format for now as it is not reliably reported by codec
-            return true;
-        }
-
-        /* no public constructor */
-        private VideoCapabilities() { }
-
-        /** @hide */
-        public static VideoCapabilities create(
-                MediaFormat info, CodecCapabilities parent) {
-            VideoCapabilities caps = new VideoCapabilities();
-            caps.init(info, parent);
-            return caps;
-        }
-
-        private void init(MediaFormat info, CodecCapabilities parent) {
-            mParent = parent;
-            initWithPlatformLimits();
-            applyLevelLimits();
-            parseFromInfo(info);
-            updateLimits();
-        }
-
-        /** @hide */
-        public Size getBlockSize() {
-            return new Size(mBlockWidth, mBlockHeight);
-        }
-
-        /** @hide */
-        public Range<Integer> getBlockCountRange() {
-            return mBlockCountRange;
-        }
-
-        /** @hide */
-        public Range<Long> getBlocksPerSecondRange() {
-            return mBlocksPerSecondRange;
-        }
-
-        /** @hide */
-        public Range<Rational> getAspectRatioRange(boolean blocks) {
-            return blocks ? mBlockAspectRatioRange : mAspectRatioRange;
-        }
-
-        private void initWithPlatformLimits() {
-            mBitrateRange = BITRATE_RANGE;
-
-            mWidthRange  = SIZE_RANGE;
-            mHeightRange = SIZE_RANGE;
-            mFrameRateRange = FRAME_RATE_RANGE;
-
-            mHorizontalBlockRange = SIZE_RANGE;
-            mVerticalBlockRange   = SIZE_RANGE;
-
-            // full positive ranges are supported as these get calculated
-            mBlockCountRange      = POSITIVE_INTEGERS;
-            mBlocksPerSecondRange = POSITIVE_LONGS;
-
-            mBlockAspectRatioRange = POSITIVE_RATIONALS;
-            mAspectRatioRange      = POSITIVE_RATIONALS;
-
-            // YUV 4:2:0 requires 2:2 alignment
-            mWidthAlignment = 2;
-            mHeightAlignment = 2;
-            mBlockWidth = 2;
-            mBlockHeight = 2;
-            mSmallerDimensionUpperLimit = SIZE_RANGE.getUpper();
-        }
-
-        private Map<Size, Range<Long>> getMeasuredFrameRates(Map<String, Object> map) {
-            Map<Size, Range<Long>> ret = new HashMap<Size, Range<Long>>();
-            final String prefix = "measured-frame-rate-";
-            Set<String> keys = map.keySet();
-            for (String key : keys) {
-                // looking for: measured-frame-rate-WIDTHxHEIGHT-range
-                if (!key.startsWith(prefix)) {
-                    continue;
-                }
-                String subKey = key.substring(prefix.length());
-                String[] temp = key.split("-");
-                if (temp.length != 5) {
-                    continue;
-                }
-                String sizeStr = temp[3];
-                Size size = Utils.parseSize(sizeStr, null);
-                if (size == null || size.getWidth() * size.getHeight() <= 0) {
-                    continue;
-                }
-                Range<Long> range = Utils.parseLongRange(map.get(key), null);
-                if (range == null || range.getLower() < 0 || range.getUpper() < 0) {
-                    continue;
-                }
-                ret.put(size, range);
-            }
-            return ret;
-        }
-
-        private static Pair<Range<Integer>, Range<Integer>> parseWidthHeightRanges(Object o) {
-            Pair<Size, Size> range = Utils.parseSizeRange(o);
-            if (range != null) {
-                try {
-                    return Pair.create(
-                            Range.create(range.first.getWidth(), range.second.getWidth()),
-                            Range.create(range.first.getHeight(), range.second.getHeight()));
-                } catch (IllegalArgumentException e) {
-                    Log.w(TAG, "could not parse size range '" + o + "'");
-                }
-            }
-            return null;
-        }
-
-        /** @hide */
-        public static int equivalentVP9Level(MediaFormat info) {
-            final Map<String, Object> map = info.getMap();
-
-            Size blockSize = Utils.parseSize(map.get("block-size"), new Size(8, 8));
-            int BS = blockSize.getWidth() * blockSize.getHeight();
-
-            Range<Integer> counts = Utils.parseIntRange(map.get("block-count-range"), null);
-            int FS = counts == null ? 0 : BS * counts.getUpper();
-
-            Range<Long> blockRates =
-                Utils.parseLongRange(map.get("blocks-per-second-range"), null);
-            long SR = blockRates == null ? 0 : BS * blockRates.getUpper();
-
-            Pair<Range<Integer>, Range<Integer>> dimensionRanges =
-                parseWidthHeightRanges(map.get("size-range"));
-            int D = dimensionRanges == null ? 0 : Math.max(
-                    dimensionRanges.first.getUpper(), dimensionRanges.second.getUpper());
-
-            Range<Integer> bitRates = Utils.parseIntRange(map.get("bitrate-range"), null);
-            int BR = bitRates == null ? 0 : Utils.divUp(bitRates.getUpper(), 1000);
-
-            if (SR <=      829440 && FS <=    36864 && BR <=    200 && D <=   512)
-                return CodecProfileLevel.VP9Level1;
-            if (SR <=     2764800 && FS <=    73728 && BR <=    800 && D <=   768)
-                return CodecProfileLevel.VP9Level11;
-            if (SR <=     4608000 && FS <=   122880 && BR <=   1800 && D <=   960)
-                return CodecProfileLevel.VP9Level2;
-            if (SR <=     9216000 && FS <=   245760 && BR <=   3600 && D <=  1344)
-                return CodecProfileLevel.VP9Level21;
-            if (SR <=    20736000 && FS <=   552960 && BR <=   7200 && D <=  2048)
-                return CodecProfileLevel.VP9Level3;
-            if (SR <=    36864000 && FS <=   983040 && BR <=  12000 && D <=  2752)
-                return CodecProfileLevel.VP9Level31;
-            if (SR <=    83558400 && FS <=  2228224 && BR <=  18000 && D <=  4160)
-                return CodecProfileLevel.VP9Level4;
-            if (SR <=   160432128 && FS <=  2228224 && BR <=  30000 && D <=  4160)
-                return CodecProfileLevel.VP9Level41;
-            if (SR <=   311951360 && FS <=  8912896 && BR <=  60000 && D <=  8384)
-                return CodecProfileLevel.VP9Level5;
-            if (SR <=   588251136 && FS <=  8912896 && BR <= 120000 && D <=  8384)
-                return CodecProfileLevel.VP9Level51;
-            if (SR <=  1176502272 && FS <=  8912896 && BR <= 180000 && D <=  8384)
-                return CodecProfileLevel.VP9Level52;
-            if (SR <=  1176502272 && FS <= 35651584 && BR <= 180000 && D <= 16832)
-                return CodecProfileLevel.VP9Level6;
-            if (SR <= 2353004544L && FS <= 35651584 && BR <= 240000 && D <= 16832)
-                return CodecProfileLevel.VP9Level61;
-            if (SR <= 4706009088L && FS <= 35651584 && BR <= 480000 && D <= 16832)
-                return CodecProfileLevel.VP9Level62;
-            // returning largest level
-            return CodecProfileLevel.VP9Level62;
-        }
-
-        private void parseFromInfo(MediaFormat info) {
-            final Map<String, Object> map = info.getMap();
-            Size blockSize = new Size(mBlockWidth, mBlockHeight);
-            Size alignment = new Size(mWidthAlignment, mHeightAlignment);
-            Range<Integer> counts = null, widths = null, heights = null;
-            Range<Integer> frameRates = null, bitRates = null;
-            Range<Long> blockRates = null;
-            Range<Rational> ratios = null, blockRatios = null;
-
-            blockSize = Utils.parseSize(map.get("block-size"), blockSize);
-            alignment = Utils.parseSize(map.get("alignment"), alignment);
-            counts = Utils.parseIntRange(map.get("block-count-range"), null);
-            blockRates =
-                Utils.parseLongRange(map.get("blocks-per-second-range"), null);
-            mMeasuredFrameRates = getMeasuredFrameRates(map);
-            Pair<Range<Integer>, Range<Integer>> sizeRanges =
-                parseWidthHeightRanges(map.get("size-range"));
-            if (sizeRanges != null) {
-                widths = sizeRanges.first;
-                heights = sizeRanges.second;
-            }
-            // for now this just means using the smaller max size as 2nd
-            // upper limit.
-            // for now we are keeping the profile specific "width/height
-            // in macroblocks" limits.
-            if (map.containsKey("feature-can-swap-width-height")) {
-                if (widths != null) {
-                    mSmallerDimensionUpperLimit =
-                        Math.min(widths.getUpper(), heights.getUpper());
-                    widths = heights = widths.extend(heights);
-                } else {
-                    Log.w(TAG, "feature can-swap-width-height is best used with size-range");
-                    mSmallerDimensionUpperLimit =
-                        Math.min(mWidthRange.getUpper(), mHeightRange.getUpper());
-                    mWidthRange = mHeightRange = mWidthRange.extend(mHeightRange);
-                }
-            }
-
-            ratios = Utils.parseRationalRange(
-                    map.get("block-aspect-ratio-range"), null);
-            blockRatios = Utils.parseRationalRange(
-                    map.get("pixel-aspect-ratio-range"), null);
-            frameRates = Utils.parseIntRange(map.get("frame-rate-range"), null);
-            if (frameRates != null) {
-                try {
-                    frameRates = frameRates.intersect(FRAME_RATE_RANGE);
-                } catch (IllegalArgumentException e) {
-                    Log.w(TAG, "frame rate range (" + frameRates
-                            + ") is out of limits: " + FRAME_RATE_RANGE);
-                    frameRates = null;
-                }
-            }
-            bitRates = Utils.parseIntRange(map.get("bitrate-range"), null);
-            if (bitRates != null) {
-                try {
-                    bitRates = bitRates.intersect(BITRATE_RANGE);
-                } catch (IllegalArgumentException e) {
-                    Log.w(TAG,  "bitrate range (" + bitRates
-                            + ") is out of limits: " + BITRATE_RANGE);
-                    bitRates = null;
-                }
-            }
-
-            checkPowerOfTwo(
-                    blockSize.getWidth(), "block-size width must be power of two");
-            checkPowerOfTwo(
-                    blockSize.getHeight(), "block-size height must be power of two");
-
-            checkPowerOfTwo(
-                    alignment.getWidth(), "alignment width must be power of two");
-            checkPowerOfTwo(
-                    alignment.getHeight(), "alignment height must be power of two");
-
-            // update block-size and alignment
-            applyMacroBlockLimits(
-                    Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE,
-                    Long.MAX_VALUE, blockSize.getWidth(), blockSize.getHeight(),
-                    alignment.getWidth(), alignment.getHeight());
-
-            if ((mParent.mError & ERROR_UNSUPPORTED) != 0 || mAllowMbOverride) {
-                // codec supports profiles that we don't know.
-                // Use supplied values clipped to platform limits
-                if (widths != null) {
-                    mWidthRange = SIZE_RANGE.intersect(widths);
-                }
-                if (heights != null) {
-                    mHeightRange = SIZE_RANGE.intersect(heights);
-                }
-                if (counts != null) {
-                    mBlockCountRange = POSITIVE_INTEGERS.intersect(
-                            Utils.factorRange(counts, mBlockWidth * mBlockHeight
-                                    / blockSize.getWidth() / blockSize.getHeight()));
-                }
-                if (blockRates != null) {
-                    mBlocksPerSecondRange = POSITIVE_LONGS.intersect(
-                            Utils.factorRange(blockRates, mBlockWidth * mBlockHeight
-                                    / blockSize.getWidth() / blockSize.getHeight()));
-                }
-                if (blockRatios != null) {
-                    mBlockAspectRatioRange = POSITIVE_RATIONALS.intersect(
-                            Utils.scaleRange(blockRatios,
-                                    mBlockHeight / blockSize.getHeight(),
-                                    mBlockWidth / blockSize.getWidth()));
-                }
-                if (ratios != null) {
-                    mAspectRatioRange = POSITIVE_RATIONALS.intersect(ratios);
-                }
-                if (frameRates != null) {
-                    mFrameRateRange = FRAME_RATE_RANGE.intersect(frameRates);
-                }
-                if (bitRates != null) {
-                    // only allow bitrate override if unsupported profiles were encountered
-                    if ((mParent.mError & ERROR_UNSUPPORTED) != 0) {
-                        mBitrateRange = BITRATE_RANGE.intersect(bitRates);
-                    } else {
-                        mBitrateRange = mBitrateRange.intersect(bitRates);
-                    }
-                }
-            } else {
-                // no unsupported profile/levels, so restrict values to known limits
-                if (widths != null) {
-                    mWidthRange = mWidthRange.intersect(widths);
-                }
-                if (heights != null) {
-                    mHeightRange = mHeightRange.intersect(heights);
-                }
-                if (counts != null) {
-                    mBlockCountRange = mBlockCountRange.intersect(
-                            Utils.factorRange(counts, mBlockWidth * mBlockHeight
-                                    / blockSize.getWidth() / blockSize.getHeight()));
-                }
-                if (blockRates != null) {
-                    mBlocksPerSecondRange = mBlocksPerSecondRange.intersect(
-                            Utils.factorRange(blockRates, mBlockWidth * mBlockHeight
-                                    / blockSize.getWidth() / blockSize.getHeight()));
-                }
-                if (blockRatios != null) {
-                    mBlockAspectRatioRange = mBlockAspectRatioRange.intersect(
-                            Utils.scaleRange(blockRatios,
-                                    mBlockHeight / blockSize.getHeight(),
-                                    mBlockWidth / blockSize.getWidth()));
-                }
-                if (ratios != null) {
-                    mAspectRatioRange = mAspectRatioRange.intersect(ratios);
-                }
-                if (frameRates != null) {
-                    mFrameRateRange = mFrameRateRange.intersect(frameRates);
-                }
-                if (bitRates != null) {
-                    mBitrateRange = mBitrateRange.intersect(bitRates);
-                }
-            }
-            updateLimits();
-        }
-
-        private void applyBlockLimits(
-                int blockWidth, int blockHeight,
-                Range<Integer> counts, Range<Long> rates, Range<Rational> ratios) {
-            checkPowerOfTwo(blockWidth, "blockWidth must be a power of two");
-            checkPowerOfTwo(blockHeight, "blockHeight must be a power of two");
-
-            final int newBlockWidth = Math.max(blockWidth, mBlockWidth);
-            final int newBlockHeight = Math.max(blockHeight, mBlockHeight);
-
-            // factor will always be a power-of-2
-            int factor =
-                newBlockWidth * newBlockHeight / mBlockWidth / mBlockHeight;
-            if (factor != 1) {
-                mBlockCountRange = Utils.factorRange(mBlockCountRange, factor);
-                mBlocksPerSecondRange = Utils.factorRange(
-                        mBlocksPerSecondRange, factor);
-                mBlockAspectRatioRange = Utils.scaleRange(
-                        mBlockAspectRatioRange,
-                        newBlockHeight / mBlockHeight,
-                        newBlockWidth / mBlockWidth);
-                mHorizontalBlockRange = Utils.factorRange(
-                        mHorizontalBlockRange, newBlockWidth / mBlockWidth);
-                mVerticalBlockRange = Utils.factorRange(
-                        mVerticalBlockRange, newBlockHeight / mBlockHeight);
-            }
-            factor = newBlockWidth * newBlockHeight / blockWidth / blockHeight;
-            if (factor != 1) {
-                counts = Utils.factorRange(counts, factor);
-                rates = Utils.factorRange(rates, factor);
-                ratios = Utils.scaleRange(
-                        ratios, newBlockHeight / blockHeight,
-                        newBlockWidth / blockWidth);
-            }
-            mBlockCountRange = mBlockCountRange.intersect(counts);
-            mBlocksPerSecondRange = mBlocksPerSecondRange.intersect(rates);
-            mBlockAspectRatioRange = mBlockAspectRatioRange.intersect(ratios);
-            mBlockWidth = newBlockWidth;
-            mBlockHeight = newBlockHeight;
-        }
-
-        private void applyAlignment(int widthAlignment, int heightAlignment) {
-            checkPowerOfTwo(widthAlignment, "widthAlignment must be a power of two");
-            checkPowerOfTwo(heightAlignment, "heightAlignment must be a power of two");
-
-            if (widthAlignment > mBlockWidth || heightAlignment > mBlockHeight) {
-                // maintain assumption that 0 < alignment <= block-size
-                applyBlockLimits(
-                        Math.max(widthAlignment, mBlockWidth),
-                        Math.max(heightAlignment, mBlockHeight),
-                        POSITIVE_INTEGERS, POSITIVE_LONGS, POSITIVE_RATIONALS);
-            }
-
-            mWidthAlignment = Math.max(widthAlignment, mWidthAlignment);
-            mHeightAlignment = Math.max(heightAlignment, mHeightAlignment);
-
-            mWidthRange = Utils.alignRange(mWidthRange, mWidthAlignment);
-            mHeightRange = Utils.alignRange(mHeightRange, mHeightAlignment);
-        }
-
-        private void updateLimits() {
-            // pixels -> blocks <- counts
-            mHorizontalBlockRange = mHorizontalBlockRange.intersect(
-                    Utils.factorRange(mWidthRange, mBlockWidth));
-            mHorizontalBlockRange = mHorizontalBlockRange.intersect(
-                    Range.create(
-                            mBlockCountRange.getLower() / mVerticalBlockRange.getUpper(),
-                            mBlockCountRange.getUpper() / mVerticalBlockRange.getLower()));
-            mVerticalBlockRange = mVerticalBlockRange.intersect(
-                    Utils.factorRange(mHeightRange, mBlockHeight));
-            mVerticalBlockRange = mVerticalBlockRange.intersect(
-                    Range.create(
-                            mBlockCountRange.getLower() / mHorizontalBlockRange.getUpper(),
-                            mBlockCountRange.getUpper() / mHorizontalBlockRange.getLower()));
-            mBlockCountRange = mBlockCountRange.intersect(
-                    Range.create(
-                            mHorizontalBlockRange.getLower()
-                                    * mVerticalBlockRange.getLower(),
-                            mHorizontalBlockRange.getUpper()
-                                    * mVerticalBlockRange.getUpper()));
-            mBlockAspectRatioRange = mBlockAspectRatioRange.intersect(
-                    new Rational(
-                            mHorizontalBlockRange.getLower(), mVerticalBlockRange.getUpper()),
-                    new Rational(
-                            mHorizontalBlockRange.getUpper(), mVerticalBlockRange.getLower()));
-
-            // blocks -> pixels
-            mWidthRange = mWidthRange.intersect(
-                    (mHorizontalBlockRange.getLower() - 1) * mBlockWidth + mWidthAlignment,
-                    mHorizontalBlockRange.getUpper() * mBlockWidth);
-            mHeightRange = mHeightRange.intersect(
-                    (mVerticalBlockRange.getLower() - 1) * mBlockHeight + mHeightAlignment,
-                    mVerticalBlockRange.getUpper() * mBlockHeight);
-            mAspectRatioRange = mAspectRatioRange.intersect(
-                    new Rational(mWidthRange.getLower(), mHeightRange.getUpper()),
-                    new Rational(mWidthRange.getUpper(), mHeightRange.getLower()));
-
-            mSmallerDimensionUpperLimit = Math.min(
-                    mSmallerDimensionUpperLimit,
-                    Math.min(mWidthRange.getUpper(), mHeightRange.getUpper()));
-
-            // blocks -> rate
-            mBlocksPerSecondRange = mBlocksPerSecondRange.intersect(
-                    mBlockCountRange.getLower() * (long)mFrameRateRange.getLower(),
-                    mBlockCountRange.getUpper() * (long)mFrameRateRange.getUpper());
-            mFrameRateRange = mFrameRateRange.intersect(
-                    (int)(mBlocksPerSecondRange.getLower()
-                            / mBlockCountRange.getUpper()),
-                    (int)(mBlocksPerSecondRange.getUpper()
-                            / (double)mBlockCountRange.getLower()));
-        }
-
-        private void applyMacroBlockLimits(
-                int maxHorizontalBlocks, int maxVerticalBlocks,
-                int maxBlocks, long maxBlocksPerSecond,
-                int blockWidth, int blockHeight,
-                int widthAlignment, int heightAlignment) {
-            applyMacroBlockLimits(
-                    1 /* minHorizontalBlocks */, 1 /* minVerticalBlocks */,
-                    maxHorizontalBlocks, maxVerticalBlocks,
-                    maxBlocks, maxBlocksPerSecond,
-                    blockWidth, blockHeight, widthAlignment, heightAlignment);
-        }
-
-        private void applyMacroBlockLimits(
-                int minHorizontalBlocks, int minVerticalBlocks,
-                int maxHorizontalBlocks, int maxVerticalBlocks,
-                int maxBlocks, long maxBlocksPerSecond,
-                int blockWidth, int blockHeight,
-                int widthAlignment, int heightAlignment) {
-            applyAlignment(widthAlignment, heightAlignment);
-            applyBlockLimits(
-                    blockWidth, blockHeight, Range.create(1, maxBlocks),
-                    Range.create(1L, maxBlocksPerSecond),
-                    Range.create(
-                            new Rational(1, maxVerticalBlocks),
-                            new Rational(maxHorizontalBlocks, 1)));
-            mHorizontalBlockRange =
-                    mHorizontalBlockRange.intersect(
-                            Utils.divUp(minHorizontalBlocks, (mBlockWidth / blockWidth)),
-                            maxHorizontalBlocks / (mBlockWidth / blockWidth));
-            mVerticalBlockRange =
-                    mVerticalBlockRange.intersect(
-                            Utils.divUp(minVerticalBlocks, (mBlockHeight / blockHeight)),
-                            maxVerticalBlocks / (mBlockHeight / blockHeight));
-        }
-
-        private void applyLevelLimits() {
-            long maxBlocksPerSecond = 0;
-            int maxBlocks = 0;
-            int maxBps = 0;
-            int maxDPBBlocks = 0;
-
-            int errors = ERROR_NONE_SUPPORTED;
-            CodecProfileLevel[] profileLevels = mParent.profileLevels;
-            String mime = mParent.getMimeType();
-
-            if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_AVC)) {
-                maxBlocks = 99;
-                maxBlocksPerSecond = 1485;
-                maxBps = 64000;
-                maxDPBBlocks = 396;
-                for (CodecProfileLevel profileLevel: profileLevels) {
-                    int MBPS = 0, FS = 0, BR = 0, DPB = 0;
-                    boolean supported = true;
-                    switch (profileLevel.level) {
-                        case CodecProfileLevel.AVCLevel1:
-                            MBPS =    1485; FS =    99; BR =     64; DPB =    396; break;
-                        case CodecProfileLevel.AVCLevel1b:
-                            MBPS =    1485; FS =    99; BR =    128; DPB =    396; break;
-                        case CodecProfileLevel.AVCLevel11:
-                            MBPS =    3000; FS =   396; BR =    192; DPB =    900; break;
-                        case CodecProfileLevel.AVCLevel12:
-                            MBPS =    6000; FS =   396; BR =    384; DPB =   2376; break;
-                        case CodecProfileLevel.AVCLevel13:
-                            MBPS =   11880; FS =   396; BR =    768; DPB =   2376; break;
-                        case CodecProfileLevel.AVCLevel2:
-                            MBPS =   11880; FS =   396; BR =   2000; DPB =   2376; break;
-                        case CodecProfileLevel.AVCLevel21:
-                            MBPS =   19800; FS =   792; BR =   4000; DPB =   4752; break;
-                        case CodecProfileLevel.AVCLevel22:
-                            MBPS =   20250; FS =  1620; BR =   4000; DPB =   8100; break;
-                        case CodecProfileLevel.AVCLevel3:
-                            MBPS =   40500; FS =  1620; BR =  10000; DPB =   8100; break;
-                        case CodecProfileLevel.AVCLevel31:
-                            MBPS =  108000; FS =  3600; BR =  14000; DPB =  18000; break;
-                        case CodecProfileLevel.AVCLevel32:
-                            MBPS =  216000; FS =  5120; BR =  20000; DPB =  20480; break;
-                        case CodecProfileLevel.AVCLevel4:
-                            MBPS =  245760; FS =  8192; BR =  20000; DPB =  32768; break;
-                        case CodecProfileLevel.AVCLevel41:
-                            MBPS =  245760; FS =  8192; BR =  50000; DPB =  32768; break;
-                        case CodecProfileLevel.AVCLevel42:
-                            MBPS =  522240; FS =  8704; BR =  50000; DPB =  34816; break;
-                        case CodecProfileLevel.AVCLevel5:
-                            MBPS =  589824; FS = 22080; BR = 135000; DPB = 110400; break;
-                        case CodecProfileLevel.AVCLevel51:
-                            MBPS =  983040; FS = 36864; BR = 240000; DPB = 184320; break;
-                        case CodecProfileLevel.AVCLevel52:
-                            MBPS = 2073600; FS = 36864; BR = 240000; DPB = 184320; break;
-                        default:
-                            Log.w(TAG, "Unrecognized level "
-                                    + profileLevel.level + " for " + mime);
-                            errors |= ERROR_UNRECOGNIZED;
-                    }
-                    switch (profileLevel.profile) {
-                        case CodecProfileLevel.AVCProfileConstrainedHigh:
-                        case CodecProfileLevel.AVCProfileHigh:
-                            BR *= 1250; break;
-                        case CodecProfileLevel.AVCProfileHigh10:
-                            BR *= 3000; break;
-                        case CodecProfileLevel.AVCProfileExtended:
-                        case CodecProfileLevel.AVCProfileHigh422:
-                        case CodecProfileLevel.AVCProfileHigh444:
-                            Log.w(TAG, "Unsupported profile "
-                                    + profileLevel.profile + " for " + mime);
-                            errors |= ERROR_UNSUPPORTED;
-                            supported = false;
-                            // fall through - treat as base profile
-                        case CodecProfileLevel.AVCProfileConstrainedBaseline:
-                        case CodecProfileLevel.AVCProfileBaseline:
-                        case CodecProfileLevel.AVCProfileMain:
-                            BR *= 1000; break;
-                        default:
-                            Log.w(TAG, "Unrecognized profile "
-                                    + profileLevel.profile + " for " + mime);
-                            errors |= ERROR_UNRECOGNIZED;
-                            BR *= 1000;
-                    }
-                    if (supported) {
-                        errors &= ~ERROR_NONE_SUPPORTED;
-                    }
-                    maxBlocksPerSecond = Math.max(MBPS, maxBlocksPerSecond);
-                    maxBlocks = Math.max(FS, maxBlocks);
-                    maxBps = Math.max(BR, maxBps);
-                    maxDPBBlocks = Math.max(maxDPBBlocks, DPB);
-                }
-
-                int maxLengthInBlocks = (int)(Math.sqrt(maxBlocks * 8));
-                applyMacroBlockLimits(
-                        maxLengthInBlocks, maxLengthInBlocks,
-                        maxBlocks, maxBlocksPerSecond,
-                        16 /* blockWidth */, 16 /* blockHeight */,
-                        1 /* widthAlignment */, 1 /* heightAlignment */);
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_MPEG2)) {
-                int maxWidth = 11, maxHeight = 9, maxRate = 15;
-                maxBlocks = 99;
-                maxBlocksPerSecond = 1485;
-                maxBps = 64000;
-                for (CodecProfileLevel profileLevel: profileLevels) {
-                    int MBPS = 0, FS = 0, BR = 0, FR = 0, W = 0, H = 0;
-                    boolean supported = true;
-                    switch (profileLevel.profile) {
-                        case CodecProfileLevel.MPEG2ProfileSimple:
-                            switch (profileLevel.level) {
-                                case CodecProfileLevel.MPEG2LevelML:
-                                    FR = 30; W = 45; H =  36; MBPS =  40500; FS =  1620; BR =  15000; break;
-                                default:
-                                    Log.w(TAG, "Unrecognized profile/level "
-                                            + profileLevel.profile + "/"
-                                            + profileLevel.level + " for " + mime);
-                                    errors |= ERROR_UNRECOGNIZED;
-                            }
-                            break;
-                        case CodecProfileLevel.MPEG2ProfileMain:
-                            switch (profileLevel.level) {
-                                case CodecProfileLevel.MPEG2LevelLL:
-                                    FR = 30; W = 22; H =  18; MBPS =  11880; FS =   396; BR =  4000; break;
-                                case CodecProfileLevel.MPEG2LevelML:
-                                    FR = 30; W = 45; H =  36; MBPS =  40500; FS =  1620; BR = 15000; break;
-                                case CodecProfileLevel.MPEG2LevelH14:
-                                    FR = 60; W = 90; H =  68; MBPS = 183600; FS =  6120; BR = 60000; break;
-                                case CodecProfileLevel.MPEG2LevelHL:
-                                    FR = 60; W = 120; H = 68; MBPS = 244800; FS =  8160; BR = 80000; break;
-                                case CodecProfileLevel.MPEG2LevelHP:
-                                    FR = 60; W = 120; H = 68; MBPS = 489600; FS =  8160; BR = 80000; break;
-                                default:
-                                    Log.w(TAG, "Unrecognized profile/level "
-                                            + profileLevel.profile + "/"
-                                            + profileLevel.level + " for " + mime);
-                                    errors |= ERROR_UNRECOGNIZED;
-                            }
-                            break;
-                        case CodecProfileLevel.MPEG2Profile422:
-                        case CodecProfileLevel.MPEG2ProfileSNR:
-                        case CodecProfileLevel.MPEG2ProfileSpatial:
-                        case CodecProfileLevel.MPEG2ProfileHigh:
-                            Log.i(TAG, "Unsupported profile "
-                                    + profileLevel.profile + " for " + mime);
-                            errors |= ERROR_UNSUPPORTED;
-                            supported = false;
-                            break;
-                        default:
-                            Log.w(TAG, "Unrecognized profile "
-                                    + profileLevel.profile + " for " + mime);
-                            errors |= ERROR_UNRECOGNIZED;
-                    }
-                    if (supported) {
-                        errors &= ~ERROR_NONE_SUPPORTED;
-                    }
-                    maxBlocksPerSecond = Math.max(MBPS, maxBlocksPerSecond);
-                    maxBlocks = Math.max(FS, maxBlocks);
-                    maxBps = Math.max(BR * 1000, maxBps);
-                    maxWidth = Math.max(W, maxWidth);
-                    maxHeight = Math.max(H, maxHeight);
-                    maxRate = Math.max(FR, maxRate);
-                }
-                applyMacroBlockLimits(maxWidth, maxHeight,
-                        maxBlocks, maxBlocksPerSecond,
-                        16 /* blockWidth */, 16 /* blockHeight */,
-                        1 /* widthAlignment */, 1 /* heightAlignment */);
-                mFrameRateRange = mFrameRateRange.intersect(12, maxRate);
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_MPEG4)) {
-                int maxWidth = 11, maxHeight = 9, maxRate = 15;
-                maxBlocks = 99;
-                maxBlocksPerSecond = 1485;
-                maxBps = 64000;
-                for (CodecProfileLevel profileLevel: profileLevels) {
-                    int MBPS = 0, FS = 0, BR = 0, FR = 0, W = 0, H = 0;
-                    boolean strict = false; // true: W, H and FR are individual max limits
-                    boolean supported = true;
-                    switch (profileLevel.profile) {
-                        case CodecProfileLevel.MPEG4ProfileSimple:
-                            switch (profileLevel.level) {
-                                case CodecProfileLevel.MPEG4Level0:
-                                    strict = true;
-                                    FR = 15; W = 11; H =  9; MBPS =  1485; FS =  99; BR =  64; break;
-                                case CodecProfileLevel.MPEG4Level1:
-                                    FR = 30; W = 11; H =  9; MBPS =  1485; FS =  99; BR =  64; break;
-                                case CodecProfileLevel.MPEG4Level0b:
-                                    strict = true;
-                                    FR = 15; W = 11; H =  9; MBPS =  1485; FS =  99; BR = 128; break;
-                                case CodecProfileLevel.MPEG4Level2:
-                                    FR = 30; W = 22; H = 18; MBPS =  5940; FS = 396; BR = 128; break;
-                                case CodecProfileLevel.MPEG4Level3:
-                                    FR = 30; W = 22; H = 18; MBPS = 11880; FS = 396; BR = 384; break;
-                                case CodecProfileLevel.MPEG4Level4a:
-                                    FR = 30; W = 40; H = 30; MBPS = 36000; FS = 1200; BR = 4000; break;
-                                case CodecProfileLevel.MPEG4Level5:
-                                    FR = 30; W = 45; H = 36; MBPS = 40500; FS = 1620; BR = 8000; break;
-                                case CodecProfileLevel.MPEG4Level6:
-                                    FR = 30; W = 80; H = 45; MBPS = 108000; FS = 3600; BR = 12000; break;
-                                default:
-                                    Log.w(TAG, "Unrecognized profile/level "
-                                            + profileLevel.profile + "/"
-                                            + profileLevel.level + " for " + mime);
-                                    errors |= ERROR_UNRECOGNIZED;
-                            }
-                            break;
-                        case CodecProfileLevel.MPEG4ProfileAdvancedSimple:
-                            switch (profileLevel.level) {
-                                case CodecProfileLevel.MPEG4Level0:
-                                case CodecProfileLevel.MPEG4Level1:
-                                    FR = 30; W = 11; H =  9; MBPS =  2970; FS =   99; BR =  128; break;
-                                case CodecProfileLevel.MPEG4Level2:
-                                    FR = 30; W = 22; H = 18; MBPS =  5940; FS =  396; BR =  384; break;
-                                case CodecProfileLevel.MPEG4Level3:
-                                    FR = 30; W = 22; H = 18; MBPS = 11880; FS =  396; BR =  768; break;
-                                case CodecProfileLevel.MPEG4Level3b:
-                                    FR = 30; W = 22; H = 18; MBPS = 11880; FS =  396; BR = 1500; break;
-                                case CodecProfileLevel.MPEG4Level4:
-                                    FR = 30; W = 44; H = 36; MBPS = 23760; FS =  792; BR = 3000; break;
-                                case CodecProfileLevel.MPEG4Level5:
-                                    FR = 30; W = 45; H = 36; MBPS = 48600; FS = 1620; BR = 8000; break;
-                                default:
-                                    Log.w(TAG, "Unrecognized profile/level "
-                                            + profileLevel.profile + "/"
-                                            + profileLevel.level + " for " + mime);
-                                    errors |= ERROR_UNRECOGNIZED;
-                            }
-                            break;
-                        case CodecProfileLevel.MPEG4ProfileMain:             // 2-4
-                        case CodecProfileLevel.MPEG4ProfileNbit:             // 2
-                        case CodecProfileLevel.MPEG4ProfileAdvancedRealTime: // 1-4
-                        case CodecProfileLevel.MPEG4ProfileCoreScalable:     // 1-3
-                        case CodecProfileLevel.MPEG4ProfileAdvancedCoding:   // 1-4
-                        case CodecProfileLevel.MPEG4ProfileCore:             // 1-2
-                        case CodecProfileLevel.MPEG4ProfileAdvancedCore:     // 1-4
-                        case CodecProfileLevel.MPEG4ProfileSimpleScalable:   // 0-2
-                        case CodecProfileLevel.MPEG4ProfileHybrid:           // 1-2
-
-                        // Studio profiles are not supported by our codecs.
-
-                        // Only profiles that can decode simple object types are considered.
-                        // The following profiles are not able to.
-                        case CodecProfileLevel.MPEG4ProfileBasicAnimated:    // 1-2
-                        case CodecProfileLevel.MPEG4ProfileScalableTexture:  // 1
-                        case CodecProfileLevel.MPEG4ProfileSimpleFace:       // 1-2
-                        case CodecProfileLevel.MPEG4ProfileAdvancedScalable: // 1-3
-                        case CodecProfileLevel.MPEG4ProfileSimpleFBA:        // 1-2
-                            Log.i(TAG, "Unsupported profile "
-                                    + profileLevel.profile + " for " + mime);
-                            errors |= ERROR_UNSUPPORTED;
-                            supported = false;
-                            break;
-                        default:
-                            Log.w(TAG, "Unrecognized profile "
-                                    + profileLevel.profile + " for " + mime);
-                            errors |= ERROR_UNRECOGNIZED;
-                    }
-                    if (supported) {
-                        errors &= ~ERROR_NONE_SUPPORTED;
-                    }
-                    maxBlocksPerSecond = Math.max(MBPS, maxBlocksPerSecond);
-                    maxBlocks = Math.max(FS, maxBlocks);
-                    maxBps = Math.max(BR * 1000, maxBps);
-                    if (strict) {
-                        maxWidth = Math.max(W, maxWidth);
-                        maxHeight = Math.max(H, maxHeight);
-                        maxRate = Math.max(FR, maxRate);
-                    } else {
-                        // assuming max 60 fps frame rate and 1:2 aspect ratio
-                        int maxDim = (int)Math.sqrt(FS * 2);
-                        maxWidth = Math.max(maxDim, maxWidth);
-                        maxHeight = Math.max(maxDim, maxHeight);
-                        maxRate = Math.max(Math.max(FR, 60), maxRate);
-                    }
-                }
-                applyMacroBlockLimits(maxWidth, maxHeight,
-                        maxBlocks, maxBlocksPerSecond,
-                        16 /* blockWidth */, 16 /* blockHeight */,
-                        1 /* widthAlignment */, 1 /* heightAlignment */);
-                mFrameRateRange = mFrameRateRange.intersect(12, maxRate);
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_H263)) {
-                int maxWidth = 11, maxHeight = 9, maxRate = 15;
-                int minWidth = maxWidth, minHeight = maxHeight;
-                int minAlignment = 16;
-                maxBlocks = 99;
-                maxBlocksPerSecond = 1485;
-                maxBps = 64000;
-                for (CodecProfileLevel profileLevel: profileLevels) {
-                    int MBPS = 0, BR = 0, FR = 0, W = 0, H = 0, minW = minWidth, minH = minHeight;
-                    boolean strict = false; // true: support only sQCIF, QCIF (maybe CIF)
-                    switch (profileLevel.level) {
-                        case CodecProfileLevel.H263Level10:
-                            strict = true; // only supports sQCIF & QCIF
-                            FR = 15; W = 11; H =  9; BR =   1; MBPS =  W * H * FR; break;
-                        case CodecProfileLevel.H263Level20:
-                            strict = true; // only supports sQCIF, QCIF & CIF
-                            FR = 30; W = 22; H = 18; BR =   2; MBPS =  W * H * 15; break;
-                        case CodecProfileLevel.H263Level30:
-                            strict = true; // only supports sQCIF, QCIF & CIF
-                            FR = 30; W = 22; H = 18; BR =   6; MBPS =  W * H * FR; break;
-                        case CodecProfileLevel.H263Level40:
-                            strict = true; // only supports sQCIF, QCIF & CIF
-                            FR = 30; W = 22; H = 18; BR =  32; MBPS =  W * H * FR; break;
-                        case CodecProfileLevel.H263Level45:
-                            // only implies level 10 support
-                            strict = profileLevel.profile == CodecProfileLevel.H263ProfileBaseline
-                                    || profileLevel.profile ==
-                                            CodecProfileLevel.H263ProfileBackwardCompatible;
-                            if (!strict) {
-                                minW = 1; minH = 1; minAlignment = 4;
-                            }
-                            FR = 15; W = 11; H =  9; BR =   2; MBPS =  W * H * FR; break;
-                        case CodecProfileLevel.H263Level50:
-                            // only supports 50fps for H > 15
-                            minW = 1; minH = 1; minAlignment = 4;
-                            FR = 60; W = 22; H = 18; BR =  64; MBPS =  W * H * 50; break;
-                        case CodecProfileLevel.H263Level60:
-                            // only supports 50fps for H > 15
-                            minW = 1; minH = 1; minAlignment = 4;
-                            FR = 60; W = 45; H = 18; BR = 128; MBPS =  W * H * 50; break;
-                        case CodecProfileLevel.H263Level70:
-                            // only supports 50fps for H > 30
-                            minW = 1; minH = 1; minAlignment = 4;
-                            FR = 60; W = 45; H = 36; BR = 256; MBPS =  W * H * 50; break;
-                        default:
-                            Log.w(TAG, "Unrecognized profile/level " + profileLevel.profile
-                                    + "/" + profileLevel.level + " for " + mime);
-                            errors |= ERROR_UNRECOGNIZED;
-                    }
-                    switch (profileLevel.profile) {
-                        case CodecProfileLevel.H263ProfileBackwardCompatible:
-                        case CodecProfileLevel.H263ProfileBaseline:
-                        case CodecProfileLevel.H263ProfileH320Coding:
-                        case CodecProfileLevel.H263ProfileHighCompression:
-                        case CodecProfileLevel.H263ProfileHighLatency:
-                        case CodecProfileLevel.H263ProfileInterlace:
-                        case CodecProfileLevel.H263ProfileInternet:
-                        case CodecProfileLevel.H263ProfileISWV2:
-                        case CodecProfileLevel.H263ProfileISWV3:
-                            break;
-                        default:
-                            Log.w(TAG, "Unrecognized profile "
-                                    + profileLevel.profile + " for " + mime);
-                            errors |= ERROR_UNRECOGNIZED;
-                    }
-                    if (strict) {
-                        // Strict levels define sub-QCIF min size and enumerated sizes. We cannot
-                        // express support for "only sQCIF & QCIF (& CIF)" using VideoCapabilities
-                        // but we can express "only QCIF (& CIF)", so set minimume size at QCIF.
-                        // minW = 8; minH = 6;
-                        minW = 11; minH = 9;
-                    } else {
-                        // any support for non-strict levels (including unrecognized profiles or
-                        // levels) allow custom frame size support beyond supported limits
-                        // (other than bitrate)
-                        mAllowMbOverride = true;
-                    }
-                    errors &= ~ERROR_NONE_SUPPORTED;
-                    maxBlocksPerSecond = Math.max(MBPS, maxBlocksPerSecond);
-                    maxBlocks = Math.max(W * H, maxBlocks);
-                    maxBps = Math.max(BR * 64000, maxBps);
-                    maxWidth = Math.max(W, maxWidth);
-                    maxHeight = Math.max(H, maxHeight);
-                    maxRate = Math.max(FR, maxRate);
-                    minWidth = Math.min(minW, minWidth);
-                    minHeight = Math.min(minH, minHeight);
-                }
-                // unless we encountered custom frame size support, limit size to QCIF and CIF
-                // using aspect ratio.
-                if (!mAllowMbOverride) {
-                    mBlockAspectRatioRange =
-                        Range.create(new Rational(11, 9), new Rational(11, 9));
-                }
-                applyMacroBlockLimits(
-                        minWidth, minHeight,
-                        maxWidth, maxHeight,
-                        maxBlocks, maxBlocksPerSecond,
-                        16 /* blockWidth */, 16 /* blockHeight */,
-                        minAlignment /* widthAlignment */, minAlignment /* heightAlignment */);
-                mFrameRateRange = Range.create(1, maxRate);
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_VP8)) {
-                maxBlocks = Integer.MAX_VALUE;
-                maxBlocksPerSecond = Integer.MAX_VALUE;
-
-                // TODO: set to 100Mbps for now, need a number for VP8
-                maxBps = 100000000;
-
-                // profile levels are not indicative for VPx, but verify
-                // them nonetheless
-                for (CodecProfileLevel profileLevel: profileLevels) {
-                    switch (profileLevel.level) {
-                        case CodecProfileLevel.VP8Level_Version0:
-                        case CodecProfileLevel.VP8Level_Version1:
-                        case CodecProfileLevel.VP8Level_Version2:
-                        case CodecProfileLevel.VP8Level_Version3:
-                            break;
-                        default:
-                            Log.w(TAG, "Unrecognized level "
-                                    + profileLevel.level + " for " + mime);
-                            errors |= ERROR_UNRECOGNIZED;
-                    }
-                    switch (profileLevel.profile) {
-                        case CodecProfileLevel.VP8ProfileMain:
-                            break;
-                        default:
-                            Log.w(TAG, "Unrecognized profile "
-                                    + profileLevel.profile + " for " + mime);
-                            errors |= ERROR_UNRECOGNIZED;
-                    }
-                    errors &= ~ERROR_NONE_SUPPORTED;
-                }
-
-                final int blockSize = 16;
-                applyMacroBlockLimits(Short.MAX_VALUE, Short.MAX_VALUE,
-                        maxBlocks, maxBlocksPerSecond, blockSize, blockSize,
-                        1 /* widthAlignment */, 1 /* heightAlignment */);
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_VP9)) {
-                maxBlocksPerSecond = 829440;
-                maxBlocks = 36864;
-                maxBps = 200000;
-                int maxDim = 512;
-
-                for (CodecProfileLevel profileLevel: profileLevels) {
-                    long SR = 0; // luma sample rate
-                    int FS = 0;  // luma picture size
-                    int BR = 0;  // bit rate kbps
-                    int D = 0;   // luma dimension
-                    switch (profileLevel.level) {
-                        case CodecProfileLevel.VP9Level1:
-                            SR =      829440; FS =    36864; BR =    200; D =   512; break;
-                        case CodecProfileLevel.VP9Level11:
-                            SR =     2764800; FS =    73728; BR =    800; D =   768; break;
-                        case CodecProfileLevel.VP9Level2:
-                            SR =     4608000; FS =   122880; BR =   1800; D =   960; break;
-                        case CodecProfileLevel.VP9Level21:
-                            SR =     9216000; FS =   245760; BR =   3600; D =  1344; break;
-                        case CodecProfileLevel.VP9Level3:
-                            SR =    20736000; FS =   552960; BR =   7200; D =  2048; break;
-                        case CodecProfileLevel.VP9Level31:
-                            SR =    36864000; FS =   983040; BR =  12000; D =  2752; break;
-                        case CodecProfileLevel.VP9Level4:
-                            SR =    83558400; FS =  2228224; BR =  18000; D =  4160; break;
-                        case CodecProfileLevel.VP9Level41:
-                            SR =   160432128; FS =  2228224; BR =  30000; D =  4160; break;
-                        case CodecProfileLevel.VP9Level5:
-                            SR =   311951360; FS =  8912896; BR =  60000; D =  8384; break;
-                        case CodecProfileLevel.VP9Level51:
-                            SR =   588251136; FS =  8912896; BR = 120000; D =  8384; break;
-                        case CodecProfileLevel.VP9Level52:
-                            SR =  1176502272; FS =  8912896; BR = 180000; D =  8384; break;
-                        case CodecProfileLevel.VP9Level6:
-                            SR =  1176502272; FS = 35651584; BR = 180000; D = 16832; break;
-                        case CodecProfileLevel.VP9Level61:
-                            SR = 2353004544L; FS = 35651584; BR = 240000; D = 16832; break;
-                        case CodecProfileLevel.VP9Level62:
-                            SR = 4706009088L; FS = 35651584; BR = 480000; D = 16832; break;
-                        default:
-                            Log.w(TAG, "Unrecognized level "
-                                    + profileLevel.level + " for " + mime);
-                            errors |= ERROR_UNRECOGNIZED;
-                    }
-                    switch (profileLevel.profile) {
-                        case CodecProfileLevel.VP9Profile0:
-                        case CodecProfileLevel.VP9Profile1:
-                        case CodecProfileLevel.VP9Profile2:
-                        case CodecProfileLevel.VP9Profile3:
-                        case CodecProfileLevel.VP9Profile2HDR:
-                        case CodecProfileLevel.VP9Profile3HDR:
-                            break;
-                        default:
-                            Log.w(TAG, "Unrecognized profile "
-                                    + profileLevel.profile + " for " + mime);
-                            errors |= ERROR_UNRECOGNIZED;
-                    }
-                    errors &= ~ERROR_NONE_SUPPORTED;
-                    maxBlocksPerSecond = Math.max(SR, maxBlocksPerSecond);
-                    maxBlocks = Math.max(FS, maxBlocks);
-                    maxBps = Math.max(BR * 1000, maxBps);
-                    maxDim = Math.max(D, maxDim);
-                }
-
-                final int blockSize = 8;
-                int maxLengthInBlocks = Utils.divUp(maxDim, blockSize);
-                maxBlocks = Utils.divUp(maxBlocks, blockSize * blockSize);
-                maxBlocksPerSecond = Utils.divUp(maxBlocksPerSecond, blockSize * blockSize);
-
-                applyMacroBlockLimits(
-                        maxLengthInBlocks, maxLengthInBlocks,
-                        maxBlocks, maxBlocksPerSecond,
-                        blockSize, blockSize,
-                        1 /* widthAlignment */, 1 /* heightAlignment */);
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_VIDEO_HEVC)) {
-                // CTBs are at least 8x8 so use 8x8 block size
-                maxBlocks = 36864 >> 6; // 192x192 pixels == 576 8x8 blocks
-                maxBlocksPerSecond = maxBlocks * 15;
-                maxBps = 128000;
-                for (CodecProfileLevel profileLevel: profileLevels) {
-                    double FR = 0;
-                    int FS = 0;
-                    int BR = 0;
-                    switch (profileLevel.level) {
-                        /* The HEVC spec talks only in a very convoluted manner about the
-                           existence of levels 1-3.1 for High tier, which could also be
-                           understood as 'decoders and encoders should treat these levels
-                           as if they were Main tier', so we do that. */
-                        case CodecProfileLevel.HEVCMainTierLevel1:
-                        case CodecProfileLevel.HEVCHighTierLevel1:
-                            FR =    15; FS =    36864; BR =    128; break;
-                        case CodecProfileLevel.HEVCMainTierLevel2:
-                        case CodecProfileLevel.HEVCHighTierLevel2:
-                            FR =    30; FS =   122880; BR =   1500; break;
-                        case CodecProfileLevel.HEVCMainTierLevel21:
-                        case CodecProfileLevel.HEVCHighTierLevel21:
-                            FR =    30; FS =   245760; BR =   3000; break;
-                        case CodecProfileLevel.HEVCMainTierLevel3:
-                        case CodecProfileLevel.HEVCHighTierLevel3:
-                            FR =    30; FS =   552960; BR =   6000; break;
-                        case CodecProfileLevel.HEVCMainTierLevel31:
-                        case CodecProfileLevel.HEVCHighTierLevel31:
-                            FR = 33.75; FS =   983040; BR =  10000; break;
-                        case CodecProfileLevel.HEVCMainTierLevel4:
-                            FR =    30; FS =  2228224; BR =  12000; break;
-                        case CodecProfileLevel.HEVCHighTierLevel4:
-                            FR =    30; FS =  2228224; BR =  30000; break;
-                        case CodecProfileLevel.HEVCMainTierLevel41:
-                            FR =    60; FS =  2228224; BR =  20000; break;
-                        case CodecProfileLevel.HEVCHighTierLevel41:
-                            FR =    60; FS =  2228224; BR =  50000; break;
-                        case CodecProfileLevel.HEVCMainTierLevel5:
-                            FR =    30; FS =  8912896; BR =  25000; break;
-                        case CodecProfileLevel.HEVCHighTierLevel5:
-                            FR =    30; FS =  8912896; BR = 100000; break;
-                        case CodecProfileLevel.HEVCMainTierLevel51:
-                            FR =    60; FS =  8912896; BR =  40000; break;
-                        case CodecProfileLevel.HEVCHighTierLevel51:
-                            FR =    60; FS =  8912896; BR = 160000; break;
-                        case CodecProfileLevel.HEVCMainTierLevel52:
-                            FR =   120; FS =  8912896; BR =  60000; break;
-                        case CodecProfileLevel.HEVCHighTierLevel52:
-                            FR =   120; FS =  8912896; BR = 240000; break;
-                        case CodecProfileLevel.HEVCMainTierLevel6:
-                            FR =    30; FS = 35651584; BR =  60000; break;
-                        case CodecProfileLevel.HEVCHighTierLevel6:
-                            FR =    30; FS = 35651584; BR = 240000; break;
-                        case CodecProfileLevel.HEVCMainTierLevel61:
-                            FR =    60; FS = 35651584; BR = 120000; break;
-                        case CodecProfileLevel.HEVCHighTierLevel61:
-                            FR =    60; FS = 35651584; BR = 480000; break;
-                        case CodecProfileLevel.HEVCMainTierLevel62:
-                            FR =   120; FS = 35651584; BR = 240000; break;
-                        case CodecProfileLevel.HEVCHighTierLevel62:
-                            FR =   120; FS = 35651584; BR = 800000; break;
-                        default:
-                            Log.w(TAG, "Unrecognized level "
-                                    + profileLevel.level + " for " + mime);
-                            errors |= ERROR_UNRECOGNIZED;
-                    }
-                    switch (profileLevel.profile) {
-                        case CodecProfileLevel.HEVCProfileMain:
-                        case CodecProfileLevel.HEVCProfileMain10:
-                        case CodecProfileLevel.HEVCProfileMain10HDR10:
-                            break;
-                        default:
-                            Log.w(TAG, "Unrecognized profile "
-                                    + profileLevel.profile + " for " + mime);
-                            errors |= ERROR_UNRECOGNIZED;
-                    }
-
-                    /* DPB logic:
-                    if      (width * height <= FS / 4)    DPB = 16;
-                    else if (width * height <= FS / 2)    DPB = 12;
-                    else if (width * height <= FS * 0.75) DPB = 8;
-                    else                                  DPB = 6;
-                    */
-
-                    FS >>= 6; // convert pixels to blocks
-                    errors &= ~ERROR_NONE_SUPPORTED;
-                    maxBlocksPerSecond = Math.max((int)(FR * FS), maxBlocksPerSecond);
-                    maxBlocks = Math.max(FS, maxBlocks);
-                    maxBps = Math.max(BR * 1000, maxBps);
-                }
-
-                int maxLengthInBlocks = (int)(Math.sqrt(maxBlocks * 8));
-                applyMacroBlockLimits(
-                        maxLengthInBlocks, maxLengthInBlocks,
-                        maxBlocks, maxBlocksPerSecond,
-                        8 /* blockWidth */, 8 /* blockHeight */,
-                        1 /* widthAlignment */, 1 /* heightAlignment */);
-            } else {
-                Log.w(TAG, "Unsupported mime " + mime);
-                // using minimal bitrate here.  should be overriden by
-                // info from media_codecs.xml
-                maxBps = 64000;
-                errors |= ERROR_UNSUPPORTED;
-            }
-            mBitrateRange = Range.create(1, maxBps);
-            mParent.mError |= errors;
+            return mImpl.supportsFormat(format);
         }
     }
 
@@ -2645,6 +4988,308 @@ public final class MediaCodecInfo {
      * A class that supports querying the encoding capabilities of a codec.
      */
     public static final class EncoderCapabilities {
+        private static final String TAG = "EncoderCapabilities";
+
+        /** Constant quality mode */
+        public static final int BITRATE_MODE_CQ = 0;
+        /** Variable bitrate mode */
+        public static final int BITRATE_MODE_VBR = 1;
+        /** Constant bitrate mode */
+        public static final int BITRATE_MODE_CBR = 2;
+        /** Constant bitrate mode with frame drops */
+        public static final int BITRATE_MODE_CBR_FD =  3;
+
+        /* package private */ interface EncoderCapsIntf {
+            public Range<Integer> getQualityRange();
+
+            public Range<Integer> getComplexityRange();
+
+            public boolean isBitrateModeSupported(int mode);
+
+            @FlaggedApi(FLAG_TEMPORAL_LAYER_ENCODING) public String[] getSupportedLayeringSchemas();
+
+            public void getDefaultFormat(MediaFormat format);
+
+            public boolean supportsFormat(MediaFormat format);
+        }
+
+        /* package private */ static final class EncoderCapsLegacyImpl implements EncoderCapsIntf {
+            private CodecCapabilities.CodecCapsLegacyImpl mParent;
+
+            private Range<Integer> mQualityRange;
+            private Range<Integer> mComplexityRange;
+            private String[] mSupportedLayeringSchemas;
+
+            public Range<Integer> getQualityRange() {
+                return mQualityRange;
+            }
+
+            public Range<Integer> getComplexityRange() {
+                return mComplexityRange;
+            }
+
+            private static final Feature[] bitrates = new Feature[] {
+                new Feature("VBR", BITRATE_MODE_VBR, true),
+                new Feature("CBR", BITRATE_MODE_CBR, false),
+                new Feature("CQ",  BITRATE_MODE_CQ,  false),
+                new Feature("CBR-FD", BITRATE_MODE_CBR_FD, false)
+            };
+
+            private static int parseBitrateMode(String mode) {
+                for (Feature feat: bitrates) {
+                    if (feat.mName.equalsIgnoreCase(mode)) {
+                        return feat.mValue;
+                    }
+                }
+                return 0;
+            }
+
+            public boolean isBitrateModeSupported(int mode) {
+                for (Feature feat: bitrates) {
+                    if (mode == feat.mValue) {
+                        return (mBitControl & (1 << mode)) != 0;
+                    }
+                }
+                return false;
+            }
+
+            public String[] getSupportedLayeringSchemas() {
+                return mSupportedLayeringSchemas;
+            }
+
+            /* no public constructor */
+            private EncoderCapsLegacyImpl() { }
+
+            /** @hide */
+            public static EncoderCapsLegacyImpl create(
+                    MediaFormat info, CodecCapabilities.CodecCapsLegacyImpl parent) {
+                if (GetFlag(() -> android.media.codec.Flags.nativeCapabilites())) {
+                    Log.d(TAG, "Legacy implementation is called while native flag is on.");
+                }
+
+                EncoderCapsLegacyImpl caps = new EncoderCapsLegacyImpl();
+                caps.init(info, parent);
+                return caps;
+            }
+
+            private void init(MediaFormat info, CodecCapabilities.CodecCapsLegacyImpl parent) {
+                // no support for complexity or quality yet
+                mParent = parent;
+                mComplexityRange = Range.create(0, 0);
+                mQualityRange = Range.create(0, 0);
+                mBitControl = (1 << BITRATE_MODE_VBR);
+                mSupportedLayeringSchemas = new String[0];
+
+                applyLevelLimits();
+                parseFromInfo(info);
+            }
+
+            private void applyLevelLimits() {
+                String mime = mParent.getMimeType();
+                if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_FLAC)) {
+                    mComplexityRange = Range.create(0, 8);
+                    mBitControl = (1 << BITRATE_MODE_CQ);
+                } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AMR_NB)
+                        || mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AMR_WB)
+                        || mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_G711_ALAW)
+                        || mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_G711_MLAW)
+                        || mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_MSGSM)) {
+                    mBitControl = (1 << BITRATE_MODE_CBR);
+                }
+            }
+
+            private int mBitControl;
+            private Integer mDefaultComplexity;
+            private Integer mDefaultQuality;
+            private String mQualityScale;
+
+            private void parseFromInfo(MediaFormat info) {
+                Map<String, Object> map = info.getMap();
+
+                if (info.containsKey("complexity-range")) {
+                    mComplexityRange = Utils
+                            .parseIntRange(info.getString("complexity-range"), mComplexityRange);
+                    // TODO should we limit this to level limits?
+                }
+                if (info.containsKey("quality-range")) {
+                    mQualityRange = Utils
+                            .parseIntRange(info.getString("quality-range"), mQualityRange);
+                }
+                if (info.containsKey("feature-bitrate-modes")) {
+                    mBitControl = 0;
+                    for (String mode: info.getString("feature-bitrate-modes").split(",")) {
+                        mBitControl |= (1 << parseBitrateMode(mode));
+                    }
+                }
+                if (info.containsKey("ts-schemas")) {
+                    List<String> schemas = new ArrayList<String>();
+                    for (String schema : info.getString("ts-schemas").split(";")) {
+                        schemas.add(schema);
+                    }
+                    mSupportedLayeringSchemas = new String[schemas.size()];
+                    schemas.toArray(mSupportedLayeringSchemas);
+                }
+
+                try {
+                    mDefaultComplexity = Integer.parseInt((String)map.get("complexity-default"));
+                } catch (NumberFormatException e) { }
+
+                try {
+                    mDefaultQuality = Integer.parseInt((String)map.get("quality-default"));
+                } catch (NumberFormatException e) { }
+
+                mQualityScale = (String)map.get("quality-scale");
+            }
+
+            private boolean supports(Integer complexity, Integer quality, Integer profile) {
+                boolean ok = true;
+                if (ok && complexity != null) {
+                    ok = mComplexityRange.contains(complexity);
+                }
+                if (ok && quality != null) {
+                    ok = mQualityRange.contains(quality);
+                }
+                if (ok && profile != null) {
+                    for (CodecProfileLevel pl: mParent.getProfileLevels()) {
+                        if (pl.profile == profile) {
+                            profile = null;
+                            break;
+                        }
+                    }
+                    ok = profile == null;
+                }
+                return ok;
+            }
+
+            /** @hide */
+            public void getDefaultFormat(MediaFormat format) {
+                // don't list trivial quality/complexity as default for now
+                if (!mQualityRange.getUpper().equals(mQualityRange.getLower())
+                        && mDefaultQuality != null) {
+                    format.setInteger(MediaFormat.KEY_QUALITY, mDefaultQuality);
+                }
+                if (!mComplexityRange.getUpper().equals(mComplexityRange.getLower())
+                        && mDefaultComplexity != null) {
+                    format.setInteger(MediaFormat.KEY_COMPLEXITY, mDefaultComplexity);
+                }
+                // bitrates are listed in order of preference
+                for (Feature feat: bitrates) {
+                    if ((mBitControl & (1 << feat.mValue)) != 0) {
+                        format.setInteger(MediaFormat.KEY_BITRATE_MODE, feat.mValue);
+                        break;
+                    }
+                }
+            }
+
+            /** @hide */
+            public boolean supportsFormat(MediaFormat format) {
+                final Map<String, Object> map = format.getMap();
+                final String mime = mParent.getMimeType();
+
+                Integer mode = (Integer)map.get(MediaFormat.KEY_BITRATE_MODE);
+                if (mode != null && !isBitrateModeSupported(mode)) {
+                    return false;
+                }
+
+                Integer complexity = (Integer)map.get(MediaFormat.KEY_COMPLEXITY);
+                if (MediaFormat.MIMETYPE_AUDIO_FLAC.equalsIgnoreCase(mime)) {
+                    Integer flacComplexity =
+                            (Integer)map.get(MediaFormat.KEY_FLAC_COMPRESSION_LEVEL);
+                    if (complexity == null) {
+                        complexity = flacComplexity;
+                    } else if (flacComplexity != null && !complexity.equals(flacComplexity)) {
+                        throw new IllegalArgumentException(
+                                "conflicting values for complexity and "
+                                + "flac-compression-level");
+                    }
+                }
+
+                // other audio parameters
+                Integer profile = (Integer)map.get(MediaFormat.KEY_PROFILE);
+                if (MediaFormat.MIMETYPE_AUDIO_AAC.equalsIgnoreCase(mime)) {
+                    Integer aacProfile = (Integer)map.get(MediaFormat.KEY_AAC_PROFILE);
+                    if (profile == null) {
+                        profile = aacProfile;
+                    } else if (aacProfile != null && !aacProfile.equals(profile)) {
+                        throw new IllegalArgumentException(
+                                "conflicting values for profile and aac-profile");
+                    }
+                }
+
+                Integer quality = (Integer)map.get(MediaFormat.KEY_QUALITY);
+
+                return supports(complexity, quality, profile);
+            }
+        }
+
+        /* package private */ static final class EncoderCapsNativeImpl implements EncoderCapsIntf {
+            private long mNativeContext; // accessed by native methods
+
+            private Range<Integer> mQualityRange;
+            private Range<Integer> mComplexityRange;
+
+            /* no public constructor */
+            private EncoderCapsNativeImpl() { }
+
+            // Constructor called from native
+            /* package private */ EncoderCapsNativeImpl(Range<Integer> qualityRange,
+                    Range<Integer> complexityRange) {
+                mQualityRange = qualityRange;
+                mComplexityRange = complexityRange;
+            }
+
+            public Range<Integer> getQualityRange() {
+                return mQualityRange;
+            }
+
+            public Range<Integer> getComplexityRange() {
+                return mComplexityRange;
+            }
+
+            public boolean isBitrateModeSupported(int mode) {
+                return native_isBitrateModeSupported(mode);
+            }
+
+            public String[] getSupportedLayeringSchemas() {
+                return native_getSupportedLayeringSchemas();
+            }
+
+            // This API is for internal Java implementation only. Should not be called.
+            public void getDefaultFormat(MediaFormat format) {
+                throw new UnsupportedOperationException(
+                    "Java Implementation should not call native implemenatation");
+            }
+
+            // This API is for internal Java implementation only. Should not be called.
+            public boolean supportsFormat(MediaFormat format) {
+                throw new UnsupportedOperationException(
+                    "Java Implementation should not call native implemenatation");
+            }
+
+            private native boolean native_isBitrateModeSupported(int mode);
+            private native String[] native_getSupportedLayeringSchemas();
+            private static native void native_init();
+
+            static {
+                System.loadLibrary("media_jni");
+                native_init();
+            }
+        }
+
+        private EncoderCapsIntf mImpl;
+
+        /** @hide */
+        public static EncoderCapabilities create(
+                MediaFormat info, CodecCapabilities.CodecCapsLegacyImpl parent) {
+            EncoderCapsLegacyImpl impl = EncoderCapsLegacyImpl.create(info, parent);
+            EncoderCapabilities caps = new EncoderCapabilities(impl);
+            return caps;
+        }
+
+        /* package private */ EncoderCapabilities(EncoderCapsIntf impl) {
+            mImpl = impl;
+        }
+
         /**
          * Returns the supported range of quality values.
          *
@@ -2652,7 +5297,7 @@ public final class MediaCodecInfo {
          * setting results in a better image quality and a lower compression ratio.
          */
         public Range<Integer> getQualityRange() {
-            return mQualityRange;
+            return mImpl.getQualityRange();
         }
 
         /**
@@ -2664,196 +5309,36 @@ public final class MediaCodecInfo {
          * ratio.  Use a lower value to save power and/or time.
          */
         public Range<Integer> getComplexityRange() {
-            return mComplexityRange;
-        }
-
-        /** Constant quality mode */
-        public static final int BITRATE_MODE_CQ = 0;
-        /** Variable bitrate mode */
-        public static final int BITRATE_MODE_VBR = 1;
-        /** Constant bitrate mode */
-        public static final int BITRATE_MODE_CBR = 2;
-
-        private static final Feature[] bitrates = new Feature[] {
-            new Feature("VBR", BITRATE_MODE_VBR, true),
-            new Feature("CBR", BITRATE_MODE_CBR, false),
-            new Feature("CQ",  BITRATE_MODE_CQ,  false)
-        };
-
-        private static int parseBitrateMode(String mode) {
-            for (Feature feat: bitrates) {
-                if (feat.mName.equalsIgnoreCase(mode)) {
-                    return feat.mValue;
-                }
-            }
-            return 0;
+            return mImpl.getComplexityRange();
         }
 
         /**
          * Query whether a bitrate mode is supported.
          */
         public boolean isBitrateModeSupported(int mode) {
-            for (Feature feat: bitrates) {
-                if (mode == feat.mValue) {
-                    return (mBitControl & (1 << mode)) != 0;
-                }
-            }
-            return false;
+            return mImpl.isBitrateModeSupported(mode);
         }
 
-        private Range<Integer> mQualityRange;
-        private Range<Integer> mComplexityRange;
-        private CodecCapabilities mParent;
-
-        /* no public constructor */
-        private EncoderCapabilities() { }
-
-        /** @hide */
-        public static EncoderCapabilities create(
-                MediaFormat info, CodecCapabilities parent) {
-            EncoderCapabilities caps = new EncoderCapabilities();
-            caps.init(info, parent);
-            return caps;
-        }
-
-        private void init(MediaFormat info, CodecCapabilities parent) {
-            // no support for complexity or quality yet
-            mParent = parent;
-            mComplexityRange = Range.create(0, 0);
-            mQualityRange = Range.create(0, 0);
-            mBitControl = (1 << BITRATE_MODE_VBR);
-
-            applyLevelLimits();
-            parseFromInfo(info);
-        }
-
-        private void applyLevelLimits() {
-            String mime = mParent.getMimeType();
-            if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_FLAC)) {
-                mComplexityRange = Range.create(0, 8);
-                mBitControl = (1 << BITRATE_MODE_CQ);
-            } else if (mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AMR_NB)
-                    || mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_AMR_WB)
-                    || mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_G711_ALAW)
-                    || mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_G711_MLAW)
-                    || mime.equalsIgnoreCase(MediaFormat.MIMETYPE_AUDIO_MSGSM)) {
-                mBitControl = (1 << BITRATE_MODE_CBR);
-            }
-        }
-
-        private int mBitControl;
-        private Integer mDefaultComplexity;
-        private Integer mDefaultQuality;
-        private String mQualityScale;
-
-        private void parseFromInfo(MediaFormat info) {
-            Map<String, Object> map = info.getMap();
-
-            if (info.containsKey("complexity-range")) {
-                mComplexityRange = Utils
-                        .parseIntRange(info.getString("complexity-range"), mComplexityRange);
-                // TODO should we limit this to level limits?
-            }
-            if (info.containsKey("quality-range")) {
-                mQualityRange = Utils
-                        .parseIntRange(info.getString("quality-range"), mQualityRange);
-            }
-            if (info.containsKey("feature-bitrate-modes")) {
-                for (String mode: info.getString("feature-bitrate-modes").split(",")) {
-                    mBitControl |= (1 << parseBitrateMode(mode));
-                }
-            }
-
-            try {
-                mDefaultComplexity = Integer.parseInt((String)map.get("complexity-default"));
-            } catch (NumberFormatException e) { }
-
-            try {
-                mDefaultQuality = Integer.parseInt((String)map.get("quality-default"));
-            } catch (NumberFormatException e) { }
-
-            mQualityScale = (String)map.get("quality-scale");
-        }
-
-        private boolean supports(
-                Integer complexity, Integer quality, Integer profile) {
-            boolean ok = true;
-            if (ok && complexity != null) {
-                ok = mComplexityRange.contains(complexity);
-            }
-            if (ok && quality != null) {
-                ok = mQualityRange.contains(quality);
-            }
-            if (ok && profile != null) {
-                for (CodecProfileLevel pl: mParent.profileLevels) {
-                    if (pl.profile == profile) {
-                        profile = null;
-                        break;
-                    }
-                }
-                ok = profile == null;
-            }
-            return ok;
+        /**
+         * Returns the array of layering schemas supported by the encoder.
+         * Return empty array if the encoder's layers encoding capability is unknown or not
+         * supported.
+         * @see MediaFormat#KEY_TEMPORAL_LAYERING for the meaning of the schema.
+         */
+        @FlaggedApi(FLAG_TEMPORAL_LAYER_ENCODING)
+        @NonNull
+        public String[] getSupportedLayeringSchemas() {
+            return mImpl.getSupportedLayeringSchemas();
         }
 
         /** @hide */
         public void getDefaultFormat(MediaFormat format) {
-            // don't list trivial quality/complexity as default for now
-            if (!mQualityRange.getUpper().equals(mQualityRange.getLower())
-                    && mDefaultQuality != null) {
-                format.setInteger(MediaFormat.KEY_QUALITY, mDefaultQuality);
-            }
-            if (!mComplexityRange.getUpper().equals(mComplexityRange.getLower())
-                    && mDefaultComplexity != null) {
-                format.setInteger(MediaFormat.KEY_COMPLEXITY, mDefaultComplexity);
-            }
-            // bitrates are listed in order of preference
-            for (Feature feat: bitrates) {
-                if ((mBitControl & (1 << feat.mValue)) != 0) {
-                    format.setInteger(MediaFormat.KEY_BITRATE_MODE, feat.mValue);
-                    break;
-                }
-            }
+            mImpl.getDefaultFormat(format);
         }
 
         /** @hide */
         public boolean supportsFormat(MediaFormat format) {
-            final Map<String, Object> map = format.getMap();
-            final String mime = mParent.getMimeType();
-
-            Integer mode = (Integer)map.get(MediaFormat.KEY_BITRATE_MODE);
-            if (mode != null && !isBitrateModeSupported(mode)) {
-                return false;
-            }
-
-            Integer complexity = (Integer)map.get(MediaFormat.KEY_COMPLEXITY);
-            if (MediaFormat.MIMETYPE_AUDIO_FLAC.equalsIgnoreCase(mime)) {
-                Integer flacComplexity =
-                    (Integer)map.get(MediaFormat.KEY_FLAC_COMPRESSION_LEVEL);
-                if (complexity == null) {
-                    complexity = flacComplexity;
-                } else if (flacComplexity != null && !complexity.equals(flacComplexity)) {
-                    throw new IllegalArgumentException(
-                            "conflicting values for complexity and " +
-                            "flac-compression-level");
-                }
-            }
-
-            // other audio parameters
-            Integer profile = (Integer)map.get(MediaFormat.KEY_PROFILE);
-            if (MediaFormat.MIMETYPE_AUDIO_AAC.equalsIgnoreCase(mime)) {
-                Integer aacProfile = (Integer)map.get(MediaFormat.KEY_AAC_PROFILE);
-                if (profile == null) {
-                    profile = aacProfile;
-                } else if (aacProfile != null && !aacProfile.equals(profile)) {
-                    throw new IllegalArgumentException(
-                            "conflicting values for profile and aac-profile");
-                }
-            }
-
-            Integer quality = (Integer)map.get(MediaFormat.KEY_QUALITY);
-
-            return supports(complexity, quality, profile);
+            return mImpl.supportsFormat(format);
         }
     };
 
@@ -2864,18 +5349,88 @@ public final class MediaCodecInfo {
      * {@link MediaCodecInfo.CodecCapabilities#profileLevels} field.
      */
     public static final class CodecProfileLevel {
-        // from OMX_VIDEO_AVCPROFILETYPE
+        // These constants were originally in-line with OMX values, but this
+        // correspondence is no longer maintained.
+
+        // Profiles and levels for AVC Codec, corresponding to the definitions in
+        // "SERIES H: AUDIOVISUAL AND MULTIMEDIA SYSTEMS,
+        // Infrastructure of audiovisual services – Coding of moving video
+        // Advanced video coding for generic audiovisual services"
+        // found at
+        // https://www.itu.int/rec/T-REC-H.264-201704-I
+
+        /**
+         * AVC Baseline profile.
+         * See definition in
+         * <a href="https://www.itu.int/rec/T-REC-H.264-201704-I">H.264 recommendation</a>,
+         * Annex A.
+         */
         public static final int AVCProfileBaseline = 0x01;
+
+        /**
+         * AVC Main profile.
+         * See definition in
+         * <a href="https://www.itu.int/rec/T-REC-H.264-201704-I">H.264 recommendation</a>,
+         * Annex A.
+         */
         public static final int AVCProfileMain     = 0x02;
+
+        /**
+         * AVC Extended profile.
+         * See definition in
+         * <a href="https://www.itu.int/rec/T-REC-H.264-201704-I">H.264 recommendation</a>,
+         * Annex A.
+         */
         public static final int AVCProfileExtended = 0x04;
+
+        /**
+         * AVC High profile.
+         * See definition in
+         * <a href="https://www.itu.int/rec/T-REC-H.264-201704-I">H.264 recommendation</a>,
+         * Annex A.
+         */
         public static final int AVCProfileHigh     = 0x08;
+
+        /**
+         * AVC High 10 profile.
+         * See definition in
+         * <a href="https://www.itu.int/rec/T-REC-H.264-201704-I">H.264 recommendation</a>,
+         * Annex A.
+         */
         public static final int AVCProfileHigh10   = 0x10;
+
+        /**
+         * AVC High 4:2:2 profile.
+         * See definition in
+         * <a href="https://www.itu.int/rec/T-REC-H.264-201704-I">H.264 recommendation</a>,
+         * Annex A.
+         */
         public static final int AVCProfileHigh422  = 0x20;
+
+        /**
+         * AVC High 4:4:4 profile.
+         * See definition in
+         * <a href="https://www.itu.int/rec/T-REC-H.264-201704-I">H.264 recommendation</a>,
+         * Annex A.
+         */
         public static final int AVCProfileHigh444  = 0x40;
+
+        /**
+         * AVC Constrained Baseline profile.
+         * See definition in
+         * <a href="https://www.itu.int/rec/T-REC-H.264-201704-I">H.264 recommendation</a>,
+         * Annex A.
+         */
         public static final int AVCProfileConstrainedBaseline = 0x10000;
+
+        /**
+         * AVC Constrained High profile.
+         * See definition in
+         * <a href="https://www.itu.int/rec/T-REC-H.264-201704-I">H.264 recommendation</a>,
+         * Annex A.
+         */
         public static final int AVCProfileConstrainedHigh     = 0x80000;
 
-        // from OMX_VIDEO_AVCLEVELTYPE
         public static final int AVCLevel1       = 0x01;
         public static final int AVCLevel1b      = 0x02;
         public static final int AVCLevel11      = 0x04;
@@ -2893,8 +5448,10 @@ public final class MediaCodecInfo {
         public static final int AVCLevel5       = 0x4000;
         public static final int AVCLevel51      = 0x8000;
         public static final int AVCLevel52      = 0x10000;
+        public static final int AVCLevel6       = 0x20000;
+        public static final int AVCLevel61      = 0x40000;
+        public static final int AVCLevel62      = 0x80000;
 
-        // from OMX_VIDEO_H263PROFILETYPE
         public static final int H263ProfileBaseline             = 0x01;
         public static final int H263ProfileH320Coding           = 0x02;
         public static final int H263ProfileBackwardCompatible   = 0x04;
@@ -2905,7 +5462,6 @@ public final class MediaCodecInfo {
         public static final int H263ProfileInterlace            = 0x80;
         public static final int H263ProfileHighLatency          = 0x100;
 
-        // from OMX_VIDEO_H263LEVELTYPE
         public static final int H263Level10      = 0x01;
         public static final int H263Level20      = 0x02;
         public static final int H263Level30      = 0x04;
@@ -2915,7 +5471,6 @@ public final class MediaCodecInfo {
         public static final int H263Level60      = 0x40;
         public static final int H263Level70      = 0x80;
 
-        // from OMX_VIDEO_MPEG4PROFILETYPE
         public static final int MPEG4ProfileSimple              = 0x01;
         public static final int MPEG4ProfileSimpleScalable      = 0x02;
         public static final int MPEG4ProfileCore                = 0x04;
@@ -2933,7 +5488,6 @@ public final class MediaCodecInfo {
         public static final int MPEG4ProfileAdvancedScalable    = 0x4000;
         public static final int MPEG4ProfileAdvancedSimple      = 0x8000;
 
-        // from OMX_VIDEO_MPEG4LEVELTYPE
         public static final int MPEG4Level0      = 0x01;
         public static final int MPEG4Level0b     = 0x02;
         public static final int MPEG4Level1      = 0x04;
@@ -2945,7 +5499,6 @@ public final class MediaCodecInfo {
         public static final int MPEG4Level5      = 0x80;
         public static final int MPEG4Level6      = 0x100;
 
-        // from OMX_VIDEO_MPEG2PROFILETYPE
         public static final int MPEG2ProfileSimple              = 0x00;
         public static final int MPEG2ProfileMain                = 0x01;
         public static final int MPEG2Profile422                 = 0x02;
@@ -2953,14 +5506,12 @@ public final class MediaCodecInfo {
         public static final int MPEG2ProfileSpatial             = 0x04;
         public static final int MPEG2ProfileHigh                = 0x05;
 
-        // from OMX_VIDEO_MPEG2LEVELTYPE
         public static final int MPEG2LevelLL     = 0x00;
         public static final int MPEG2LevelML     = 0x01;
         public static final int MPEG2LevelH14    = 0x02;
         public static final int MPEG2LevelHL     = 0x03;
         public static final int MPEG2LevelHP     = 0x04;
 
-        // from OMX_AUDIO_AACPROFILETYPE
         public static final int AACObjectMain       = 1;
         public static final int AACObjectLC         = 2;
         public static final int AACObjectSSR        = 3;
@@ -2975,25 +5526,38 @@ public final class MediaCodecInfo {
         /** xHE-AAC (includes USAC) */
         public static final int AACObjectXHE        = 42;
 
-        // from OMX_VIDEO_VP8LEVELTYPE
         public static final int VP8Level_Version0 = 0x01;
         public static final int VP8Level_Version1 = 0x02;
         public static final int VP8Level_Version2 = 0x04;
         public static final int VP8Level_Version3 = 0x08;
 
-        // from OMX_VIDEO_VP8PROFILETYPE
         public static final int VP8ProfileMain = 0x01;
 
-        // from OMX_VIDEO_VP9PROFILETYPE
+        /** VP9 Profile 0 4:2:0 8-bit */
         public static final int VP9Profile0 = 0x01;
+
+        /** VP9 Profile 1 4:2:2 8-bit */
         public static final int VP9Profile1 = 0x02;
+
+        /** VP9 Profile 2 4:2:0 10-bit */
         public static final int VP9Profile2 = 0x04;
+
+        /** VP9 Profile 3 4:2:2 10-bit */
         public static final int VP9Profile3 = 0x08;
+
         // HDR profiles also support passing HDR metadata
+        /** VP9 Profile 2 4:2:0 10-bit HDR */
         public static final int VP9Profile2HDR = 0x1000;
+
+        /** VP9 Profile 3 4:2:2 10-bit HDR */
         public static final int VP9Profile3HDR = 0x2000;
 
-        // from OMX_VIDEO_VP9LEVELTYPE
+        /** VP9 Profile 2 4:2:0 10-bit HDR10Plus */
+        public static final int VP9Profile2HDR10Plus = 0x4000;
+
+        /** VP9 Profile 3 4:2:2 10-bit HDR10Plus */
+        public static final int VP9Profile3HDR10Plus = 0x8000;
+
         public static final int VP9Level1  = 0x1;
         public static final int VP9Level11 = 0x2;
         public static final int VP9Level2  = 0x4;
@@ -3009,13 +5573,23 @@ public final class MediaCodecInfo {
         public static final int VP9Level61 = 0x1000;
         public static final int VP9Level62 = 0x2000;
 
-        // from OMX_VIDEO_HEVCPROFILETYPE
         public static final int HEVCProfileMain        = 0x01;
         public static final int HEVCProfileMain10      = 0x02;
         public static final int HEVCProfileMainStill   = 0x04;
         public static final int HEVCProfileMain10HDR10 = 0x1000;
+        public static final int HEVCProfileMain10HDR10Plus = 0x2000;
 
-        // from OMX_VIDEO_HEVCLEVELTYPE
+        /** HEVC Monochrome (Main 4:0:0 8-bit) Profile */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_FORMAT_400_444_SUPPORT)
+        public static final int HEVCProfileMain400 = 0x08;
+
+        /** HEVC Main 4:4:4 (8-bit) Profile */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_FORMAT_400_444_SUPPORT)
+        public static final int HEVCProfileMain444 = 0x10;
+
+
         public static final int HEVCMainTierLevel1  = 0x1;
         public static final int HEVCHighTierLevel1  = 0x2;
         public static final int HEVCMainTierLevel2  = 0x4;
@@ -3049,7 +5623,6 @@ public final class MediaCodecInfo {
             HEVCHighTierLevel51 | HEVCHighTierLevel52 | HEVCHighTierLevel6 | HEVCHighTierLevel61 |
             HEVCHighTierLevel62;
 
-        // from OMX_VIDEO_DOLBYVISIONPROFILETYPE
         public static final int DolbyVisionProfileDvavPer = 0x1;
         public static final int DolbyVisionProfileDvavPen = 0x2;
         public static final int DolbyVisionProfileDvheDer = 0x4;
@@ -3058,10 +5631,12 @@ public final class MediaCodecInfo {
         public static final int DolbyVisionProfileDvheStn = 0x20;
         public static final int DolbyVisionProfileDvheDth = 0x40;
         public static final int DolbyVisionProfileDvheDtb = 0x80;
-        public static final int DolbyVisionProfileDvheSt = 0x100;
-        public static final int DolbyVisionProfileDvavSe = 0x200;
+        public static final int DolbyVisionProfileDvheSt  = 0x100;
+        public static final int DolbyVisionProfileDvavSe  = 0x200;
+        /** Dolby Vision AV1 profile */
+        @SuppressLint("AllUpper")
+        public static final int DolbyVisionProfileDvav110 = 0x400;
 
-        // from OMX_VIDEO_DOLBYVISIONLEVELTYPE
         public static final int DolbyVisionLevelHd24    = 0x1;
         public static final int DolbyVisionLevelHd30    = 0x2;
         public static final int DolbyVisionLevelFhd24   = 0x4;
@@ -3071,18 +5646,698 @@ public final class MediaCodecInfo {
         public static final int DolbyVisionLevelUhd30   = 0x40;
         public static final int DolbyVisionLevelUhd48   = 0x80;
         public static final int DolbyVisionLevelUhd60   = 0x100;
+        @SuppressLint("AllUpper")
+        public static final int DolbyVisionLevelUhd120  = 0x200;
+        @SuppressLint("AllUpper")
+        public static final int DolbyVisionLevel8k30    = 0x400;
+        @SuppressLint("AllUpper")
+        public static final int DolbyVisionLevel8k60    = 0x800;
+
+        // Profiles and levels for AV1 Codec, corresponding to the definitions in
+        // "AV1 Bitstream & Decoding Process Specification", Annex A
+        // found at https://aomedia.org/av1-bitstream-and-decoding-process-specification/
 
         /**
-         * Defined in the OpenMAX IL specs, depending on the type of media
-         * this can be OMX_VIDEO_AVCPROFILETYPE, OMX_VIDEO_H263PROFILETYPE,
-         * OMX_VIDEO_MPEG4PROFILETYPE, OMX_VIDEO_VP8PROFILETYPE or OMX_VIDEO_VP9PROFILETYPE.
+         * AV1 Main profile 4:2:0 8-bit
+         *
+         * See definition in
+         * <a href="https://aomedia.org/av1-bitstream-and-decoding-process-specification/">AV1 Specification</a>
+         * Annex A.
+         */
+        public static final int AV1ProfileMain8   = 0x1;
+
+        /**
+         * AV1 Main profile 4:2:0 10-bit
+         *
+         * See definition in
+         * <a href="https://aomedia.org/av1-bitstream-and-decoding-process-specification/">AV1 Specification</a>
+         * Annex A.
+         */
+        public static final int AV1ProfileMain10  = 0x2;
+
+
+        /** AV1 Main profile 4:2:0 10-bit with HDR10. */
+        public static final int AV1ProfileMain10HDR10 = 0x1000;
+
+        /** AV1 Main profile 4:2:0 10-bit with HDR10Plus. */
+        public static final int AV1ProfileMain10HDR10Plus = 0x2000;
+
+        public static final int AV1Level2       = 0x1;
+        public static final int AV1Level21      = 0x2;
+        public static final int AV1Level22      = 0x4;
+        public static final int AV1Level23      = 0x8;
+        public static final int AV1Level3       = 0x10;
+        public static final int AV1Level31      = 0x20;
+        public static final int AV1Level32      = 0x40;
+        public static final int AV1Level33      = 0x80;
+        public static final int AV1Level4       = 0x100;
+        public static final int AV1Level41      = 0x200;
+        public static final int AV1Level42      = 0x400;
+        public static final int AV1Level43      = 0x800;
+        public static final int AV1Level5       = 0x1000;
+        public static final int AV1Level51      = 0x2000;
+        public static final int AV1Level52      = 0x4000;
+        public static final int AV1Level53      = 0x8000;
+        public static final int AV1Level6       = 0x10000;
+        public static final int AV1Level61      = 0x20000;
+        public static final int AV1Level62      = 0x40000;
+        public static final int AV1Level63      = 0x80000;
+        public static final int AV1Level7       = 0x100000;
+        public static final int AV1Level71      = 0x200000;
+        public static final int AV1Level72      = 0x400000;
+        public static final int AV1Level73      = 0x800000;
+
+        /** DTS codec profile for DTS HRA. */
+        @SuppressLint("AllUpper")
+        public static final int DTS_HDProfileHRA = 0x1;
+        /** DTS codec profile for DTS Express. */
+        @SuppressLint("AllUpper")
+        public static final int DTS_HDProfileLBR = 0x2;
+        /** DTS codec profile for DTS-HD Master Audio */
+        @SuppressLint("AllUpper")
+        public static final int DTS_HDProfileMA = 0x4;
+        /** DTS codec profile for DTS:X Profile 1 */
+        @SuppressLint("AllUpper")
+        public static final int DTS_UHDProfileP1 = 0x1;
+        /** DTS codec profile for DTS:X Profile 2 */
+        @SuppressLint("AllUpper")
+        public static final int DTS_UHDProfileP2 = 0x2;
+
+        // Profiles and levels for AC-4 Codec, corresponding to the definitions in
+        // "The MIME codecs parameter", Annex E.13
+        // found at https://www.etsi.org/deliver/etsi_ts/103100_103199/10319002/01.02.01_60/ts_10319002v010201p.pdf
+        // profile = ((1 << bitstream_version) << 8) | (1 << presentation_version);
+        // level = 1 << mdcompat;
+
+        @SuppressLint("AllUpper")
+        private static final int AC4BitstreamVersion0 = 0x01;
+        @SuppressLint("AllUpper")
+        private static final int AC4BitstreamVersion1 = 0x02;
+        @SuppressLint("AllUpper")
+        private static final int AC4BitstreamVersion2 = 0x04;
+
+        @SuppressLint("AllUpper")
+        private static final int AC4PresentationVersion0 = 0x01;
+        @SuppressLint("AllUpper")
+        private static final int AC4PresentationVersion1 = 0x02;
+        @SuppressLint("AllUpper")
+        private static final int AC4PresentationVersion2 = 0x04;
+
+        /**
+         * AC-4 codec profile with bitstream_version 0 and presentation_version 0
+         * as per ETSI TS 103 190-2 v1.2.1
+         */
+        @SuppressLint("AllUpper")
+        public static final int AC4Profile00 = AC4BitstreamVersion0 << 8 | AC4PresentationVersion0;
+
+        /**
+         * AC-4 codec profile with bitstream_version 1 and presentation_version 0
+         * as per ETSI TS 103 190-2 v1.2.1
+         */
+        @SuppressLint("AllUpper")
+        public static final int AC4Profile10 = AC4BitstreamVersion1 << 8 | AC4PresentationVersion0;
+
+        /**
+         * AC-4 codec profile with bitstream_version 1 and presentation_version 1
+         * as per ETSI TS 103 190-2 v1.2.1
+         */
+        @SuppressLint("AllUpper")
+        public static final int AC4Profile11 = AC4BitstreamVersion1 << 8 | AC4PresentationVersion1;
+
+        /**
+         * AC-4 codec profile with bitstream_version 2 and presentation_version 1
+         * as per ETSI TS 103 190-2 v1.2.1
+         */
+        @SuppressLint("AllUpper")
+        public static final int AC4Profile21 = AC4BitstreamVersion2 << 8 | AC4PresentationVersion1;
+
+        /**
+         * AC-4 codec profile with bitstream_version 2 and presentation_version 2
+         * as per ETSI TS 103 190-2 v1.2.1
+         */
+        @SuppressLint("AllUpper")
+        public static final int AC4Profile22 = AC4BitstreamVersion2 << 8 | AC4PresentationVersion2;
+
+        /** AC-4 codec level corresponding to mdcompat 0 as per ETSI TS 103 190-2 v1.2.1 */
+        @SuppressLint("AllUpper")
+        public static final int AC4Level0       = 0x01;
+        /** AC-4 codec level corresponding to mdcompat 1 as per ETSI TS 103 190-2 v1.2.1 */
+        @SuppressLint("AllUpper")
+        public static final int AC4Level1       = 0x02;
+        /** AC-4 codec level corresponding to mdcompat 2 as per ETSI TS 103 190-2 v1.2.1 */
+        @SuppressLint("AllUpper")
+        public static final int AC4Level2       = 0x04;
+        /** AC-4 codec level corresponding to mdcompat 3 as per ETSI TS 103 190-2 v1.2.1 */
+        @SuppressLint("AllUpper")
+        public static final int AC4Level3       = 0x08;
+        /** AC-4 codec level corresponding to mdcompat 4 as per ETSI TS 103 190-2 v1.2.1 */
+        @SuppressLint("AllUpper")
+        public static final int AC4Level4       = 0x10;
+
+        // Profiles and levels/bands for APV Codec, corresponding to the definitions in
+        // "Advanced Professional Video", 10.1.3 Profiles, 10.1.4 Levels and Bands
+        // found at https://www.ietf.org/archive/id/draft-lim-apv-02.html
+
+        /**
+         * APV codec profile 422-10 as per IETF lim-apv-02, 10.1.3.1.1
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVProfile422_10 =  0x01;
+
+        /**
+         * APV codec profile 422-10 as per IETF lim-apv-02, 10.1.3.1.1
+         * with HDR10.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVProfile422_10HDR10 =  0x1000;
+
+        /**
+         * APV codec profile 422-10 as per IETF lim-apv-02, 10.1.3.1.1
+         * with HDR10Plus.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVProfile422_10HDR10Plus =  0x2000;
+
+        // For APV Levels, the numerical values are constructed as follows:
+        //   ((0x100 << (level_num - 1)) | (1 << band))
+        // where:
+        //   - "level_num" is the APV Level numbered consecutively
+        //     (i.e., Level 1 == 1, Level 1.1 == 2, etc.)
+        //   - "band" is the APV Band
+
+        /** APV Codec Level 1, Band 0 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel1Band0 =  0x101;
+        /** APV Codec Level 1, Band 1 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel1Band1 =  0x102;
+        /** APV Codec Level 1, Band 2 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel1Band2 =  0x104;
+        /** APV Codec Level 1, Band 3 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel1Band3 =  0x108;
+        /** APV Codec Level 1.1, Band 0 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel11Band0 = 0x201;
+        /** APV Codec Level 1.1, Band 1 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel11Band1 = 0x202;
+        /** APV Codec Level 1.1, Band 2 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel11Band2 = 0x204;
+        /** APV Codec Level 1.1, Band 3 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel11Band3 = 0x208;
+        /** APV Codec Level 2, Band 0 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel2Band0 =  0x401;
+        /** APV Codec Level 2, Band 1 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel2Band1 =  0x402;
+        /** APV Codec Level 2, Band 2 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel2Band2 =  0x404;
+        /** APV Codec Level 2, Band 3 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel2Band3 =  0x408;
+        /** APV Codec Level 2.1, Band 0 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel21Band0 = 0x801;
+        /** APV Codec Level 2.1, Band 1 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel21Band1 = 0x802;
+        /** APV Codec Level 2.1, Band 2 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel21Band2 = 0x804;
+        /** APV Codec Level 2.1, Band 3 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel21Band3 = 0x808;
+        /** APV Codec Level 3, Band 0 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel3Band0 =  0x1001;
+        /** APV Codec Level 3, Band 1 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel3Band1 =  0x1002;
+        /** APV Codec Level 3, Band 2 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel3Band2 =  0x1004;
+        /** APV Codec Level 3, Band 3 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel3Band3 =  0x1008;
+        /** APV Codec Level 3.1, Band 0 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel31Band0 = 0x2001;
+        /** APV Codec Level 3.1, Band 1 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel31Band1 = 0x2002;
+        /** APV Codec Level 3.1, Band 2 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel31Band2 = 0x2004;
+        /** APV Codec Level 3.1, Band 3 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel31Band3 = 0x2008;
+        /** APV Codec Level 4, Band 0 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel4Band0 =  0x4001;
+        /** APV Codec Level 4, Band 1 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel4Band1 =  0x4002;
+        /** APV Codec Level 4, Band 2 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel4Band2 =  0x4004;
+        /** APV Codec Level 4, Band 3 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel4Band3 =  0x4008;
+        /** APV Codec Level 4.1, Band 0 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel41Band0 = 0x8001;
+        /** APV Codec Level 4.1, Band 1 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel41Band1 = 0x8002;
+        /** APV Codec Level 4.1, Band 2 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel41Band2 = 0x8004;
+        /** APV Codec Level 4.1, Band 3 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel41Band3 = 0x8008;
+        /** APV Codec Level 5, Band 0 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel5Band0 =  0x10001;
+        /** APV Codec Level 5, Band 1 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel5Band1 =  0x10002;
+        /** APV Codec Level 5, Band 2 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel5Band2 =  0x10004;
+        /** APV Codec Level 5, Band 3 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel5Band3 =  0x10008;
+        /** APV Codec Level 5.1, Band 0 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel51Band0 = 0x20001;
+        /** APV Codec Level 5.1, Band 1 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel51Band1 = 0x20002;
+        /** APV Codec Level 5.1, Band 2 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel51Band2 = 0x20004;
+        /** APV Codec Level 5.1, Band 3 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel51Band3 = 0x20008;
+        /** APV Codec Level 6, Band 0 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel6Band0 =  0x40001;
+        /** APV Codec Level 6, Band 1 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel6Band1 =  0x40002;
+        /** APV Codec Level 6, Band 2 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel6Band2 =  0x40004;
+        /** APV Codec Level 6, Band 3 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel6Band3 =  0x40008;
+        /** APV Codec Level 6.1, Band 0 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel61Band0 = 0x80001;
+        /** APV Codec Level 6.1, Band 1 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel61Band1 = 0x80002;
+        /** APV Codec Level 6.1, Band 2 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel61Band2 = 0x80004;
+        /** APV Codec Level 6.1, Band 3 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel61Band3 = 0x80008;
+        /** APV Codec Level 7, Band 0 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel7Band0 =  0x100001;
+        /** APV Codec Level 7, Band 1 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel7Band1 =  0x100002;
+        /** APV Codec Level 7, Band 2 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel7Band2 =  0x100004;
+        /** APV Codec Level 7, Band 3 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel7Band3 =  0x100008;
+        /** APV Codec Level 7.1, Band 0 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel71Band0 = 0x200001;
+        /** APV Codec Level 7.1, Band 1 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel71Band1 = 0x200002;
+        /** APV Codec Level 7.1, Band 2 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel71Band2 = 0x200004;
+        /** APV Codec Level 7.1, Band 3 as per IETF lim-apv-02, 10.1.4 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_APV_SUPPORT)
+        public static final int APVLevel71Band3 = 0x200008;
+
+
+        // Profiles and levels/tiers for VVC Codec, corresponding to the definitions in
+        // "ITU-T Rec. H.266 v.3 Versatile Video Coding", A.3 Profiles, A.4 Tiers and levels
+        // found at https://www.itu.int/rec/T-REC-H.266-202309-I/en
+
+        /**
+         *  VVC codec Main 10 profile as per ITU-T H.266, A.3.1
+         *  with 8 bit content
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCProfileMain8      = 0x01;
+
+        /**
+         *  VVC codec Main 10 profile as per ITU-T H.266, A.3.1
+         *  with 10 bit content
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCProfileMain10      = 0x02;
+
+        /**
+         *  VVC codec Main 10 Still Picture profile as per ITU-T H.266, A.3.1
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCProfileMain10Still   = 0x04;
+
+        /**
+         *  VVC codec Main 10 profile as per ITU-T H.266, A.3.1
+         *  with HDR10
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCProfileMain10HDR10 = 0x1000;
+
+        /**
+         *  VVC codec Main 10 profile as per ITU-T H.266, A.3.1
+         *  with HDR10 Plus
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCProfileMain10HDR10Plus = 0x2000;
+
+        /** VVC Codec Main Tier, Level 1.0 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCMainTierLevel10 = 0x1;
+        /** VVC Codec Main Tier, Level 2.0 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCMainTierLevel20 = 0x2;
+        /** VVC Codec Main Tier, Level 2.1 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCMainTierLevel21 = 0x4;
+        /** VVC Codec Main Tier, Level 3.0 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCMainTierLevel30 = 0x8;
+        /** VVC Codec Main Tier, Level 3.1 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCMainTierLevel31 = 0x10;
+        /** VVC Codec Main Tier, Level 4.0 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCMainTierLevel40 = 0x20;
+        /** VVC Codec High Tier, Level 4.0 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCHighTierLevel40 = 0x40;
+        /** VVC Codec Main Tier, Level 4.1 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCMainTierLevel41 = 0x80;
+        /** VVC Codec High Tier, Level 4.1 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCHighTierLevel41 = 0x100;
+        /** VVC Codec Main Tier, Level 5.0 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCMainTierLevel50 = 0x200;
+        /** VVC Codec High Tier, Level 5.0 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCHighTierLevel50 = 0x400;
+        /** VVC Codec Main Tier, Level 5.1 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCMainTierLevel51 = 0x800;
+        /** VVC Codec High Tier, Level 5.1 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCHighTierLevel51 = 0x1000;
+        /** VVC Codec Main Tier, Level 5.2 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCMainTierLevel52 = 0x2000;
+        /** VVC Codec High Tier, Level 5.2 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCHighTierLevel52 = 0x4000;
+        /** VVC Codec Main Tier, Level 6.0 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCMainTierLevel60 = 0x8000;
+        /** VVC Codec High Tier, Level 6.0 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCHighTierLevel60 = 0x10000;
+        /** VVC Codec Main Tier, Level 6.1 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCMainTierLevel61 = 0x20000;
+        /** VVC Codec High Tier, Level 6.1 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCHighTierLevel61 = 0x40000;
+        /** VVC Codec Main Tier, Level 6.2 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCMainTierLevel62 = 0x80000;
+        /** VVC Codec High Tier, Level 6.2 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCHighTierLevel62 = 0x100000;
+        /** VVC Codec Main Tier, Level 6.3 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCMainTierLevel63 = 0x200000;
+        /** VVC Codec High Tier, Level 6.3 as per ITU-T H.266, A.4.1 */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_VVC_SUPPORT)
+        public static final int VVCHighTierLevel63 = 0x400000;
+
+        private static final int VVCHighTierLevels =
+                VVCHighTierLevel40 | VVCHighTierLevel41 | VVCHighTierLevel50 | VVCHighTierLevel51
+                | VVCHighTierLevel52 | VVCHighTierLevel60 | VVCHighTierLevel61 | VVCHighTierLevel62
+                | VVCHighTierLevel63;
+
+
+        // IAMF profiles are defined as the combination of the (listed from LSB to MSB):
+        //  - audio codec (2 bytes)
+        //  - profile (1 byte, offset 16)
+        //  - specification version (1 byte, offset 24)
+        private static final int IAMF_CODEC_OPUS = 0x1;
+        private static final int IAMF_CODEC_AAC  = 0x1 << 1;
+        private static final int IAMF_CODEC_FLAC = 0x1 << 2;
+        private static final int IAMF_CODEC_PCM  = 0x1 << 3;
+        private static final int IAMF_PROFILE_SIMPLE        = 0x1 << 16;
+        private static final int IAMF_PROFILE_BASE          = 0x1 << 17;
+        private static final int IAMF_PROFILE_BASE_ENHANCED = 0x1 << 18;
+        private static final int IAMF_v1 = 0x1 << 24;
+        /**
+         * IAMF profile using the
+         * <a href="https://aomediacodec.github.io/iamf/#profiles-simple">simple profile</a>
+         * with audio streams <a href="https://aomediacodec.github.io/iamf/#codec_id">encoded</a>
+         * in OPUS.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_IAMF_DEFINITIONS_API)
+        public static final int IAMFProfileSimpleOpus =
+                IAMF_v1 + IAMF_PROFILE_SIMPLE + IAMF_CODEC_OPUS;
+        /**
+         * IAMF profile using the
+         * <a href="https://aomediacodec.github.io/iamf/#profiles-simple">simple profile</a>
+         * with audio streams <a href="https://aomediacodec.github.io/iamf/#codec_id">encoded</a>
+         * in AAC.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_IAMF_DEFINITIONS_API)
+        public static final int IAMFProfileSimpleAac =
+                IAMF_v1 + IAMF_PROFILE_SIMPLE + IAMF_CODEC_AAC;
+        /**
+         * IAMF profile using the
+         * <a href="https://aomediacodec.github.io/iamf/#profiles-simple">simple profile</a>
+         * with audio streams <a href="https://aomediacodec.github.io/iamf/#codec_id">encoded</a>
+         * in FLAC.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_IAMF_DEFINITIONS_API)
+        public static final int IAMFProfileSimpleFlac =
+                IAMF_v1 + IAMF_PROFILE_SIMPLE + IAMF_CODEC_FLAC;
+        /**
+         * IAMF profile using the
+         * <a href="https://aomediacodec.github.io/iamf/#profiles-simple">simple profile</a>
+         * with audio streams <a href="https://aomediacodec.github.io/iamf/#codec_id">encoded</a>
+         * in PCM.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_IAMF_DEFINITIONS_API)
+        public static final int IAMFProfileSimplePcm =
+                IAMF_v1 + IAMF_PROFILE_SIMPLE + IAMF_CODEC_PCM;
+        /**
+         * IAMF profile using the
+         * <a href="https://aomediacodec.github.io/iamf/#profiles-base">base profile</a>
+         * with audio streams <a href="https://aomediacodec.github.io/iamf/#codec_id">encoded</a>
+         * in OPUS.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_IAMF_DEFINITIONS_API)
+        public static final int IAMFProfileBaseOpus =
+                IAMF_v1 + IAMF_PROFILE_BASE + IAMF_CODEC_OPUS;
+        /**
+         * IAMF profile using the
+         * <a href="https://aomediacodec.github.io/iamf/#profiles-base">base profile</a>
+         * with audio streams <a href="https://aomediacodec.github.io/iamf/#codec_id">encoded</a>
+         * in AAC.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_IAMF_DEFINITIONS_API)
+        public static final int IAMFProfileBaseAac =
+                IAMF_v1 + IAMF_PROFILE_BASE + IAMF_CODEC_AAC;
+        /**
+         * IAMF profile using the
+         * <a href="https://aomediacodec.github.io/iamf/#profiles-base">base profile</a>
+         * with audio streams <a href="https://aomediacodec.github.io/iamf/#codec_id">encoded</a>
+         * in FLAC.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_IAMF_DEFINITIONS_API)
+        public static final int IAMFProfileBaseFlac =
+                IAMF_v1 + IAMF_PROFILE_BASE + IAMF_CODEC_FLAC;
+        /**
+         * IAMF profile using the
+         * <a href="https://aomediacodec.github.io/iamf/#profiles-base">base profile</a>
+         * with audio streams <a href="https://aomediacodec.github.io/iamf/#codec_id">encoded</a>
+         * in PCM.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_IAMF_DEFINITIONS_API)
+        public static final int IAMFProfileBasePcm =
+                IAMF_v1 + IAMF_PROFILE_BASE + IAMF_CODEC_PCM;
+        /**
+         * IAMF profile using the
+         * <a href="https://aomediacodec.github.io/iamf/#profiles-base-enhanced">base-enhanced profile</a>
+         * with audio streams <a href="https://aomediacodec.github.io/iamf/#codec_id">encoded</a>
+         * in OPUS.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_IAMF_DEFINITIONS_API)
+        public static final int IAMFProfileBaseEnhancedOpus =
+                IAMF_v1 + IAMF_PROFILE_BASE_ENHANCED + IAMF_CODEC_OPUS;
+        /**
+         * IAMF profile using the
+         * <a href="https://aomediacodec.github.io/iamf/#profiles-base-enhanced">base-enhanced profile</a>
+         * with audio streams <a href="https://aomediacodec.github.io/iamf/#codec_id">encoded</a>
+         * in AAC.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_IAMF_DEFINITIONS_API)
+        public static final int IAMFProfileBaseEnhancedAac =
+                IAMF_v1 + IAMF_PROFILE_BASE_ENHANCED + IAMF_CODEC_AAC;
+        /**
+         * IAMF profile using the
+         * <a href="https://aomediacodec.github.io/iamf/#profiles-base-enhanced">base-enhanced profile</a>
+         * with audio streams <a href="https://aomediacodec.github.io/iamf/#codec_id">encoded</a>
+         * in FLAC.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_IAMF_DEFINITIONS_API)
+        public static final int IAMFProfileBaseEnhancedFlac =
+                IAMF_v1 + IAMF_PROFILE_BASE_ENHANCED + IAMF_CODEC_FLAC;
+        /**
+         * IAMF profile using the
+         * <a href="https://aomediacodec.github.io/iamf/#profiles-base-enhanced">base-enhanced profile</a>
+         * with audio streams <a href="https://aomediacodec.github.io/iamf/#codec_id">encoded</a>
+         * in PCM.
+         */
+        @SuppressLint("AllUpper")
+        @FlaggedApi(FLAG_IAMF_DEFINITIONS_API)
+        public static final int IAMFProfileBaseEnhancedPcm =
+                IAMF_v1 + IAMF_PROFILE_BASE_ENHANCED + IAMF_CODEC_PCM;
+
+        /**
+         * The profile of the media content. Depending on the type of media this can be
+         * one of the profile values defined in this class.
          */
         public int profile;
 
         /**
-         * Defined in the OpenMAX IL specs, depending on the type of media
-         * this can be OMX_VIDEO_AVCLEVELTYPE, OMX_VIDEO_H263LEVELTYPE
-         * OMX_VIDEO_MPEG4LEVELTYPE, OMX_VIDEO_VP8LEVELTYPE or OMX_VIDEO_VP9LEVELTYPE.
+         * The level of the media content. Depending on the type of media this can be
+         * one of the level values defined in this class.
          *
          * Note that VP9 decoder on platforms before {@link android.os.Build.VERSION_CODES#N} may
          * not advertise a profile level support. For those VP9 decoders, please use
@@ -3138,8 +6393,29 @@ public final class MediaCodecInfo {
             return this;
         }
 
-        return new MediaCodecInfo(
-                mName, mIsEncoder,
-                caps.toArray(new CodecCapabilities[caps.size()]));
+        if (GetFlag(() -> android.media.codec.Flags.inProcessSwCodecLfi())) {
+            return new MediaCodecInfo(
+                    mName, mCanonicalName, mFlags,
+                    caps.toArray(new CodecCapabilities[caps.size()]), mSecurityModel);
+        } else {
+            return new MediaCodecInfo(
+                    mName, mCanonicalName, mFlags,
+                    caps.toArray(new CodecCapabilities[caps.size()]));
+        }
+    }
+
+    /* package private */ class GenericHelper {
+        private static Range<Integer> constructIntegerRange(int lower, int upper) {
+            return Range.create(Integer.valueOf(lower), Integer.valueOf(upper));
+        }
+
+        private static Range<Double> constructDoubleRange(double lower, double upper) {
+            return Range.create(Double.valueOf(lower), Double.valueOf(upper));
+        }
+
+        private static List<VideoCapabilities.PerformancePoint>
+                constructPerformancePointList(VideoCapabilities.PerformancePoint[] array) {
+            return Arrays.asList(array);
+        }
     }
 }

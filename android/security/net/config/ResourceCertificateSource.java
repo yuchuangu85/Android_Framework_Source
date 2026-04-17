@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,11 @@ package android.security.net.config;
 
 import android.content.Context;
 import android.util.ArraySet;
+
+import com.android.org.conscrypt.TrustedCertificateIndex;
+
 import libcore.io.IoUtils;
+
 import java.io.InputStream;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
@@ -28,15 +32,13 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
 
-import com.android.org.conscrypt.TrustedCertificateIndex;
-
 /**
  * {@link CertificateSource} based on certificates contained in an application resource file.
  * @hide
  */
 public class ResourceCertificateSource implements CertificateSource {
     private final Object mLock = new Object();
-    private final int  mResourceId;
+    private final int mResourceId;
 
     private Set<X509Certificate> mCertificates;
     private Context mContext;
@@ -61,7 +63,7 @@ public class ResourceCertificateSource implements CertificateSource {
                 certs = factory.generateCertificates(in);
             } catch (CertificateException e) {
                 throw new RuntimeException("Failed to load trust anchors from id " + mResourceId,
-                        e);
+                                           e);
             } finally {
                 IoUtils.closeQuietly(in);
             }

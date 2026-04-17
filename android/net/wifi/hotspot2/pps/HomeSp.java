@@ -16,13 +16,23 @@
 
 package android.net.wifi.hotspot2.pps;
 
-import android.os.Parcelable;
+import static android.net.wifi.hotspot2.PasspointConfiguration.MAX_HESSID_VALUE;
+import static android.net.wifi.hotspot2.PasspointConfiguration.MAX_NUMBER_OF_ENTRIES;
+import static android.net.wifi.hotspot2.PasspointConfiguration.MAX_NUMBER_OF_OI;
+import static android.net.wifi.hotspot2.PasspointConfiguration.MAX_OI_VALUE;
+import static android.net.wifi.hotspot2.PasspointConfiguration.MAX_STRING_LENGTH;
+import static android.net.wifi.hotspot2.PasspointConfiguration.MAX_URL_BYTES;
+
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.os.Parcel;
+import android.os.Parcelable;
 import android.text.TextUtils;
 import android.util.Log;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -139,16 +149,26 @@ public final class HomeSp implements Parcelable {
      * (MO) tree for more detail.
      */
     private long[] mMatchAllOis = null;
+
     /**
-     * @hide
+     * Set a list of HomeOIs such that all OIs in the list must match an OI in the Roaming
+     * Consortium advertised by a hotspot operator. The list set by this API will have precedence
+     * over {@link #setMatchAnyOis(long[])}, meaning the list set in {@link #setMatchAnyOis(long[])}
+     * will only be used for matching if the list set by this API is null or empty.
+     *
+     * @param matchAllOis An array of longs containing the HomeOIs
      */
-    public void setMatchAllOis(long[] matchAllOis) {
+    public void setMatchAllOis(@Nullable long[] matchAllOis) {
         mMatchAllOis = matchAllOis;
     }
+
     /**
-     * @hide
+     * Get the list of HomeOIs such that all OIs in the list must match an OI in the Roaming
+     * Consortium advertised by a hotspot operator.
+     *
+     * @return An array of longs containing the HomeOIs
      */
-    public long[] getMatchAllOis() {
+    public @Nullable long[] getMatchAllOis() {
         return mMatchAllOis;
     }
 
@@ -159,23 +179,34 @@ public final class HomeSp implements Parcelable {
      * of that Hotspot provider (e.g. successful authentication with such Hotspot
      * is possible).
      *
-     * {@link #mMatchAllOIs} will have precedence over this one, meaning this list will
-     * only be used for matching if {@link #mMatchAllOIs} is null or empty.
+     * The list set by {@link #setMatchAllOis(long[])} will have precedence over this one, meaning
+     * this list will only be used for matching if the list set by {@link #setMatchAllOis(long[])}
+     * is null or empty.
      *
      * Refer to HomeSP/HomeOIList subtree in PerProviderSubscription (PPS) Management Object
      * (MO) tree for more detail.
      */
     private long[] mMatchAnyOis = null;
+
     /**
-     * @hide
+     * Set a list of HomeOIs such that any OI in the list matches an OI in the Roaming Consortium
+     * advertised by a hotspot operator. The list set by {@link #setMatchAllOis(long[])}
+     * will have precedence over this API, meaning this list will only be used for matching if the
+     * list set by {@link #setMatchAllOis(long[])} is null or empty.
+     *
+     * @param matchAnyOis An array of longs containing the HomeOIs
      */
-    public void setMatchAnyOis(long[] matchAnyOis) {
+    public void setMatchAnyOis(@Nullable long[] matchAnyOis) {
         mMatchAnyOis = matchAnyOis;
     }
+
     /**
-     * @hide
+     * Get a list of HomeOIs such that any OI in the list matches an OI in the Roaming Consortium
+     * advertised by a hotspot operator.
+     *
+     * @return An array of longs containing the HomeOIs
      */
-    public long[] getMatchAnyOis() {
+    public @Nullable long[] getMatchAnyOis() {
         return mMatchAnyOis;
     }
 
@@ -186,17 +217,55 @@ public final class HomeSp implements Parcelable {
      * operator merges between the providers.
      */
     private String[] mOtherHomePartners = null;
+
     /**
+     * Set the list of FQDN (Fully Qualified Domain Name) of other Home partner providers.
+     *
+     * @param otherHomePartners Array of Strings containing the FQDNs of other Home partner
+     *                         providers
      * @hide
      */
-    public void setOtherHomePartners(String[] otherHomePartners) {
+    public void setOtherHomePartners(@Nullable String[] otherHomePartners) {
         mOtherHomePartners = otherHomePartners;
     }
+
     /**
+     * Set the list of FQDN (Fully Qualified Domain Name) of other Home partner providers.
+     *
+     * @param otherHomePartners Collection of Strings containing the FQDNs of other Home partner
+     *                         providers
+     */
+    public void setOtherHomePartnersList(@NonNull Collection<String> otherHomePartners) {
+        if (otherHomePartners == null) {
+            return;
+        }
+        mOtherHomePartners = otherHomePartners.toArray(new String[otherHomePartners.size()]);
+    }
+
+    /**
+     * Get the list of FQDN (Fully Qualified Domain Name) of other Home partner providers set in
+     * the profile.
+     *
+     * @return Array of Strings containing the FQDNs of other Home partner providers set in the
+     * profile
      * @hide
      */
-    public String[] getOtherHomePartners() {
+    public @Nullable String[] getOtherHomePartners() {
         return mOtherHomePartners;
+    }
+
+    /**
+     * Get the list of FQDN (Fully Qualified Domain Name) of other Home partner providers set in
+     * the profile.
+     *
+     * @return Collection of Strings containing the FQDNs of other Home partner providers set in the
+     * profile
+     */
+    public @NonNull Collection<String> getOtherHomePartnersList() {
+        if (mOtherHomePartners == null) {
+            return Collections.emptyList();
+        }
+        return Arrays.asList(mOtherHomePartners);
     }
 
     /**
@@ -299,9 +368,23 @@ public final class HomeSp implements Parcelable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(mFqdn, mFriendlyName, mIconUrl, mHomeNetworkIds, mMatchAllOis,
-                mMatchAnyOis, mOtherHomePartners, mRoamingConsortiumOis);
+        return Objects.hash(mFqdn, mFriendlyName, mIconUrl,
+                mHomeNetworkIds, Arrays.hashCode(mMatchAllOis),
+                Arrays.hashCode(mMatchAnyOis), Arrays.hashCode(mOtherHomePartners),
+                Arrays.hashCode(mRoamingConsortiumOis));
     }
+
+    /**
+     * Get a unique identifier for HomeSp. This identifier depends only on items that remain
+     * constant throughout the lifetime of a subscription.
+     *
+     * @hide
+     * @return a Unique identifier for a HomeSp object
+     */
+    public int getUniqueId() {
+        return Objects.hash(mFqdn);
+    }
+
 
     @Override
     public String toString() {
@@ -310,10 +393,12 @@ public final class HomeSp implements Parcelable {
         builder.append("FriendlyName: ").append(mFriendlyName).append("\n");
         builder.append("IconURL: ").append(mIconUrl).append("\n");
         builder.append("HomeNetworkIDs: ").append(mHomeNetworkIds).append("\n");
-        builder.append("MatchAllOIs: ").append(mMatchAllOis).append("\n");
-        builder.append("MatchAnyOIs: ").append(mMatchAnyOis).append("\n");
-        builder.append("OtherHomePartners: ").append(mOtherHomePartners).append("\n");
-        builder.append("RoamingConsortiumOIs: ").append(mRoamingConsortiumOis).append("\n");
+        builder.append("MatchAllOIs: ").append(Arrays.toString(mMatchAllOis)).append("\n");
+        builder.append("MatchAnyOIs: ").append(Arrays.toString(mMatchAnyOis)).append("\n");
+        builder.append("OtherHomePartners: ").append(Arrays.toString(mOtherHomePartners))
+                .append("\n");
+        builder.append("RoamingConsortiumOIs: ").append(Arrays.toString(mRoamingConsortiumOis))
+                .append("\n");
         return builder.toString();
     }
 
@@ -328,16 +413,86 @@ public final class HomeSp implements Parcelable {
             Log.d(TAG, "Missing FQDN");
             return false;
         }
+        if (mFqdn.getBytes(StandardCharsets.UTF_8).length > MAX_STRING_LENGTH) {
+            Log.d(TAG, "FQDN is too long");
+            return false;
+        }
         if (TextUtils.isEmpty(mFriendlyName)) {
             Log.d(TAG, "Missing friendly name");
             return false;
         }
+        if (mFriendlyName.getBytes(StandardCharsets.UTF_8).length > MAX_STRING_LENGTH) {
+            Log.d(TAG, "Friendly name is too long");
+            return false;
+        }
         // Verify SSIDs specified in the NetworkID
         if (mHomeNetworkIds != null) {
+            if (mHomeNetworkIds.size() > MAX_NUMBER_OF_ENTRIES) {
+                Log.d(TAG, "too many SSID in HomeNetworkIDs");
+                return false;
+            }
             for (Map.Entry<String, Long> entry : mHomeNetworkIds.entrySet()) {
                 if (entry.getKey() == null ||
                         entry.getKey().getBytes(StandardCharsets.UTF_8).length > MAX_SSID_BYTES) {
-                    Log.d(TAG, "Invalid SSID in HomeNetworkIDs");
+                    Log.d(TAG, "SSID is too long in HomeNetworkIDs");
+                    return false;
+                }
+                if (entry.getValue() != null
+                        && (entry.getValue() > MAX_HESSID_VALUE || entry.getValue() < 0)) {
+                    Log.d(TAG, "HESSID is out of range");
+                    return false;
+                }
+            }
+        }
+        if (mIconUrl != null && mIconUrl.getBytes(StandardCharsets.UTF_8).length > MAX_URL_BYTES) {
+            Log.d(TAG, "Icon URL is too long");
+            return false;
+        }
+        if (mMatchAllOis != null) {
+            if (mMatchAllOis.length > MAX_NUMBER_OF_OI) {
+                Log.d(TAG, "too many match all Organization Identifiers in the profile");
+                return false;
+            }
+            for (long oi : mMatchAllOis) {
+                if (oi > MAX_OI_VALUE || oi < 0) {
+                    Log.d(TAG, "Organization Identifiers is out of range");
+                    return false;
+                }
+            }
+        }
+        if (mMatchAnyOis != null) {
+            if (mMatchAnyOis.length > MAX_NUMBER_OF_OI) {
+                Log.d(TAG, "too many match any Organization Identifiers in the profile");
+                return false;
+            }
+            for (long oi : mMatchAnyOis) {
+                if (oi > MAX_OI_VALUE || oi < 0) {
+                    Log.d(TAG, "Organization Identifiers is out of range");
+                    return false;
+                }
+            }
+        }
+        if (mRoamingConsortiumOis != null) {
+            if (mRoamingConsortiumOis.length > MAX_NUMBER_OF_OI) {
+                Log.d(TAG, "too many Roaming Consortium Organization Identifiers in the "
+                        + "profile");
+                return false;
+            }
+            for (long oi : mRoamingConsortiumOis) {
+                if (oi > MAX_OI_VALUE || oi < 0) {
+                    Log.d(TAG, "Organization Identifiers is out of range");
+                    return false;
+                }
+            }
+        }
+        if (mOtherHomePartners != null) {
+            if (mOtherHomePartners.length > MAX_NUMBER_OF_ENTRIES) {
+                Log.d(TAG, "too many other home partners in the profile");
+                return false;
+            }
+            for (String fqdn : mOtherHomePartners) {
+                if (fqdn.length() > MAX_STRING_LENGTH) {
+                    Log.d(TAG, "FQDN is too long in OtherHomePartners");
                     return false;
                 }
             }
@@ -345,7 +500,7 @@ public final class HomeSp implements Parcelable {
         return true;
     }
 
-    public static final Creator<HomeSp> CREATOR =
+    public static final @android.annotation.NonNull Creator<HomeSp> CREATOR =
         new Creator<HomeSp>() {
             @Override
             public HomeSp createFromParcel(Parcel in) {

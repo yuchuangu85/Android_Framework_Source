@@ -16,7 +16,11 @@
 
 package android.app.backup;
 
+import android.annotation.FlaggedApi;
+import android.annotation.NonNull;
+import android.annotation.SystemApi;
 import android.os.ParcelFileDescriptor;
+import com.android.server.backup.Flags;
 
 /**
  * Defines the calling interface that {@link BackupAgentHelper} uses
@@ -84,6 +88,27 @@ public interface BackupHelper {
      * @param data An open {@link BackupDataInputStream} from which the backup data can be read.
      */
     public void restoreEntity(BackupDataInputStream data);
+
+    /**
+     * Called by {@link android.app.backup.BackupAgentHelper BackupAgentHelper} to restore a single
+     * entity from the restore data set for delayed restore. This method will be called for each
+     * entity in the data set that belongs to this handler.
+     *
+     * <p class="note"><strong>Note:</strong> Do not close the <code>data</code> stream. Do not read
+     * more than {@link android.app.backup.BackupDataInputStream#size() size()} bytes from <code>
+     * data</code>.
+     *
+     * @param data An open {@link BackupDataInputStream} from which the backup data can be read.
+     * @param request The {@link DelayedRestoreRequest} request requested by this application, whose
+     *     condition has been met.
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_DELAYED_RESTORE_API)
+    @SystemApi
+    public default void delayedRestoreEntity(
+            @NonNull DelayedRestoreRequest request, @NonNull BackupDataInputStream data) {
+        restoreEntity(data);
+    }
 
     /**
      * Called by {@link android.app.backup.BackupAgentHelper BackupAgentHelper}

@@ -19,6 +19,8 @@ package android.net.wifi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import androidx.annotation.Keep;
+
 /**
  * From <code>defs.h</code> in <code>wpa_supplicant</code>.
  * <p/>
@@ -171,7 +173,10 @@ public enum SupplicantState implements Parcelable {
     }
 
 
-    /** Supplicant associating or authenticating is considered a handshake state {@hide} */
+    /**
+     * Supplicant associating or authenticating is considered a handshake state
+     * @hide
+     */
     public static boolean isHandshakeState(SupplicantState state) {
         switch(state) {
             case AUTHENTICATING:
@@ -195,6 +200,7 @@ public enum SupplicantState implements Parcelable {
     }
 
     /** @hide */
+    @Keep
     public static boolean isConnecting(SupplicantState state) {
         switch(state) {
             case AUTHENTICATING:
@@ -240,18 +246,27 @@ public enum SupplicantState implements Parcelable {
         }
     }
 
-    /** Implement the Parcelable interface {@hide} */
+    /**
+     * Implement the Parcelable interface
+     * @hide
+     */
     public int describeContents() {
         return 0;
     }
 
-    /** Implement the Parcelable interface {@hide} */
+    /**
+     * Implement the Parcelable interface
+     * @hide
+     */
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeString(name());
     }
 
-    /** Implement the Parcelable interface {@hide} */
-    public static final Creator<SupplicantState> CREATOR =
+    /**
+     * Implement the Parcelable interface
+     * @hide
+     */
+    public static final @android.annotation.NonNull Creator<SupplicantState> CREATOR =
         new Creator<SupplicantState>() {
             public SupplicantState createFromParcel(Parcel in) {
                 return SupplicantState.valueOf(in.readString());

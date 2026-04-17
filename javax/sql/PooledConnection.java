@@ -27,6 +27,7 @@ package javax.sql;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 
 /**
  * An object that provides hooks for connection pool management.

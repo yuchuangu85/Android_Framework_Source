@@ -17,7 +17,7 @@
 package com.android.internal.telephony.uicc;
 
 /**
- * {@hide}
+ * @hide
  */
 public class IccException extends Exception {
     public IccException() {

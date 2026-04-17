@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,18 +40,18 @@ import sun.security.jca.GetInstance.Instance;
  * exchange) protocol.
  * <p>
  * The keys involved in establishing a shared secret are created by one of the
- * key generators (<code>KeyPairGenerator</code> or
- * <code>KeyGenerator</code>), a <code>KeyFactory</code>, or as a result from
+ * key generators ({@code KeyPairGenerator} or
+ * {@code KeyGenerator}), a {@code KeyFactory}, or as a result from
  * an intermediate phase of the key agreement protocol.
  *
- * <p> For each of the correspondents in the key exchange, <code>doPhase</code>
+ * <p> For each of the correspondents in the key exchange, {@code doPhase}
  * needs to be called. For example, if this key exchange is with one other
- * party, <code>doPhase</code> needs to be called once, with the
- * <code>lastPhase</code> flag set to <code>true</code>.
+ * party, {@code doPhase} needs to be called once, with the
+ * {@code lastPhase} flag set to {@code true}.
  * If this key exchange is
- * with two other parties, <code>doPhase</code> needs to be called twice,
- * the first time setting the <code>lastPhase</code> flag to
- * <code>false</code>, and the second time setting it to <code>true</code>.
+ * with two other parties, {@code doPhase} needs to be called twice,
+ * the first time setting the {@code lastPhase} flag to
+ * {@code false}, and the second time setting it to {@code true}.
  * There may be any number of parties involved in a key exchange.
  *
  * <p> Android provides the following <code>KeyAgreement</code> algorithms:
@@ -71,11 +71,15 @@ import sun.security.jca.GetInstance.Instance;
  *       <td>ECDH</td>
  *       <td>11+</td>
  *     </tr>
+ *     <tr>
+ *       <td>XDH</td>
+ *       <td>33+</td>
+ *     </tr>
  *   </tbody>
  * </table>
  *
  * This algorithm is described in the <a href=
- * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
+ * "{@docRoot}/../specs/security/standard-names.html#keyagreement-algorithms">
  * KeyAgreement section</a> of the
  * Java Cryptography Architecture Standard Algorithm Name Documentation.
  *
@@ -149,20 +153,20 @@ public class KeyAgreement {
     }
 
     /**
-     * Returns the algorithm name of this <code>KeyAgreement</code> object.
+     * Returns the algorithm name of this {@code KeyAgreement} object.
      *
      * <p>This is the same name that was specified in one of the
-     * <code>getInstance</code> calls that created this
-     * <code>KeyAgreement</code> object.
+     * {@code getInstance} calls that created this
+     * {@code KeyAgreement} object.
      *
-     * @return the algorithm name of this <code>KeyAgreement</code> object.
+     * @return the algorithm name of this {@code KeyAgreement} object.
      */
     public final String getAlgorithm() {
         return this.algorithm;
     }
 
     /**
-     * Returns a <code>KeyAgreement</code> object that implements the
+     * Returns a {@code KeyAgreement} object that implements the
      * specified key agreement algorithm.
      *
      * <p> This method traverses the list of registered security Providers,
@@ -177,11 +181,11 @@ public class KeyAgreement {
      * @param algorithm the standard name of the requested key agreement
      * algorithm.
      * See the KeyAgreement section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
+     * "{@docRoot}/../specs/security/standard-names.html#keyagreement-algorithms">
+     * Java Security Standard Algorithm Names Specification</a>
      * for information about standard algorithm names.
      *
-     * @return the new <code>KeyAgreement</code> object.
+     * @return the new {@code KeyAgreement} object
      *
      * @exception NullPointerException if the specified algorithm
      *          is null.
@@ -212,7 +216,7 @@ public class KeyAgreement {
     }
 
     /**
-     * Returns a <code>KeyAgreement</code> object that implements the
+     * Returns a {@code KeyAgreement} object that implements the
      * specified key agreement algorithm.
      *
      * <p> A new KeyAgreement object encapsulating the
@@ -226,13 +230,13 @@ public class KeyAgreement {
      * @param algorithm the standard name of the requested key agreement
      * algorithm.
      * See the KeyAgreement section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
+     * "{@docRoot}/../specs/security/standard-names.html#keyagreement-algorithms">
+     * Java Security Standard Algorithm Names Specification</a>
      * for information about standard algorithm names.
      *
      * @param provider the name of the provider.
      *
-     * @return the new <code>KeyAgreement</code> object.
+     * @return the new {@code KeyAgreement} object
      *
      * @exception NullPointerException if the specified algorithm
      *          is null.
@@ -261,7 +265,7 @@ public class KeyAgreement {
     }
 
     /**
-     * Returns a <code>KeyAgreement</code> object that implements the
+     * Returns a {@code KeyAgreement} object that implements the
      * specified key agreement algorithm.
      *
      * <p> A new KeyAgreement object encapsulating the
@@ -272,13 +276,13 @@ public class KeyAgreement {
      * @param algorithm the standard name of the requested key agreement
      * algorithm.
      * See the KeyAgreement section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#KeyAgreement">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
+     * "{@docRoot}/../specs/security/standard-names.html#keyagreement-algorithms">
+     * Java Security Standard Algorithm Names Specification</a>
      * for information about standard algorithm names.
      *
      * @param provider the provider.
      *
-     * @return the new <code>KeyAgreement</code> object.
+     * @return the new {@code KeyAgreement} object
      *
      * @exception NullPointerException if the specified algorithm
      *          is null.
@@ -366,8 +370,8 @@ public class KeyAgreement {
         }
     }
 
-    private final static int I_NO_PARAMS = 1;
-    private final static int I_PARAMS    = 2;
+    private static final int I_NO_PARAMS = 1;
+    private static final int I_PARAMS    = 2;
 
     private void implInit(KeyAgreementSpi spi, int type, Key key,
             AlgorithmParameterSpec params, SecureRandom random)
@@ -437,9 +441,9 @@ public class KeyAgreement {
     }
 
     /**
-     * Returns the provider of this <code>KeyAgreement</code> object.
+     * Returns the provider of this {@code KeyAgreement} object.
      *
-     * @return the provider of this <code>KeyAgreement</code> object
+     * @return the provider of this {@code KeyAgreement} object
      */
     public final Provider getProvider() {
         chooseFirstProvider();
@@ -476,10 +480,10 @@ public class KeyAgreement {
      * parameters required for this key agreement.
      *
      * <p> If the key agreement algorithm requires random bytes, it gets them
-     * from the given source of randomness, <code>random</code>.
+     * from the given source of randomness, {@code random}.
      * However, if the underlying
      * algorithm implementation does not require any random bytes,
-     * <code>random</code> is ignored.
+     * {@code random} is ignored.
      *
      * @param key the party's private information. For example, in the case
      * of the Diffie-Hellman key agreement, this would be the party's own
@@ -509,7 +513,7 @@ public class KeyAgreement {
         /*
         if (!skipDebug && pdebug != null) {
             pdebug.println("KeyAgreement." + algorithm + " algorithm from: " +
-                this.provider.getName());
+                getProviderName());
         }
         */
     }
@@ -543,6 +547,10 @@ public class KeyAgreement {
         init(key, params, JceSecurity.RANDOM);
     }
 
+    private String getProviderName() {
+        return (provider == null) ? "(no provider)" : provider.getName();
+    }
+
     /**
      * Initializes this key agreement with the given key, set of
      * algorithm parameters, and source of randomness.
@@ -573,7 +581,7 @@ public class KeyAgreement {
         /*
         if (!skipDebug && pdebug != null) {
             pdebug.println("KeyAgreement." + algorithm + " algorithm from: " +
-                this.provider.getName());
+                getProviderName());
         }
         */
     }
@@ -607,9 +615,9 @@ public class KeyAgreement {
     /**
      * Generates the shared secret and returns it in a new buffer.
      *
-     * <p>This method resets this <code>KeyAgreement</code> object, so that it
+     * <p>This method resets this {@code KeyAgreement} object, so that it
      * can be reused for further key agreements. Unless this key agreement is
-     * reinitialized with one of the <code>init</code> methods, the same
+     * reinitialized with one of the {@code init} methods, the same
      * private information and algorithm parameters will be used for
      * subsequent key agreements.
      *
@@ -625,23 +633,23 @@ public class KeyAgreement {
 
     /**
      * Generates the shared secret, and places it into the buffer
-     * <code>sharedSecret</code>, beginning at <code>offset</code> inclusive.
+     * {@code sharedSecret}, beginning at {@code offset} inclusive.
      *
-     * <p>If the <code>sharedSecret</code> buffer is too small to hold the
-     * result, a <code>ShortBufferException</code> is thrown.
+     * <p>If the {@code sharedSecret} buffer is too small to hold the
+     * result, a {@code ShortBufferException} is thrown.
      * In this case, this call should be repeated with a larger output buffer.
      *
-     * <p>This method resets this <code>KeyAgreement</code> object, so that it
+     * <p>This method resets this {@code KeyAgreement} object, so that it
      * can be reused for further key agreements. Unless this key agreement is
-     * reinitialized with one of the <code>init</code> methods, the same
+     * reinitialized with one of the {@code init} methods, the same
      * private information and algorithm parameters will be used for
      * subsequent key agreements.
      *
      * @param sharedSecret the buffer for the shared secret
-     * @param offset the offset in <code>sharedSecret</code> where the
+     * @param offset the offset in {@code sharedSecret} where the
      * shared secret will be stored
      *
-     * @return the number of bytes placed into <code>sharedSecret</code>
+     * @return the number of bytes placed into {@code sharedSecret}
      *
      * @exception IllegalStateException if this key agreement has not been
      * completed yet
@@ -656,12 +664,12 @@ public class KeyAgreement {
     }
 
     /**
-     * Creates the shared secret and returns it as a <code>SecretKey</code>
+     * Creates the shared secret and returns it as a {@code SecretKey}
      * object of the specified algorithm.
      *
-     * <p>This method resets this <code>KeyAgreement</code> object, so that it
+     * <p>This method resets this {@code KeyAgreement} object, so that it
      * can be reused for further key agreements. Unless this key agreement is
-     * reinitialized with one of the <code>init</code> methods, the same
+     * reinitialized with one of the {@code init} methods, the same
      * private information and algorithm parameters will be used for
      * subsequent key agreements.
      *
@@ -684,4 +692,16 @@ public class KeyAgreement {
         chooseFirstProvider();
         return spi.engineGenerateSecret(algorithm);
     }
+
+    // BEGIN Android-added: Allow access to the current SPI for testing purposes.
+    /**
+     * Returns the {@code KeyAgreementSpi} backing this {@code KeyAgreement} or
+     * {@code null} if no {@code KeyAgreementSpi} is backing this {@code KeyAgreement}.
+     *
+     * @hide
+     */
+    public KeyAgreementSpi getCurrentSpi() {
+        return spi;
+    }
+    // END Android-added: Allow access to the current SPI for testing purposes.
 }

@@ -15,10 +15,22 @@
  */
 package android.net;
 
+import android.annotation.NonNull;
+import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
+import android.annotation.TargetApi;
+import android.os.Binder;
+import android.os.Build;
 import android.os.IBinder;
+import android.os.OutcomeReceiver;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.RemoteException;
+import android.os.ServiceSpecificException;
+import android.system.OsConstants;
+
+import java.util.Objects;
+import java.util.concurrent.Executor;
 
 /**
  * A class allowing apps handling the {@link ConnectivityManager#ACTION_CAPTIVE_PORTAL_SIGN_IN}
@@ -27,17 +39,58 @@ import android.os.RemoteException;
  * {@code ACTION_CAPTIVE_PORTAL_SIGN_IN} activity.
  */
 public class CaptivePortal implements Parcelable {
-    /** @hide */
+    /**
+     * Response code from the captive portal application, indicating that the portal was dismissed
+     * and the network should be re-validated.
+     * @see ICaptivePortal#appResponse(int)
+     * @see android.net.INetworkMonitor#notifyCaptivePortalAppFinished(int)
+     * @hide
+     */
+    @SystemApi
     public static final int APP_RETURN_DISMISSED    = 0;
-    /** @hide */
+    /**
+     * Response code from the captive portal application, indicating that the user did not login and
+     * does not want to use the captive portal network.
+     * @see ICaptivePortal#appResponse(int)
+     * @see android.net.INetworkMonitor#notifyCaptivePortalAppFinished(int)
+     * @hide
+     */
+    @SystemApi
     public static final int APP_RETURN_UNWANTED     = 1;
-    /** @hide */
+    /**
+     * Response code from the captive portal application, indicating that the user does not wish to
+     * login but wants to use the captive portal network as-is.
+     * @see ICaptivePortal#appResponse(int)
+     * @see android.net.INetworkMonitor#notifyCaptivePortalAppFinished(int)
+     * @hide
+     */
+    @SystemApi
     public static final int APP_RETURN_WANTED_AS_IS = 2;
+    /** Event offset of request codes from captive portal application. */
+    private static final int APP_REQUEST_BASE = 100;
+    /**
+     * Request code from the captive portal application, indicating that the network condition may
+     * have changed and the network should be re-validated.
+     * @see ICaptivePortal#appRequest(int)
+     * @see android.net.INetworkMonitor#forceReevaluation(int)
+     * @hide
+     */
+    @SystemApi
+    public static final int APP_REQUEST_REEVALUATION_REQUIRED = APP_REQUEST_BASE + 0;
+
+    /**
+     * Binder object used for tracking the lifetime of the process, so CS can perform cleanup if
+     * the CaptivePortal app dies. This binder is not parcelled as part of this object. It is
+     * created in the client process and sent to the server by setDelegateUid so that the server
+     * can use it to register a death recipient.
+     *
+     */
+    private final Binder mLifetimeBinder = new Binder();
 
     private final IBinder mBinder;
 
     /** @hide */
-    public CaptivePortal(IBinder binder) {
+    public CaptivePortal(@NonNull IBinder binder) {
         mBinder = binder;
     }
 
@@ -51,7 +104,7 @@ public class CaptivePortal implements Parcelable {
         out.writeStrongBinder(mBinder);
     }
 
-    public static final Parcelable.Creator<CaptivePortal> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<CaptivePortal> CREATOR
             = new Parcelable.Creator<CaptivePortal>() {
         @Override
         public CaptivePortal createFromParcel(Parcel in) {
@@ -99,10 +152,89 @@ public class CaptivePortal implements Parcelable {
      * connectivity for apps because the captive portal is still in place.
      * @hide
      */
+    @SystemApi
     public void useNetwork() {
         try {
             ICaptivePortal.Stub.asInterface(mBinder).appResponse(APP_RETURN_WANTED_AS_IS);
         } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Request that the system reevaluates the captive portal status.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.NETWORK_STACK)
+    public void reevaluateNetwork() {
+        try {
+            ICaptivePortal.Stub.asInterface(mBinder).appRequest(APP_REQUEST_REEVALUATION_REQUIRED);
+        } catch (RemoteException e) {
+        }
+    }
+
+    /**
+     * Log a captive portal login event.
+     * @param eventId one of the CAPTIVE_PORTAL_LOGIN_* constants in metrics_constants.proto.
+     * @param packageName captive portal application package name.
+     * @hide
+     * @deprecated The event will not be logged in Android S and above. The
+     * caller is migrating to statsd.
+     */
+    @Deprecated
+    @SystemApi
+    public void logEvent(int eventId, @NonNull String packageName) {
+    }
+
+    /**
+     * Sets the UID of the app that is allowed to perform network traffic for captive
+     * portal login.
+     *
+     * This app will be allowed to communicate directly on the captive
+     * portal by binding to the {@link android.net.Network} extra passed in the
+     * ACTION_CAPTIVE_PORTAL_SIGN_IN broadcast that contained this object.
+     *
+     * Communication will bypass network access restrictions such as VPNs and
+     * Private DNS settings, so the delegated UID must be trusted to ensure that only
+     * traffic intended for captive portal login binds to that network.
+     *
+     * By default, no UID is delegated. The delegation can be cleared by calling
+     * this method again with {@link android.os.Process.INVALID_UID}. Only one UID can
+     * be delegated at any given time.
+     *
+     * The operation is asynchronous. The uid is only guaranteed to have access when
+     * the provided OutcomeReceiver is called.
+     *
+     * @hide
+     */
+    @RequiresPermission(NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK)
+    // OutcomeReceiver is not available on R, but the mainline version of this
+    // class is only available on S+.
+    @TargetApi(Build.VERSION_CODES.S)
+    public void setDelegateUid(int uid, @NonNull Executor executor,
+            @NonNull final OutcomeReceiver<Void, ServiceSpecificException> receiver) {
+        Objects.requireNonNull(executor);
+        Objects.requireNonNull(receiver);
+        try {
+            ICaptivePortal.Stub.asInterface(mBinder).setDelegateUid(
+                    uid,
+                    mLifetimeBinder,
+                    new IIntResultListener.Stub() {
+                        @Override
+                        public void onResult(int resultCode) {
+                            if (resultCode != 0) {
+                                final String msg = "Fail to set the delegate UID " + uid
+                                        + ", error: " + OsConstants.errnoName(resultCode);
+                                executor.execute(() -> {
+                                    receiver.onError(new ServiceSpecificException(resultCode, msg));
+                                });
+                            } else {
+                                executor.execute(() -> receiver.onResult(null));
+                            }
+                        }
+                    });
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
         }
     }
 }

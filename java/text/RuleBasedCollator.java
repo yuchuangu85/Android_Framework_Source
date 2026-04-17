@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,18 +42,18 @@ package java.text;
 import libcore.icu.CollationKeyICU;
 
 /**
- * The <code>RuleBasedCollator</code> class is a concrete subclass of
- * <code>Collator</code> that provides a simple, data-driven, table
+ * The {@code RuleBasedCollator} class is a concrete subclass of
+ * {@code Collator} that provides a simple, data-driven, table
  * collator.  With this class you can create a customized table-based
- * <code>Collator</code>.  <code>RuleBasedCollator</code> maps
+ * {@code Collator}.  {@code RuleBasedCollator} maps
  * characters to sort keys.
  *
  * <p>
- * <code>RuleBasedCollator</code> has the following restrictions
+ * {@code RuleBasedCollator} has the following restrictions
  * for efficiency (other subclasses may be used for more complex languages) :
  * <ol>
  * <li>If a special collation rule controlled by a &lt;modifier&gt; is
-      specified it applies to the whole collator object.
+ *     specified it applies to the whole collator object.
  * <li>All non-mentioned characters are at the end of the
  *     collation order.
  * </ol>
@@ -74,7 +74,7 @@ import libcore.icu.CollationKeyICU;
  *        [0021-002F, 003A-0040, 005B-0060, 007B-007E]). If those
  *        characters are desired, you can put them in single quotes
  *        (e.g. ampersand =&gt; '&amp;'). Note that unquoted white space characters
- *        are ignored; e.g. <code>b c</code> is treated as <code>bc</code>.
+ *        are ignored; e.g. {@code b c} is treated as {@code bc}.
  *    <LI><strong>Modifier</strong>: There are currently two modifiers that
  *        turn on special collation rules.
  *        <UL>
@@ -145,7 +145,7 @@ import libcore.icu.CollationKeyICU;
  *
  * <p><strong>Normalization and Accents</strong>
  * <p>
- * <code>RuleBasedCollator</code> automatically processes its rule table to
+ * {@code RuleBasedCollator} automatically processes its rule table to
  * include both pre-composed and combining-character versions of
  * accented characters.  Even if the provided rule string contains only
  * base characters and separate combining accent characters, the pre-composed
@@ -174,8 +174,8 @@ import libcore.icu.CollationKeyICU;
  *         text-argument) is not already in the sequence.
  *         (e.g. "a &lt; b &amp; e &lt; f")
  * </UL>
- * If you produce one of these errors, a <code>RuleBasedCollator</code> throws
- * a <code>ParseException</code>.
+ * If you produce one of these errors, a {@code RuleBasedCollator} throws
+ * a {@code ParseException}.
  *
  * <p><strong>Examples</strong>
  * <p>Simple:     "&lt; a &lt; b &lt; c &lt; d"
@@ -190,9 +190,9 @@ import libcore.icu.CollationKeyICU;
  *                      aa, AA"
  *
  * <p>
- * To create a <code>RuleBasedCollator</code> object with specialized
- * rules tailored to your needs, you construct the <code>RuleBasedCollator</code>
- * with the rules contained in a <code>String</code> object. For example:
+ * To create a {@code RuleBasedCollator} object with specialized
+ * rules tailored to your needs, you construct the {@code RuleBasedCollator}
+ * with the rules contained in a {@code String} object. For example:
  * <blockquote>
  * <pre>
  * String simple = "&lt; a&lt; b&lt; c&lt; d";
@@ -217,7 +217,7 @@ import libcore.icu.CollationKeyICU;
  * <p>
  * A new collation rules string can be created by concatenating rules
  * strings. For example, the rules returned by {@link #getRules()} could
- * be concatenated to combine multiple <code>RuleBasedCollator</code>s.
+ * be concatenated to combine multiple {@code RuleBasedCollator}s.
  *
  * <p>
  * The following example demonstrates how to change the order of
@@ -241,6 +241,7 @@ import libcore.icu.CollationKeyICU;
  * @see        Collator
  * @see        CollationElementIterator
  * @author     Helena Shih, Laura Werner, Richard Gillam
+ * @since 1.1
  */
 public class RuleBasedCollator extends Collator{
     // Android-added: protected constructor taking an ICU RuleBasedCollator.
@@ -276,7 +277,7 @@ public class RuleBasedCollator extends Collator{
      * description for more details on the collation rule syntax.
      * @see java.util.Locale
      * @param rules the collation rules to build the collation table from.
-     * @exception ParseException A format exception
+     * @throws    ParseException A format exception
      * will be thrown if the build process of the rules fails. For
      * example, build rule "a &lt; ? &lt; d" will cause the constructor to
      * throw the ParseException because the '?' is not quoted.
@@ -298,10 +299,39 @@ public class RuleBasedCollator extends Collator{
              */
             throw new ParseException(e.getMessage(), -1);
         }
-        // BEGIN Android-changed: Switched to ICU.
+        // END Android-changed: Switched to ICU.
     }
 
     // Android-removed: (String rules, int decomp) constructor and copy constructor.
+    /*
+     * RuleBasedCollator constructor.  This takes the table rules and builds
+     * a collation table out of them.  Please see RuleBasedCollator class
+     * description for more details on the collation rule syntax.
+     * @see java.util.Locale
+     * @param rules the collation rules to build the collation table from.
+     * @param decomp the decomposition strength used to build the
+     * collation table and to perform comparisons.
+     * @throws    ParseException A format exception
+     * will be thrown if the build process of the rules fails. For
+     * example, build rule "a < ? < d" will cause the constructor to
+     * throw the ParseException because the '?' is not quoted.
+     *
+    RuleBasedCollator(String rules, int decomp) throws ParseException {
+        setStrength(Collator.TERTIARY);
+        setDecomposition(decomp);
+        tables = new RBCollationTables(rules, decomp);
+    }
+
+    // Android-removed: (String rules, int decomp) constructor and copy constructor.
+    /**
+     * "Copy constructor."  Used in clone() for performance.
+     *
+    private RuleBasedCollator(RuleBasedCollator that) {
+        setStrength(that.getStrength());
+        setDecomposition(that.getDecomposition());
+        tables = that.tables;
+    }
+    */
 
     // Android-changed: document that getRules() won't return rules in common case.
     /**
@@ -355,9 +385,9 @@ public class RuleBasedCollator extends Collator{
      * Compares the character data stored in two different strings based on the
      * collation rules.  Returns information about whether a string is less
      * than, greater than or equal to another string in a language.
-     * This can be overriden in a subclass.
+     * This can be overridden in a subclass.
      *
-     * @exception NullPointerException if <code>source</code> or <code>target</code> is null.
+     * @throws    NullPointerException if {@code source} or {@code target} is null.
      */
     public synchronized int compare(String source, String target)
     {
@@ -371,7 +401,7 @@ public class RuleBasedCollator extends Collator{
     /**
      * Transforms the string into a series of characters that can be compared
      * with CollationKey.compareTo. This overrides java.text.Collator.getCollationKey.
-     * It can be overriden in a subclass.
+     * It can be overridden in a subclass.
      */
     public synchronized CollationKey getCollationKey(String source)
     {
@@ -415,5 +445,28 @@ public class RuleBasedCollator extends Collator{
         return (android.icu.text.RuleBasedCollator) icuColl;
     }
 
-    // Android-removed: private constants and fields.
+    // BEGIN Android-removed: private constants and fields.
+    /*
+    // ==============================================================
+    // private
+    // ==============================================================
+
+    static final int CHARINDEX = 0x70000000;  // need look up in .commit()
+    static final int EXPANDCHARINDEX = 0x7E000000; // Expand index follows
+    static final int CONTRACTCHARINDEX = 0x7F000000;  // contract indexes follow
+    static final int UNMAPPED = 0xFFFFFFFF;
+
+    private static final int COLLATIONKEYOFFSET = 1;
+
+    private RBCollationTables tables = null;
+
+    // Internal objects that are cached across calls so that they don't have to
+    // be created/destroyed on every call to compare() and getCollationKey()
+    private StringBuffer primResult = null;
+    private StringBuffer secResult = null;
+    private StringBuffer terResult = null;
+    private CollationElementIterator sourceCursor = null;
+    private CollationElementIterator targetCursor = null;
+    */
+    // END Android-removed: private constants and fields.
 }

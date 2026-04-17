@@ -16,14 +16,21 @@
 
 package android.widget;
 
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.drawable.shapes.RectShape;
 import android.graphics.drawable.shapes.Shape;
 import android.util.AttributeSet;
+import android.util.PluralsMessageFormatter;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.inspector.InspectableProperty;
 
 import com.android.internal.R;
+
+import java.util.HashMap;
+
 
 /**
  * A RatingBar is an extension of SeekBar and ProgressBar that shows a rating in
@@ -49,6 +56,20 @@ import com.android.internal.R;
  * @attr ref android.R.styleable#RatingBar_isIndicator
  */
 public class RatingBar extends AbsSeekBar {
+
+    /**
+     * Key used for generating Text-to-Speech output regarding the current star rating.
+     * @hide
+     */
+    @TestApi
+    public static final String PLURALS_RATING = "rating";
+
+    /**
+     * Key used for generating Text-to-Speech output regarding the maximum star count.
+     * @hide
+     */
+    @TestApi
+    public static final String PLURALS_MAX = "max";
 
     /**
      * A callback that notifies clients when the rating has been changed. This
@@ -79,6 +100,7 @@ public class RatingBar extends AbsSeekBar {
 
     private int mProgressOnStartTracking;
 
+    @UnsupportedAppUsage
     private OnRatingBarChangeListener mOnRatingBarChangeListener;
 
     public RatingBar(Context context, AttributeSet attrs, int defStyleAttr) {
@@ -90,6 +112,8 @@ public class RatingBar extends AbsSeekBar {
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, R.styleable.RatingBar, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, R.styleable.RatingBar,
+                attrs, a, defStyleAttr, defStyleRes);
         final int numStars = a.getInt(R.styleable.RatingBar_numStars, mNumStars);
         setIsIndicator(a.getBoolean(R.styleable.RatingBar_isIndicator, !mIsUserSeekable));
         final float rating = a.getFloat(R.styleable.RatingBar_rating, -1);
@@ -162,6 +186,7 @@ public class RatingBar extends AbsSeekBar {
      *
      * @attr ref android.R.styleable#RatingBar_isIndicator
      */
+    @InspectableProperty(name = "isIndicator")
     public boolean isIndicator() {
         return !mIsUserSeekable;
     }
@@ -188,6 +213,7 @@ public class RatingBar extends AbsSeekBar {
      * Returns the number of stars shown.
      * @return The number of stars shown.
      */
+    @InspectableProperty
     public int getNumStars() {
         return mNumStars;
     }
@@ -206,6 +232,7 @@ public class RatingBar extends AbsSeekBar {
      *
      * @return The current rating.
      */
+    @InspectableProperty
     public float getRating() {
         return getProgress() / getProgressPerStar();
     }
@@ -232,6 +259,7 @@ public class RatingBar extends AbsSeekBar {
      *
      * @return The step size.
      */
+    @InspectableProperty
     public float getStepSize() {
         return (float) getNumStars() / getMax();
     }
@@ -345,6 +373,16 @@ public class RatingBar extends AbsSeekBar {
         if (canUserSetProgress()) {
             info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS);
         }
+
+        final float scaledMax = getMax() * getStepSize();
+        final HashMap<String, Object> params = new HashMap();
+        params.put(PLURALS_RATING, getRating());
+        params.put(PLURALS_MAX, scaledMax);
+        info.setStateDescription(PluralsMessageFormatter.format(
+                getContext().getResources(),
+                params,
+                R.string.rating_label
+        ));
     }
 
     @Override

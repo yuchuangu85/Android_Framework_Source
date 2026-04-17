@@ -16,10 +16,12 @@
 
 package android.content.pm;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-import com.android.internal.content.PackageHelper;
+import com.android.internal.content.InstallLocationUtils;
 
 /**
  * Basic information about a package as specified in its manifest.
@@ -72,11 +74,21 @@ public class PackageInfoLite implements Parcelable {
     public boolean multiArch;
 
     /**
+     * The android:debuggable flag from the package manifest.
+     */
+    public boolean debuggable;
+
+    /**
+     * Indicates if this apk is a sdk.
+     */
+    public boolean isSdkLibrary;
+
+    /**
      * Specifies the recommended install location. Can be one of
-     * {@link PackageHelper#RECOMMEND_INSTALL_INTERNAL} to install on internal storage,
-     * {@link PackageHelper#RECOMMEND_INSTALL_EXTERNAL} to install on external media,
-     * {@link PackageHelper#RECOMMEND_FAILED_INSUFFICIENT_STORAGE} for storage errors,
-     * or {@link PackageHelper#RECOMMEND_FAILED_INVALID_APK} for parse errors.
+     * {@link InstallLocationUtils#RECOMMEND_INSTALL_INTERNAL} to install on internal storage,
+     * {@link InstallLocationUtils#RECOMMEND_INSTALL_EXTERNAL} to install on external media,
+     * {@link InstallLocationUtils#RECOMMEND_FAILED_INSUFFICIENT_STORAGE} for storage errors,
+     * or {@link InstallLocationUtils#RECOMMEND_FAILED_INVALID_APK} for parse errors.
      */
     public int recommendedInstallLocation;
     public int installLocation;
@@ -106,6 +118,7 @@ public class PackageInfoLite implements Parcelable {
         dest.writeInt(recommendedInstallLocation);
         dest.writeInt(installLocation);
         dest.writeInt(multiArch ? 1 : 0);
+        dest.writeInt(debuggable ? 1 : 0);
 
         if (verifiers == null || verifiers.length == 0) {
             dest.writeInt(0);
@@ -115,7 +128,8 @@ public class PackageInfoLite implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<PackageInfoLite> CREATOR
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+    public static final @android.annotation.NonNull Parcelable.Creator<PackageInfoLite> CREATOR
             = new Parcelable.Creator<PackageInfoLite>() {
         public PackageInfoLite createFromParcel(Parcel source) {
             return new PackageInfoLite(source);
@@ -136,6 +150,7 @@ public class PackageInfoLite implements Parcelable {
         recommendedInstallLocation = source.readInt();
         installLocation = source.readInt();
         multiArch = (source.readInt() != 0);
+        debuggable = (source.readInt() != 0);
 
         final int verifiersLength = source.readInt();
         if (verifiersLength == 0) {

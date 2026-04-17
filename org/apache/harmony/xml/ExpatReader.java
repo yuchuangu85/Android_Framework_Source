@@ -16,10 +16,6 @@
 
 package org.apache.harmony.xml;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.Reader;
-import libcore.io.IoUtils;
 import org.xml.sax.ContentHandler;
 import org.xml.sax.DTDHandler;
 import org.xml.sax.EntityResolver;
@@ -31,6 +27,13 @@ import org.xml.sax.SAXNotSupportedException;
 import org.xml.sax.XMLReader;
 import org.xml.sax.ext.LexicalHandler;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
+import libcore.io.IoUtils;
+
 /**
  * SAX wrapper around Expat. Interns strings. Does not support validation.
  * Does not support {@link DTDHandler}.
@@ -40,6 +43,7 @@ public class ExpatReader implements XMLReader {
      * ExpatParser accesses these fields directly during parsing. The user
      * should be able to safely change them during parsing.
      */
+    @UnsupportedAppUsage
     /*package*/ ContentHandler contentHandler;
     /*package*/ DTDHandler dtdHandler;
     /*package*/ EntityResolver entityResolver;
@@ -62,6 +66,10 @@ public class ExpatReader implements XMLReader {
                 = BASE_URI + "external-general-entities";
         private static final String EXTERNAL_PARAMETER_ENTITIES
                 = BASE_URI + "external-parameter-entities";
+    }
+
+    @UnsupportedAppUsage
+    public ExpatReader() {
     }
 
     public boolean getFeature(String name)

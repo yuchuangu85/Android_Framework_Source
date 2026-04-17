@@ -16,7 +16,7 @@
 
 package android.telecom.Logging;
 
-import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.telecom.Log;
@@ -24,7 +24,11 @@ import android.text.TextUtils;
 
 import com.android.internal.annotations.VisibleForTesting;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Stores information about a thread's point of entry into that should persist until that thread
@@ -32,6 +36,8 @@ import java.util.ArrayList;
  * @hide
  */
 public class Session {
+
+    public static final String LOG_TAG = "Session";
 
     public static final String START_SESSION = "START_SESSION";
     public static final String START_EXTERNAL_SESSION = "START_EXTERNAL_SESSION";
@@ -45,19 +51,24 @@ public class Session {
     public static final String EXTERNAL_INDICATOR = "E-";
     public static final String TRUNCATE_STRING = "...";
 
+    // Prevent infinite recursion by setting a reasonable limit.
+    private static final int SESSION_RECURSION_LIMIT = 25;
+
     /**
      * Initial value of mExecutionEndTimeMs and the final value of {@link #getLocalExecutionTime()}
      * if the Session is canceled.
      */
-    public static final int UNDEFINED = -1;
+    public static final long UNDEFINED = -1;
 
     public static class Info implements Parcelable {
         public final String sessionId;
         public final String methodPath;
+        public final String ownerInfo;
 
-        private Info(String id, String path) {
+        private Info(String id, String path, String owner) {
             sessionId = id;
             methodPath = path;
+            ownerInfo = owner;
         }
 
         public static Info getInfo (Session s) {
@@ -65,17 +76,39 @@ public class Session {
             // not get multiple stacking external sessions (unless we have DEBUG level logging or
             // lower).
             return new Info(s.getFullSessionId(), s.getFullMethodPath(
-                    !Log.DEBUG && s.isSessionExternal()));
+                    !Log.DEBUG && s.isSessionExternal()), s.getOwnerInfo());
+        }
+
+        public static Info getExternalInfo(Session s, @Nullable String ownerInfo) {
+            // When creating session information for an existing session, the caller may pass in a
+            // context to be passed along to the recipient of the external session info.
+            // So, for example, if telecom has an active session with owner 'cad', and Telecom is
+            // calling into Telephony and providing external session info, it would pass in 'cast'
+            // as the owner info.  This would result in Telephony seeing owner info 'cad/cast',
+            // which would make it very clear in the Telephony logs the chain of package calls which
+            // ultimately resulted in the logs.
+            String newInfo = ownerInfo != null && s.getOwnerInfo() != null
+                    // If we've got both, concatenate them.
+                    ? s.getOwnerInfo() + "/" + ownerInfo
+                    // Otherwise use whichever is present.
+                    : ownerInfo != null ? ownerInfo : s.getOwnerInfo();
+
+            // Create Info based on the truncated method path if the session is external, so we do
+            // not get multiple stacking external sessions (unless we have DEBUG level logging or
+            // lower).
+            return new Info(s.getFullSessionId(), s.getFullMethodPath(
+                    !Log.DEBUG && s.isSessionExternal()), newInfo);
         }
 
         /** Responsible for creating Info objects for deserialized Parcels. */
-        public static final Parcelable.Creator<Info> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<Info> CREATOR =
                 new Parcelable.Creator<Info> () {
                     @Override
                     public Info createFromParcel(Parcel source) {
                         String id = source.readString();
                         String methodName = source.readString();
-                        return new Info(id, methodName);
+                        String ownerInfo = source.readString();
+                        return new Info(id, methodName, ownerInfo);
                     }
 
                     @Override
@@ -95,47 +128,41 @@ public class Session {
         public void writeToParcel(Parcel destination, int flags) {
             destination.writeString(sessionId);
             destination.writeString(methodPath);
+            destination.writeString(ownerInfo);
         }
     }
 
-    private String mSessionId;
-    private String mShortMethodName;
+    private final String mSessionId;
+    private volatile String mShortMethodName;
     private long mExecutionStartTimeMs;
     private long mExecutionEndTimeMs = UNDEFINED;
-    private Session mParentSession;
-    private ArrayList<Session> mChildSessions;
+    private volatile Session mParentSession;
+    private final ArrayList<Session> mChildSessions = new ArrayList<>(5);
     private boolean mIsCompleted = false;
-    private boolean mIsExternal = false;
-    private int mChildCounter = 0;
+    private final boolean mIsExternal;
+    private final AtomicInteger mChildCounter = new AtomicInteger(0);
     // True if this is a subsession that has been started from the same thread as the parent
     // session. This can happen if Log.startSession(...) is called multiple times on the same
     // thread in the case of one Telecom entry point method calling another entry point method.
     // In this case, we can just make this subsession "invisible," but still keep track of it so
     // that the Log.endSession() calls match up.
-    private boolean mIsStartedFromActiveSession = false;
+    private final boolean mIsStartedFromActiveSession;
     // Optionally provided info about the method/class/component that started the session in order
     // to make Logging easier. This info will be provided in parentheses along with the session.
-    private String mOwnerInfo;
+    private final String mOwnerInfo;
     // Cache Full Method path so that recursive population of the full method path only needs to
     // be calculated once.
-    private String mFullMethodPathCache;
+    private volatile String mFullMethodPathCache;
 
     public Session(String sessionId, String shortMethodName, long startTimeMs,
-            boolean isStartedFromActiveSession, String ownerInfo) {
-        setSessionId(sessionId);
+            boolean isStartedFromActiveSession, boolean isExternal, String ownerInfo) {
+        mSessionId = (sessionId != null) ? sessionId : "???";
         setShortMethodName(shortMethodName);
         mExecutionStartTimeMs = startTimeMs;
         mParentSession = null;
-        mChildSessions = new ArrayList<>(5);
         mIsStartedFromActiveSession = isStartedFromActiveSession;
+        mIsExternal = isExternal;
         mOwnerInfo = ownerInfo;
-    }
-
-    public void setSessionId(@NonNull String sessionId) {
-        if (sessionId == null) {
-            mSessionId = "?";
-        }
-        mSessionId = sessionId;
     }
 
     public String getShortMethodName() {
@@ -149,10 +176,6 @@ public class Session {
         mShortMethodName = shortMethodName;
     }
 
-    public void setIsExternal(boolean isExternal) {
-        mIsExternal = isExternal;
-    }
-
     public boolean isExternal() {
         return mIsExternal;
     }
@@ -162,13 +185,15 @@ public class Session {
     }
 
     public void addChild(Session childSession) {
-        if (childSession != null) {
+        if (childSession == null) return;
+        synchronized (mChildSessions) {
             mChildSessions.add(childSession);
         }
     }
 
     public void removeChild(Session child) {
-        if (child != null) {
+        if (child == null) return;
+        synchronized (mChildSessions) {
             mChildSessions.remove(child);
         }
     }
@@ -186,7 +211,9 @@ public class Session {
     }
 
     public ArrayList<Session> getChildSessions() {
-        return mChildSessions;
+        synchronized (mChildSessions) {
+            return new ArrayList<>(mChildSessions);
+        }
     }
 
     public boolean isSessionCompleted() {
@@ -199,6 +226,14 @@ public class Session {
 
     public Info getInfo() {
         return Info.getInfo(this);
+    }
+
+    public Info getExternalInfo(@Nullable String ownerInfo) {
+        return Info.getExternalInfo(this, ownerInfo);
+    }
+
+    public String getOwnerInfo() {
+        return mOwnerInfo;
     }
 
     @VisibleForTesting
@@ -220,124 +255,181 @@ public class Session {
         return mExecutionEndTimeMs - mExecutionStartTimeMs;
     }
 
-    public synchronized String getNextChildId() {
-        return String.valueOf(mChildCounter++);
+    public String getNextChildId() {
+        return String.valueOf(mChildCounter.getAndIncrement());
     }
 
-    // Builds full session id recursively
+    // Builds full session ID, which incliudes the optional external indicators (E),
+    // base session ID, and the optional sub-session IDs (_X): @[E-]...[ID][_X][_Y]...
     private String getFullSessionId() {
-        // Cache mParentSession locally to prevent a concurrency problem where
-        // Log.endParentSessions() is called while a logging statement is running (Log.i, for
-        // example) and setting mParentSession to null in a different thread after the null check
-        // occurred.
-        Session parentSession = mParentSession;
-        if (parentSession == null) {
-            return mSessionId;
-        } else {
-            if (Log.VERBOSE) {
-                return parentSession.getFullSessionId() +
-                        // Append "_X" to subsession to show subsession designation.
-                        SESSION_SEPARATION_CHAR_CHILD + mSessionId;
+        int currParentCount = 0;
+        StringBuilder id = new StringBuilder();
+        Session currSession = this;
+        while (currSession != null) {
+            Session parentSession = currSession.getParentSession();
+            if (parentSession != null) {
+                if (currParentCount >= SESSION_RECURSION_LIMIT) {
+                    id.insert(0, getSessionId());
+                    id.insert(0, TRUNCATE_STRING);
+                    android.util.Slog.w(LOG_TAG, "getFullSessionId: Hit iteration limit!");
+                    return id.toString();
+                }
+                if (Log.VERBOSE) {
+                    id.insert(0, currSession.getSessionId());
+                    id.insert(0, SESSION_SEPARATION_CHAR_CHILD);
+                }
             } else {
-                // Only worry about the base ID at the top of the tree.
-                return parentSession.getFullSessionId();
+                id.insert(0, currSession.getSessionId());
             }
-
+            currSession = parentSession;
+            currParentCount++;
         }
+        return id.toString();
+    }
+    private Session getRootSession(String callingMethod) {
+        int currParentCount = 0;
+        Session topNode = this;
+        Session parentNode = topNode.getParentSession();
+        while (parentNode != null) {
+            if (currParentCount >= SESSION_RECURSION_LIMIT) {
+                // Don't use Telecom's Log.w here or it will cause infinite recursion because it
+                // will try to add session information to this logging statement, which will cause
+                // it to hit this condition again and so on...
+                android.util.Slog.w(LOG_TAG, "getRootSession: Hit iteration limit from "
+                        + callingMethod);
+                break;
+            }
+            topNode = parentNode;
+            parentNode = topNode.getParentSession();
+            currParentCount++;
+        }
+        return topNode;
     }
 
     // Print out the full Session tree from any subsession node
     public String printFullSessionTree() {
-        // Get to the top of the tree
-        Session topNode = this;
-        while (topNode.getParentSession() != null) {
-            topNode = topNode.getParentSession();
-        }
-        return topNode.printSessionTree();
+        return getRootSession("printFullSessionTree").printSessionTree();
     }
 
-    // Recursively move down session tree using DFS, but print out each node when it is reached.
-    public String printSessionTree() {
-        StringBuilder sb = new StringBuilder();
-        printSessionTree(0, sb);
+    private String printSessionTree() {
+        final StringBuilder sb = new StringBuilder();
+        // Use an ArrayDeque as a stack for nodes to visit.
+        final ArrayDeque<Session> sessionStack = new ArrayDeque<>();
+        // Use a parallel stack to track the depth of each node.
+        final ArrayDeque<Integer> depthStack = new ArrayDeque<>();
+
+        // Start with the current session at depth 0.
+        sessionStack.push(this);
+        depthStack.push(0);
+
+        while (!sessionStack.isEmpty()) {
+            // Pop the next session and its corresponding depth.
+            final Session session = sessionStack.pop();
+            final int depth = depthStack.pop();
+
+            // Append indented session information.
+            sb.append("\t".repeat(depth));
+            sb.append(session.toString());
+            sb.append("\n");
+
+            // If the depth limit is reached, print a truncation marker and stop descending.
+            if (depth >= SESSION_RECURSION_LIMIT) {
+                sb.append("\t".repeat(depth + 1));
+                sb.append(TRUNCATE_STRING);
+                sb.append("\n");
+                continue;
+            }
+
+            final List<Session> childSessions = session.getChildSessions();
+            // Push children onto the stack in reverse order. This ensures they are
+            // processed in their natural (first-to-last) order due to the LIFO
+            // nature of the stack.
+            for (int i = childSessions.size() - 1; i >= 0; i--) {
+                sessionStack.push(childSessions.get(i));
+                depthStack.push(depth + 1);
+            }
+        }
+
         return sb.toString();
     }
 
-    private void printSessionTree(int tabI, StringBuilder sb) {
-        sb.append(toString());
-        for (Session child : mChildSessions) {
-            sb.append("\n");
-            for (int i = 0; i <= tabI; i++) {
-                sb.append("\t");
-            }
-            child.printSessionTree(tabI + 1, sb);
-        }
-    }
-
-    // Recursively concatenate mShortMethodName with the parent Sessions to create full method
-    // path. if truncatePath is set to true, all other external sessions (except for the most
-    // recent) will be truncated to "..."
+    /**
+     * Concatenate the short method name with the parent Sessions to create full method path.
+     * @param truncatePath if truncatePath is set to true, all other external sessions (except for
+     *                     the most recent) will be truncated to "..."
+     * @return The full method path associated with this Session.
+     */
+    @VisibleForTesting
     public String getFullMethodPath(boolean truncatePath) {
         StringBuilder sb = new StringBuilder();
-        getFullMethodPath(sb, truncatePath);
+        // Check to see if the session has been renamed yet. If it has not, then the session
+        // has not been continued.
+        Session parentSession = getParentSession();
+        boolean isSessionStarted = parentSession == null
+                || !getShortMethodName().equals(parentSession.getShortMethodName());
+        int depth = 0;
+        Session currSession = this;
+        while (currSession != null) {
+            String cache = currSession.mFullMethodPathCache;
+            // Return cached value for method path. When returning the truncated path, recalculate
+            // the full path without using the cached value.
+            if (!TextUtils.isEmpty(cache) && !truncatePath) {
+                sb.insert(0, cache);
+                return sb.toString();
+            }
+
+            parentSession = currSession.getParentSession();
+            // Encapsulate the external session's method name so it is obvious what part of the
+            // session is external or truncate it if we do not want the entire history.
+            if (currSession.isExternal()) {
+                if (truncatePath) {
+                    sb.insert(0, TRUNCATE_STRING);
+                } else {
+                    sb.insert(0, ")");
+                    sb.insert(0, currSession.getShortMethodName());
+                    sb.insert(0, "(");
+                }
+            } else {
+                sb.insert(0, currSession.getShortMethodName());
+            }
+            if (parentSession != null) {
+                sb.insert(0, SUBSESSION_SEPARATION_CHAR);
+            }
+
+            if (depth >= SESSION_RECURSION_LIMIT) {
+                // Don't use Telecom's Log.w here or it will cause infinite recursion because it
+                // will try to add session information to this logging statement, which will cause
+                // it to hit this condition again and so on...
+                android.util.Slog.w(LOG_TAG, "getFullMethodPath: Hit iteration limit!");
+                sb.insert(0, TRUNCATE_STRING);
+                return sb.toString();
+            }
+            currSession = parentSession;
+            depth++;
+        }
+        if (isSessionStarted && !truncatePath) {
+            // Cache the full method path for this node so that we do not need to calculate it
+            // again in the future.
+            mFullMethodPathCache = sb.toString();
+        }
         return sb.toString();
     }
 
-    private synchronized void getFullMethodPath(StringBuilder sb, boolean truncatePath) {
-        // Return cached value for method path. When returning the truncated path, recalculate the
-        // full path without using the cached value.
-        if (!TextUtils.isEmpty(mFullMethodPathCache) && !truncatePath) {
-            sb.append(mFullMethodPathCache);
-            return;
-        }
-        Session parentSession = getParentSession();
-        boolean isSessionStarted = false;
-        if (parentSession != null) {
-            // Check to see if the session has been renamed yet. If it has not, then the session
-            // has not been continued.
-            isSessionStarted = !mShortMethodName.equals(parentSession.mShortMethodName);
-            parentSession.getFullMethodPath(sb, truncatePath);
-            sb.append(SUBSESSION_SEPARATION_CHAR);
-        }
-        // Encapsulate the external session's method name so it is obvious what part of the session
-        // is external or truncate it if we do not want the entire history.
-        if (isExternal()) {
-            if (truncatePath) {
-                sb.append(TRUNCATE_STRING);
-            } else {
-                sb.append("(");
-                sb.append(mShortMethodName);
-                sb.append(")");
-            }
-        } else {
-            sb.append(mShortMethodName);
-        }
-        // If we are returning the truncated path, do not save that path as the full path.
-        if (isSessionStarted && !truncatePath) {
-            // Cache this value so that we do not have to do this work next time!
-            // We do not cache the value if the session being evaluated hasn't been continued yet.
-            mFullMethodPathCache = sb.toString();
-        }
-    }
     // Recursively move to the top of the tree to see if the parent session is external.
     private boolean isSessionExternal() {
-        if (getParentSession() == null) {
-            return isExternal();
-        } else {
-            return getParentSession().isSessionExternal();
-        }
+        return getRootSession("isSessionExternal").isExternal();
     }
 
     @Override
     public int hashCode() {
-        int result = mSessionId != null ? mSessionId.hashCode() : 0;
-        result = 31 * result + (mShortMethodName != null ? mShortMethodName.hashCode() : 0);
-        result = 31 * result + (int) (mExecutionStartTimeMs ^ (mExecutionStartTimeMs >>> 32));
-        result = 31 * result + (int) (mExecutionEndTimeMs ^ (mExecutionEndTimeMs >>> 32));
+        int result = mSessionId.hashCode();
+        result = 31 * result + mShortMethodName.hashCode();
+        result = 31 * result + Long.hashCode(mExecutionStartTimeMs);
+        result = 31 * result + Long.hashCode(mExecutionEndTimeMs);
         result = 31 * result + (mParentSession != null ? mParentSession.hashCode() : 0);
-        result = 31 * result + (mChildSessions != null ? mChildSessions.hashCode() : 0);
+        result = 31 * result + mChildSessions.hashCode();
         result = 31 * result + (mIsCompleted ? 1 : 0);
-        result = 31 * result + mChildCounter;
+        result = 31 * result + mChildCounter.hashCode();
         result = 31 * result + (mIsStartedFromActiveSession ? 1 : 0);
         result = 31 * result + (mOwnerInfo != null ? mOwnerInfo.hashCode() : 0);
         return result;
@@ -353,40 +445,30 @@ public class Session {
         if (mExecutionStartTimeMs != session.mExecutionStartTimeMs) return false;
         if (mExecutionEndTimeMs != session.mExecutionEndTimeMs) return false;
         if (mIsCompleted != session.mIsCompleted) return false;
-        if (mChildCounter != session.mChildCounter) return false;
+        if (!(mChildCounter.get() == session.mChildCounter.get())) return false;
         if (mIsStartedFromActiveSession != session.mIsStartedFromActiveSession) return false;
-        if (mSessionId != null ?
-                !mSessionId.equals(session.mSessionId) : session.mSessionId != null)
-            return false;
-        if (mShortMethodName != null ? !mShortMethodName.equals(session.mShortMethodName)
-                : session.mShortMethodName != null)
-            return false;
-        if (mParentSession != null ? !mParentSession.equals(session.mParentSession)
-                : session.mParentSession != null)
-            return false;
-        if (mChildSessions != null ? !mChildSessions.equals(session.mChildSessions)
-                : session.mChildSessions != null)
-            return false;
-        return mOwnerInfo != null ? mOwnerInfo.equals(session.mOwnerInfo)
-                : session.mOwnerInfo == null;
-
+        if (!Objects.equals(mSessionId, session.mSessionId)) return false;
+        if (!Objects.equals(mShortMethodName, session.mShortMethodName)) return false;
+        if (!Objects.equals(mParentSession, session.mParentSession)) return false;
+        if (!Objects.equals(mChildSessions, session.mChildSessions)) return false;
+        return Objects.equals(mOwnerInfo, session.mOwnerInfo);
     }
 
     @Override
     public String toString() {
-        if (mParentSession != null && mIsStartedFromActiveSession) {
+        Session sessionToPrint = this;
+        if (getParentSession() != null && isStartedFromActiveSession()) {
             // Log.startSession was called from within another active session. Use the parent's
             // Id instead of the child to reduce confusion.
-            return mParentSession.toString();
-        } else {
-            StringBuilder methodName = new StringBuilder();
-            methodName.append(getFullMethodPath(false /*truncatePath*/));
-            if (mOwnerInfo != null && !mOwnerInfo.isEmpty()) {
-                methodName.append("(InCall package: ");
-                methodName.append(mOwnerInfo);
-                methodName.append(")");
-            }
-            return methodName.toString() + "@" + getFullSessionId();
+            sessionToPrint = getRootSession("toString");
         }
+        StringBuilder methodName = new StringBuilder();
+        methodName.append(sessionToPrint.getFullMethodPath(false /*truncatePath*/));
+        if (sessionToPrint.getOwnerInfo() != null && !sessionToPrint.getOwnerInfo().isEmpty()) {
+            methodName.append("(");
+            methodName.append(sessionToPrint.getOwnerInfo());
+            methodName.append(")");
+        }
+        return methodName.toString() + "@" + sessionToPrint.getFullSessionId();
     }
 }

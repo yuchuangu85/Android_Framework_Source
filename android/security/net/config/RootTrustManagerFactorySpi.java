@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,34 +16,27 @@
 
 package android.security.net.config;
 
-import android.util.Pair;
+import com.android.internal.annotations.VisibleForTesting;
+
 import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidParameterException;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.Provider;
-import java.security.Security;
-import java.util.Set;
+
 import javax.net.ssl.ManagerFactoryParameters;
 import javax.net.ssl.TrustManager;
-import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.TrustManagerFactorySpi;
-
-import com.android.internal.annotations.VisibleForTesting;
 
 /** @hide */
 public class RootTrustManagerFactorySpi extends TrustManagerFactorySpi {
     private ApplicationConfig mApplicationConfig;
-    private NetworkSecurityConfig mConfig;
 
     @Override
     public void engineInit(ManagerFactoryParameters spec)
             throws InvalidAlgorithmParameterException {
         if (!(spec instanceof ApplicationConfigParameters)) {
-            throw new InvalidAlgorithmParameterException("Unsupported spec: " +  spec + ". Only "
+            throw new InvalidAlgorithmParameterException(
+                    "Unsupported spec: " + spec + ". Only "
                     + ApplicationConfigParameters.class.getName() + " supported");
-
         }
         mApplicationConfig = ((ApplicationConfigParameters) spec).config;
     }
@@ -51,7 +44,15 @@ public class RootTrustManagerFactorySpi extends TrustManagerFactorySpi {
     @Override
     public void engineInit(KeyStore ks) throws KeyStoreException {
         if (ks != null) {
+            // A KeyStore is provided, ignore the ApplicationConfig based on the app's
+            // resources and create one from scratch. Ideally, the policy could be
+            // linked to NetworkSecurityConfig directly but right now only ApplicationConfig
+            // implements libcore.net.NetworkSecurityPolicy via ConfigNetworkSecurityPolicy.
+            // TODO: Make NetworkSecurityConfig extend libcore.net.NetworkSecurityPolicy so that
+            // the policy may be associated in KeyStoreConfigSource ctor.
             mApplicationConfig = new ApplicationConfig(new KeyStoreConfigSource(ks));
+            mApplicationConfig.setNetworkSecurityPolicy(
+                    new ConfigNetworkSecurityPolicy(mApplicationConfig));
         } else {
             mApplicationConfig = ApplicationConfig.getDefaultInstance();
         }
@@ -62,7 +63,7 @@ public class RootTrustManagerFactorySpi extends TrustManagerFactorySpi {
         if (mApplicationConfig == null) {
             throw new IllegalStateException("TrustManagerFactory not initialized");
         }
-        return new TrustManager[] { mApplicationConfig.getTrustManager() };
+        return new TrustManager[] {mApplicationConfig.getTrustManager()};
     }
 
     @VisibleForTesting

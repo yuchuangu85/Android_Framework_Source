@@ -1,0 +1,42 @@
+/*
+ * Copyright (C) 2026 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.android.internal.annotations;
+
+import static java.lang.annotation.ElementType.FIELD;
+import static java.lang.annotation.ElementType.LOCAL_VARIABLE;
+import static java.lang.annotation.ElementType.METHOD;
+import static java.lang.annotation.RetentionPolicy.SOURCE;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.Target;
+
+/**
+ * Denotes a lock that is used within the system server. To prevent deadlocks,
+ * any code that acquires multiple locks annotated with {@code @SystemServerLock}
+ * must acquire them in strictly increasing order according to {@link #value()}.
+ *
+ * @hide
+ */
+@Retention(SOURCE)
+@Target({FIELD, LOCAL_VARIABLE, METHOD})
+public @interface SystemServerLock {
+    /**
+     * The acquisition order for this lock. When multiple locks are acquired,
+     * they must be acquired in strictly increasing order.
+     */
+    int value();
+}

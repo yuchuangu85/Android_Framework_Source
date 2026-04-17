@@ -21,6 +21,7 @@ package android.text.method;
  * displayed as spaces instead of causing line breaks, and causes
  * carriage return characters (\r) to have no appearance.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class SingleLineTransformationMethod
 extends ReplacementTransformationMethod {
     private static char[] ORIGINAL = new char[] { '\n', '\r' };

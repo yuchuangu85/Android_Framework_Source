@@ -16,67 +16,392 @@
 
 package android.app.job;
 
+import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.app.job.IJobCallback;
+import android.annotation.TestApi;
+import android.app.ActivityManager;
+import android.app.usage.UsageStatsManager;
+import android.compat.Compatibility;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.Disabled;
+import android.compat.annotation.Overridable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ClipData;
+import android.content.pm.PackageManager;
 import android.net.Network;
+import android.net.NetworkRequest;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.PersistableBundle;
+import android.os.Process;
 import android.os.RemoteException;
+import android.system.SystemCleaner;
+import android.util.Log;
+
+import com.android.internal.annotations.VisibleForTesting;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.ref.Cleaner;
 
 /**
  * Contains the parameters used to configure/identify your job. You do not create this object
  * yourself, instead it is handed in to your application by the System.
  */
 public class JobParameters implements Parcelable {
+    private static final String TAG = "JobParameters";
 
     /** @hide */
-    public static final int REASON_CANCELED = JobProtoEnums.STOP_REASON_CANCELLED; // 0.
-    /** @hide */
-    public static final int REASON_CONSTRAINTS_NOT_SATISFIED =
-            JobProtoEnums.STOP_REASON_CONSTRAINTS_NOT_SATISFIED; //1.
-    /** @hide */
-    public static final int REASON_PREEMPT = JobProtoEnums.STOP_REASON_PREEMPT; // 2.
-    /** @hide */
-    public static final int REASON_TIMEOUT = JobProtoEnums.STOP_REASON_TIMEOUT; // 3.
-    /** @hide */
-    public static final int REASON_DEVICE_IDLE = JobProtoEnums.STOP_REASON_DEVICE_IDLE; // 4.
+    public static final int INTERNAL_STOP_REASON_UNKNOWN = -1;
 
     /** @hide */
-    public static String getReasonName(int reason) {
-        switch (reason) {
-            case REASON_CANCELED: return "canceled";
-            case REASON_CONSTRAINTS_NOT_SATISFIED: return "constraints";
-            case REASON_PREEMPT: return "preempt";
-            case REASON_TIMEOUT: return "timeout";
-            case REASON_DEVICE_IDLE: return "device_idle";
-            default: return "unknown:" + reason;
+    public static final int INTERNAL_STOP_REASON_CANCELED =
+            JobProtoEnums.INTERNAL_STOP_REASON_CANCELLED; // 0.
+    /** @hide */
+    public static final int INTERNAL_STOP_REASON_CONSTRAINTS_NOT_SATISFIED =
+            JobProtoEnums.INTERNAL_STOP_REASON_CONSTRAINTS_NOT_SATISFIED; // 1.
+    /** @hide */
+    public static final int INTERNAL_STOP_REASON_PREEMPT =
+            JobProtoEnums.INTERNAL_STOP_REASON_PREEMPT; // 2.
+    /**
+     * The job ran for at least its minimum execution limit.
+     * @hide
+     */
+    public static final int INTERNAL_STOP_REASON_TIMEOUT =
+            JobProtoEnums.INTERNAL_STOP_REASON_TIMEOUT; // 3.
+    /** @hide */
+    public static final int INTERNAL_STOP_REASON_DEVICE_IDLE =
+            JobProtoEnums.INTERNAL_STOP_REASON_DEVICE_IDLE; // 4.
+    /** @hide */
+    public static final int INTERNAL_STOP_REASON_DEVICE_THERMAL =
+            JobProtoEnums.INTERNAL_STOP_REASON_DEVICE_THERMAL; // 5.
+    /**
+     * The job is in the {@link android.app.usage.UsageStatsManager#STANDBY_BUCKET_RESTRICTED}
+     * bucket.
+     *
+     * @hide
+     */
+    public static final int INTERNAL_STOP_REASON_RESTRICTED_BUCKET =
+            JobProtoEnums.INTERNAL_STOP_REASON_RESTRICTED_BUCKET; // 6.
+    /**
+     * The app was uninstalled.
+     * @hide
+     */
+    public static final int INTERNAL_STOP_REASON_UNINSTALL =
+            JobProtoEnums.INTERNAL_STOP_REASON_UNINSTALL; // 7.
+    /**
+     * The app's data was cleared.
+     * @hide
+     */
+    public static final int INTERNAL_STOP_REASON_DATA_CLEARED =
+            JobProtoEnums.INTERNAL_STOP_REASON_DATA_CLEARED; // 8.
+    /**
+     * @hide
+     */
+    public static final int INTERNAL_STOP_REASON_RTC_UPDATED =
+            JobProtoEnums.INTERNAL_STOP_REASON_RTC_UPDATED; // 9.
+    /**
+     * The app called jobFinished() on its own.
+     * @hide
+     */
+    public static final int INTERNAL_STOP_REASON_SUCCESSFUL_FINISH =
+            JobProtoEnums.INTERNAL_STOP_REASON_SUCCESSFUL_FINISH; // 10.
+    /**
+     * The user stopped the job via some UI (eg. Task Manager).
+     * @hide
+     */
+    @TestApi
+    public static final int INTERNAL_STOP_REASON_USER_UI_STOP =
+            JobProtoEnums.INTERNAL_STOP_REASON_USER_UI_STOP; // 11.
+    /**
+     * The app didn't respond quickly enough from JobScheduler's perspective.
+     * @hide
+     */
+    public static final int INTERNAL_STOP_REASON_ANR =
+            JobProtoEnums.INTERNAL_STOP_REASON_ANR; // 12.
+
+    /**
+     * The job ran for at least its minimum execution limit and the app lost the strong reference
+     * to the {@link JobParameters}. This could indicate that the job is empty because the app
+     * can no longer call {@link JobService#jobFinished(JobParameters, boolean)}.
+     * @hide
+     */
+    public static final int INTERNAL_STOP_REASON_TIMEOUT_ABANDONED =
+            JobProtoEnums.INTERNAL_STOP_REASON_TIMEOUT_ABANDONED; // 13.
+
+    /**
+     * The job was stopped because the device entered battery saver mode.
+     * @hide
+     */
+    public static final int INTERNAL_STOP_REASON_DEVICE_STATE_BATTERY_SAVER =
+            JobProtoEnums.INTERNAL_STOP_REASON_DEVICE_STATE_BATTERY_SAVER; // 14.
+
+    /**
+     * All the stop reason codes. This should be regarded as an immutable array at runtime.
+     *
+     * Note the order of these values will affect "dumpsys batterystats", and we do not want to
+     * change the order of existing fields, so adding new fields is okay but do not remove or
+     * change existing fields. When deprecating a field, just replace that with "-1" in this array.
+     *
+     * @hide
+     */
+    public static final int[] JOB_STOP_REASON_CODES = {
+            INTERNAL_STOP_REASON_UNKNOWN,
+            INTERNAL_STOP_REASON_CANCELED,
+            INTERNAL_STOP_REASON_CONSTRAINTS_NOT_SATISFIED,
+            INTERNAL_STOP_REASON_PREEMPT,
+            INTERNAL_STOP_REASON_TIMEOUT,
+            INTERNAL_STOP_REASON_DEVICE_IDLE,
+            INTERNAL_STOP_REASON_DEVICE_THERMAL,
+            INTERNAL_STOP_REASON_RESTRICTED_BUCKET,
+            INTERNAL_STOP_REASON_UNINSTALL,
+            INTERNAL_STOP_REASON_DATA_CLEARED,
+            INTERNAL_STOP_REASON_RTC_UPDATED,
+            INTERNAL_STOP_REASON_SUCCESSFUL_FINISH,
+            INTERNAL_STOP_REASON_USER_UI_STOP,
+            INTERNAL_STOP_REASON_ANR,
+            INTERNAL_STOP_REASON_TIMEOUT_ABANDONED,
+            INTERNAL_STOP_REASON_DEVICE_STATE_BATTERY_SAVER,
+    };
+
+    /**
+     * @hide
+     */
+    // TODO(142420609): make it @SystemApi for mainline
+    @NonNull
+    public static String getInternalReasonCodeDescription(int reasonCode) {
+        switch (reasonCode) {
+            case INTERNAL_STOP_REASON_CANCELED: return "canceled";
+            case INTERNAL_STOP_REASON_CONSTRAINTS_NOT_SATISFIED: return "constraints";
+            case INTERNAL_STOP_REASON_PREEMPT: return "preempt";
+            case INTERNAL_STOP_REASON_TIMEOUT: return "timeout";
+            case INTERNAL_STOP_REASON_DEVICE_IDLE: return "device_idle";
+            case INTERNAL_STOP_REASON_DEVICE_THERMAL: return "thermal";
+            case INTERNAL_STOP_REASON_RESTRICTED_BUCKET: return "restricted_bucket";
+            case INTERNAL_STOP_REASON_UNINSTALL: return "uninstall";
+            case INTERNAL_STOP_REASON_DATA_CLEARED: return "data_cleared";
+            case INTERNAL_STOP_REASON_RTC_UPDATED: return "rtc_updated";
+            case INTERNAL_STOP_REASON_SUCCESSFUL_FINISH: return "successful_finish";
+            case INTERNAL_STOP_REASON_USER_UI_STOP: return "user_ui_stop";
+            case INTERNAL_STOP_REASON_ANR: return "anr";
+            case INTERNAL_STOP_REASON_TIMEOUT_ABANDONED: return "timeout_abandoned";
+            case INTERNAL_STOP_REASON_DEVICE_STATE_BATTERY_SAVER: return "battery_saver";
+            default: return "unknown:" + reasonCode;
         }
     }
 
+    /** @hide */
+    @NonNull
+    public static int[] getJobStopReasonCodes() {
+        return JOB_STOP_REASON_CODES;
+    }
+
+    /**
+     * There is no reason the job is stopped. This is the value returned from the JobParameters
+     * object passed to {@link JobService#onStartJob(JobParameters)}.
+     */
+    public static final int STOP_REASON_UNDEFINED = 0;
+    /**
+     * The job was cancelled directly by the app, either by calling
+     * {@link JobScheduler#cancel(int)}, {@link JobScheduler#cancelAll()}, or by scheduling a
+     * new job with the same job ID.
+     */
+    public static final int STOP_REASON_CANCELLED_BY_APP = 1;
+    /** The job was stopped to run a higher priority job of the app. */
+    public static final int STOP_REASON_PREEMPT = 2;
+    /**
+     * The job used up its maximum execution time and timed out. Each individual job has a maximum
+     * execution time limit, regardless of how much total quota the app has. See the note on
+     * {@link JobScheduler} and {@link JobInfo} for the execution time limits.
+     */
+    public static final int STOP_REASON_TIMEOUT = 3;
+    /**
+     * The device state (e.g., Doze, battery saver, memory usage, etc.) requires JobScheduler to
+     * stop this job.
+     * <p>
+     * Starting in a version of Android following
+     * {@link android.os.Build.VERSION_CODES#CINNAMON_BUN}, the system will provide more specific
+     * stop reasons when possible, such as {@link #STOP_REASON_DEVICE_STATE_THERMAL} or
+     * {@link #STOP_REASON_DEVICE_STATE_BATTERY_SAVER}.
+     */
+     // TODO: b/477457908 - Update to the correct android VERSION_CODES when 26Q4 is defined
+    public static final int STOP_REASON_DEVICE_STATE = 4;
+    /**
+     * The requested battery-not-low constraint is no longer satisfied.
+     *
+     * @see JobInfo.Builder#setRequiresBatteryNotLow(boolean)
+     */
+    public static final int STOP_REASON_CONSTRAINT_BATTERY_NOT_LOW = 5;
+    /**
+     * The requested charging constraint is no longer satisfied.
+     *
+     * @see JobInfo.Builder#setRequiresCharging(boolean)
+     */
+    public static final int STOP_REASON_CONSTRAINT_CHARGING = 6;
+    /**
+     * The requested connectivity constraint is no longer satisfied.
+     *
+     * @see JobInfo.Builder#setRequiredNetwork(NetworkRequest)
+     * @see JobInfo.Builder#setRequiredNetworkType(int)
+     */
+    public static final int STOP_REASON_CONSTRAINT_CONNECTIVITY = 7;
+    /**
+     * The requested idle constraint is no longer satisfied.
+     *
+     * @see JobInfo.Builder#setRequiresDeviceIdle(boolean)
+     */
+    public static final int STOP_REASON_CONSTRAINT_DEVICE_IDLE = 8;
+    /**
+     * The requested storage-not-low constraint is no longer satisfied.
+     *
+     * @see JobInfo.Builder#setRequiresStorageNotLow(boolean)
+     */
+    public static final int STOP_REASON_CONSTRAINT_STORAGE_NOT_LOW = 9;
+    /**
+     * The app has consumed all of its current quota. Each app is assigned a quota of how much
+     * it can run jobs within a certain time frame. The quota is informed, in part, by app standby
+     * buckets. Once an app has used up all of its quota, it won't be able to start jobs until
+     * quota is replenished, is changed, or is temporarily not applied.
+     *
+     * @see UsageStatsManager#getAppStandbyBucket()
+     */
+    public static final int STOP_REASON_QUOTA = 10;
+    /**
+     * The app is restricted from running in the background.
+     *
+     * @see ActivityManager#isBackgroundRestricted()
+     * @see PackageManager#isInstantApp()
+     */
+    public static final int STOP_REASON_BACKGROUND_RESTRICTION = 11;
+    /**
+     * The current standby bucket requires that the job stop now.
+     *
+     * @see UsageStatsManager#STANDBY_BUCKET_RESTRICTED
+     */
+    public static final int STOP_REASON_APP_STANDBY = 12;
+    /**
+     * The user stopped the job. This can happen either through force-stop, adb shell commands,
+     * uninstalling, or some other UI.
+     */
+    public static final int STOP_REASON_USER = 13;
+    /** The system is doing some processing that requires stopping this job. */
+    public static final int STOP_REASON_SYSTEM_PROCESSING = 14;
+    /**
+     * The system's estimate of when the app will be launched changed significantly enough to
+     * decide this job shouldn't be running right now. This will mostly apply to prefetch jobs.
+     *
+     * @see JobInfo#isPrefetch()
+     * @see JobInfo.Builder#setPrefetch(boolean)
+     */
+    public static final int STOP_REASON_ESTIMATED_APP_LAUNCH_TIME_CHANGED = 15;
+
+    /**
+     * The job used up its maximum execution time and timed out. The system also detected that the
+     * app can no longer call {@link JobService#jobFinished(JobParameters, boolean)} for this job,
+     * likely because the strong reference to the job handle ({@link JobParameters}) passed to it
+     * via {@link JobService#onStartJob(JobParameters)} was lost. This can occur even if the app
+     * called {@link JobScheduler#cancel(int)}, {@link JobScheduler#cancelAll()}, or
+     * {@link JobScheduler#cancelInAllNamespaces()} to stop an active job while losing strong
+     * references to the job handle. In this case, the job is not necessarily abandoned. However,
+     * the system cannot distinguish such cases from truly abandoned jobs.
+     * <p>
+     * It is recommended that you use {@link JobService#jobFinished(JobParameters, boolean)} or
+     * return false from {@link JobService#onStartJob(JobParameters)} to stop an active job. This
+     * will prevent the occurrence of this stop reason and the need to handle it. The primary use
+     * case for this stop reason is to report a probable case of a job being abandoned.
+     * <p>
+     */
+    @FlaggedApi(Flags.FLAG_HANDLE_ABANDONED_JOBS)
+    public static final int STOP_REASON_TIMEOUT_ABANDONED = 16;
+
+    /**
+     * The device is under thermal restriction.
+     * <p>
+     * This is a more specific version of {@link #STOP_REASON_DEVICE_STATE}.
+     */
+    @FlaggedApi(Flags.FLAG_ENHANCED_PENDING_AND_STOP_REASONS_API)
+    public static final int STOP_REASON_DEVICE_STATE_THERMAL = 17;
+
+    /**
+     * The device entered battery saver mode.
+     * <p>
+     * This is a more specific version of {@link #STOP_REASON_DEVICE_STATE}.
+     */
+    @FlaggedApi(Flags.FLAG_ENHANCED_PENDING_AND_STOP_REASONS_API)
+    public static final int STOP_REASON_DEVICE_STATE_BATTERY_SAVER = 18;
+
+    /** @hide */
+    @IntDef(prefix = {"STOP_REASON_"}, value = {
+            STOP_REASON_UNDEFINED,
+            STOP_REASON_CANCELLED_BY_APP,
+            STOP_REASON_PREEMPT,
+            STOP_REASON_TIMEOUT,
+            STOP_REASON_DEVICE_STATE,
+            STOP_REASON_CONSTRAINT_BATTERY_NOT_LOW,
+            STOP_REASON_CONSTRAINT_CHARGING,
+            STOP_REASON_CONSTRAINT_CONNECTIVITY,
+            STOP_REASON_CONSTRAINT_DEVICE_IDLE,
+            STOP_REASON_CONSTRAINT_STORAGE_NOT_LOW,
+            STOP_REASON_QUOTA,
+            STOP_REASON_BACKGROUND_RESTRICTION,
+            STOP_REASON_APP_STANDBY,
+            STOP_REASON_USER,
+            STOP_REASON_SYSTEM_PROCESSING,
+            STOP_REASON_ESTIMATED_APP_LAUNCH_TIME_CHANGED,
+            STOP_REASON_TIMEOUT_ABANDONED,
+            STOP_REASON_DEVICE_STATE_THERMAL,
+            STOP_REASON_DEVICE_STATE_BATTERY_SAVER,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface StopReason {
+    }
+
+    @UnsupportedAppUsage
     private final int jobId;
+    @Nullable
+    private final String mJobNamespace;
     private final PersistableBundle extras;
     private final Bundle transientExtras;
     private final ClipData clipData;
     private final int clipGrantFlags;
+    @UnsupportedAppUsage
     private final IBinder callback;
     private final boolean overrideDeadlineExpired;
+    private final boolean mIsExpedited;
+    private final boolean mIsUserInitiated;
     private final Uri[] mTriggeredContentUris;
     private final String[] mTriggeredContentAuthorities;
-    private final Network network;
+    @Nullable
+    private Network mNetwork;
 
-    private int stopReason; // Default value of stopReason is REASON_CANCELED
+    private int mStopReason = STOP_REASON_UNDEFINED;
+    private int mInternalStopReason = INTERNAL_STOP_REASON_UNKNOWN;
     private String debugStopReason; // Human readable stop reason for debugging.
+    @Nullable
+    private JobCleanupCallback mJobCleanupCallback;
+    @Nullable
+    private Cleaner.Cleanable mCleanable;
+    /**
+     * Override handling of abandoned jobs in the system. Overriding this change
+     * will prevent the system to handle abandoned jobs and report it as a new
+     * stop reason STOP_REASON_TIMEOUT_ABANDONED.
+     * @hide
+     */
+    @ChangeId
+    @Disabled
+    @Overridable
+    public static final long OVERRIDE_HANDLE_ABANDONED_JOBS = 372529068L;
 
     /** @hide */
-    public JobParameters(IBinder callback, int jobId, PersistableBundle extras,
+    public JobParameters(IBinder callback, String namespace, int jobId, PersistableBundle extras,
             Bundle transientExtras, ClipData clipData, int clipGrantFlags,
-            boolean overrideDeadlineExpired, Uri[] triggeredContentUris,
+            boolean overrideDeadlineExpired, boolean isExpedited,
+            boolean isUserInitiated, Uri[] triggeredContentUris,
             String[] triggeredContentAuthorities, Network network) {
         this.jobId = jobId;
         this.extras = extras;
@@ -85,9 +410,14 @@ public class JobParameters implements Parcelable {
         this.clipGrantFlags = clipGrantFlags;
         this.callback = callback;
         this.overrideDeadlineExpired = overrideDeadlineExpired;
+        this.mIsExpedited = isExpedited;
+        this.mIsUserInitiated = isUserInitiated;
         this.mTriggeredContentUris = triggeredContentUris;
         this.mTriggeredContentAuthorities = triggeredContentAuthorities;
-        this.network = network;
+        this.mNetwork = network;
+        this.mJobNamespace = namespace;
+        this.mJobCleanupCallback = null;
+        this.mCleanable = null;
     }
 
     /**
@@ -98,15 +428,41 @@ public class JobParameters implements Parcelable {
     }
 
     /**
-     * Reason onStopJob() was called on this job.
-     * @hide
+     * Get the namespace this job was placed in.
+     *
+     * @see JobScheduler#forNamespace(String)
+     * @return The namespace this job was scheduled in. Will be {@code null} if there was no
+     * explicit namespace set and this job is therefore in the default namespace.
      */
+    @Nullable
+    public String getJobNamespace() {
+        return mJobNamespace;
+    }
+
+    /**
+     * Returns the reason {@link JobService#onStopJob(JobParameters)} was called on this job.
+     * <p>
+     * Apps should not rely on the stop reason for critical decision-making, as additional stop
+     * reasons may be added in subsequent Android releases. The primary intended use of this method
+     * is for logging and diagnostic purposes to gain insights into the causes of job termination.
+     * <p>
+     * @return The reason {@link JobService#onStopJob(JobParameters)} was called on this job. Will
+     * be {@link #STOP_REASON_UNDEFINED} if {@link JobService#onStopJob(JobParameters)} has not
+     * yet been called.
+     */
+    @StopReason
     public int getStopReason() {
-        return stopReason;
+        return mStopReason;
+    }
+
+    /** @hide */
+    public int getInternalStopReasonCode() {
+        return mInternalStopReason;
     }
 
     /**
      * Reason onStopJob() was called on this job.
+     *
      * @hide
      */
     public String getDebugStopReason() {
@@ -150,10 +506,40 @@ public class JobParameters implements Parcelable {
     }
 
     /**
+     * @return Whether this job is running as an expedited job or not. A job is guaranteed to have
+     * all expedited job guarantees for the duration of the job execution if this returns
+     * {@code true}. This will return {@code false} if the job that wasn't requested to run as a
+     * expedited job, or if it was requested to run as an expedited job but the app didn't have
+     * any remaining expedited job quota at the time of execution.
+     *
+     * @see JobInfo.Builder#setExpedited(boolean)
+     */
+    public boolean isExpeditedJob() {
+        return mIsExpedited;
+    }
+
+    /**
+     * @return Whether this job is running as a user-initiated job or not. A job is guaranteed to
+     * have all user-initiated job guarantees for the duration of the job execution if this returns
+     * {@code true}. This will return {@code false} if the job wasn't requested to run as a
+     * user-initiated job, or if it was requested to run as a user-initiated job but the app didn't
+     * meet any of the requirements at the time of execution, such as having the
+     * {@link android.Manifest.permission#RUN_USER_INITIATED_JOBS} permission.
+     *
+     * @see JobInfo.Builder#setUserInitiated(boolean)
+     */
+    public boolean isUserInitiatedJob() {
+        return mIsUserInitiated;
+    }
+
+    /**
      * For jobs with {@link android.app.job.JobInfo.Builder#setOverrideDeadline(long)} set, this
      * provides an easy way to tell whether the job is being executed due to the deadline
      * expiring. Note: If the job is running because its deadline expired, it implies that its
-     * constraints will not be met.
+     * constraints will not be met. However,
+     * {@link android.app.job.JobInfo.Builder#setPeriodic(long) periodic jobs} will only ever
+     * run when their constraints are satisfied, therefore, the constraints will still be satisfied
+     * for a periodic job even if the deadline has expired.
      */
     public boolean isOverrideDeadlineExpired() {
         return overrideDeadlineExpired;
@@ -196,13 +582,18 @@ public class JobParameters implements Parcelable {
      * such as allowing a {@link JobInfo#NETWORK_TYPE_UNMETERED} job to run over
      * a metered network when there is a surplus of metered data available.
      *
+     * Starting in Android version {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE},
+     * this will return {@code null} if the app does not hold the permissions specified in
+     * {@link JobInfo.Builder#setRequiredNetwork(NetworkRequest)}.
+     *
      * @return the network that should be used to perform any network requests
      *         for this job, or {@code null} if this job didn't set any required
-     *         network type.
+     *         network type or if the job executed when there was no available network to use.
      * @see JobInfo.Builder#setRequiredNetworkType(int)
+     * @see JobInfo.Builder#setRequiredNetwork(NetworkRequest)
      */
     public @Nullable Network getNetwork() {
-        return network;
+        return mNetwork;
     }
 
     /**
@@ -216,7 +607,7 @@ public class JobParameters implements Parcelable {
      * <p>Once you are done with the {@link JobWorkItem} returned by this method, you must call
      * {@link #completeWork(JobWorkItem)} with it to inform the system that you are done
      * executing the work.  The job will not be finished until all dequeued work has been
-     * completed.  You do not, however, have to complete each returned work item before deqeueing
+     * completed.  You do not, however, have to complete each returned work item before dequeuing
      * the next one -- you can use {@link #dequeueWork()} multiple times before completing
      * previous work if you want to process work in parallel, and you can complete the work
      * in whatever order you want.</p>
@@ -273,12 +664,14 @@ public class JobParameters implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public IJobCallback getCallback() {
         return IJobCallback.Stub.asInterface(callback);
     }
 
     private JobParameters(Parcel in) {
         jobId = in.readInt();
+        mJobNamespace = in.readString();
         extras = in.readPersistableBundle();
         transientExtras = in.readBundle();
         if (in.readInt() != 0) {
@@ -290,21 +683,95 @@ public class JobParameters implements Parcelable {
         }
         callback = in.readStrongBinder();
         overrideDeadlineExpired = in.readInt() == 1;
+        mIsExpedited = in.readBoolean();
+        mIsUserInitiated = in.readBoolean();
         mTriggeredContentUris = in.createTypedArray(Uri.CREATOR);
         mTriggeredContentAuthorities = in.createStringArray();
         if (in.readInt() != 0) {
-            network = Network.CREATOR.createFromParcel(in);
+            mNetwork = Network.CREATOR.createFromParcel(in);
         } else {
-            network = null;
+            mNetwork = null;
         }
-        stopReason = in.readInt();
+        mStopReason = in.readInt();
+        mInternalStopReason = in.readInt();
         debugStopReason = in.readString();
+        mJobCleanupCallback = null;
+        mCleanable = null;
     }
 
     /** @hide */
-    public void setStopReason(int reason, String debugStopReason) {
-        stopReason = reason;
+    public void setNetwork(@Nullable Network network) {
+        mNetwork = network;
+    }
+
+    /** @hide */
+    public void setStopReason(@StopReason int reason, int internalStopReason,
+            String debugStopReason) {
+        mStopReason = reason;
+        mInternalStopReason = internalStopReason;
         this.debugStopReason = debugStopReason;
+    }
+
+    /** @hide */
+    public void initCleaner(JobCleanupCallback jobCleanupCallback) {
+        mJobCleanupCallback = jobCleanupCallback;
+        mCleanable = SystemCleaner.cleaner().register(this, mJobCleanupCallback);
+    }
+
+    /**
+     * Lazy initialize the cleaner and enable it
+     *
+     * @hide
+     */
+    public void enableCleaner() {
+        if (!Flags.handleAbandonedJobs()
+                || Compatibility.isChangeEnabled(OVERRIDE_HANDLE_ABANDONED_JOBS)) {
+            return;
+        }
+        // JobParameters objects are passed by reference in local Binder
+        // transactions for clients running as SYSTEM. The life cycle of the
+        // JobParameters objects are no longer controlled by the client.
+        if (Process.myUid() == Process.SYSTEM_UID) {
+            return;
+        }
+        if (mJobCleanupCallback == null) {
+            initCleaner(new JobCleanupCallback(IJobCallback.Stub.asInterface(callback), jobId));
+        }
+        mJobCleanupCallback.enableCleaner();
+    }
+
+    /**
+     * Disable the cleaner from running and unregister it
+     *
+     * @hide
+     */
+    public void disableCleaner() {
+        if (!Flags.handleAbandonedJobs()
+                || Compatibility.isChangeEnabled(OVERRIDE_HANDLE_ABANDONED_JOBS)) {
+            return;
+        }
+        if (mJobCleanupCallback != null) {
+            mJobCleanupCallback.disableCleaner();
+            if (mCleanable != null) {
+                mCleanable.clean();
+                mCleanable = null;
+            }
+            mJobCleanupCallback = null;
+        }
+    }
+
+    /** @hide */
+    @VisibleForTesting
+    @Nullable
+    public Cleaner.Cleanable getCleanable() {
+        return mCleanable;
+    }
+
+    /** @hide */
+    @VisibleForTesting
+    @Nullable
+    public JobCleanupCallback getJobCleanupCallback() {
+        return mJobCleanupCallback;
     }
 
     @Override
@@ -315,6 +782,7 @@ public class JobParameters implements Parcelable {
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeInt(jobId);
+        dest.writeString(mJobNamespace);
         dest.writePersistableBundle(extras);
         dest.writeBundle(transientExtras);
         if (clipData != null) {
@@ -326,19 +794,83 @@ public class JobParameters implements Parcelable {
         }
         dest.writeStrongBinder(callback);
         dest.writeInt(overrideDeadlineExpired ? 1 : 0);
+        dest.writeBoolean(mIsExpedited);
+        dest.writeBoolean(mIsUserInitiated);
         dest.writeTypedArray(mTriggeredContentUris, flags);
         dest.writeStringArray(mTriggeredContentAuthorities);
-        if (network != null) {
+        if (mNetwork != null) {
             dest.writeInt(1);
-            network.writeToParcel(dest, flags);
+            mNetwork.writeToParcel(dest, flags);
         } else {
             dest.writeInt(0);
         }
-        dest.writeInt(stopReason);
+        dest.writeInt(mStopReason);
+        dest.writeInt(mInternalStopReason);
         dest.writeString(debugStopReason);
     }
 
-    public static final Creator<JobParameters> CREATOR = new Creator<JobParameters>() {
+    /**
+     * JobCleanupCallback is used track JobParameters leak. If the job is started
+     * and jobFinish is not called at the time of garbage collection of JobParameters
+     * instance, it is considered a job leak. Force finish the job.
+     *
+     * @hide
+     */
+    public static class JobCleanupCallback implements Runnable {
+        private final IJobCallback mCallback;
+        private final int mJobId;
+        private boolean mIsCleanerEnabled;
+
+        public JobCleanupCallback(
+                IJobCallback callback,
+                int jobId) {
+            mCallback = callback;
+            mJobId = jobId;
+            mIsCleanerEnabled = false;
+        }
+
+        /**
+         * Check if the cleaner is enabled
+         *
+         * @hide
+         */
+        public boolean isCleanerEnabled() {
+            return mIsCleanerEnabled;
+        }
+
+        /**
+         * Enable the cleaner to detect JobParameter leak
+         *
+         * @hide
+         */
+        public void enableCleaner() {
+            mIsCleanerEnabled = true;
+        }
+
+        /**
+         * Disable the cleaner from running.
+         *
+         * @hide
+         */
+        public void disableCleaner() {
+            mIsCleanerEnabled = false;
+        }
+
+        /** @hide */
+        @Override
+        public void run() {
+            if (!isCleanerEnabled()) {
+                return;
+            }
+            try {
+                mCallback.handleAbandonedJob(mJobId);
+            } catch (Exception e) {
+                Log.wtf(TAG, "Could not destroy running job", e);
+            }
+        }
+    }
+
+    public static final @NonNull Creator<JobParameters> CREATOR = new Creator<JobParameters>() {
         @Override
         public JobParameters createFromParcel(Parcel in) {
             return new JobParameters(in);

@@ -22,7 +22,7 @@ package android.opengl;
  *
  */
 public class EGLDisplay extends EGLObjectHandle {
-    private EGLDisplay(long handle) {
+    EGLDisplay(long handle) {
         super(handle);
     }
 

@@ -16,9 +16,25 @@
 
 package android.net.wifi.aware;
 
+import static com.android.wifi.flags.Flags.FLAG_AWARE_PERIODIC_RANGING_INTERVALS;
+import static com.android.ranging.flags.Flags.FLAG_RANGING_RTT_ENABLED;
+
+import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
+import android.annotation.IntRange;
+import android.annotation.SystemApi;
+import android.net.wifi.WifiAnnotations;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import androidx.annotation.RequiresApi;
+
+import com.android.modules.utils.build.SdkLevel;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * The characteristics of the Wi-Fi Aware implementation.
@@ -31,8 +47,43 @@ public final class Characteristics implements Parcelable {
             "key_max_service_specific_info_length";
     /** @hide */
     public static final String KEY_MAX_MATCH_FILTER_LENGTH = "key_max_match_filter_length";
+    /** @hide */
+    public static final String KEY_SUPPORTED_DATA_PATH_CIPHER_SUITES =
+            "key_supported_data_path_cipher_suites";
+    /** @hide */
+    public static final String KEY_SUPPORTED_PAIRING_CIPHER_SUITES =
+            "key_supported_pairing_cipher_suites";
+    /** @hide */
+    public static final String KEY_IS_INSTANT_COMMUNICATION_MODE_SUPPORTED =
+            "key_is_instant_communication_mode_supported";
+    /** @hide */
+    public static final String KEY_MAX_NDP_NUMBER = "key_max_ndp_number";
+    /** @hide */
+    public static final String KEY_MAX_PUBLISH_NUMBER = "key_max_publish_number";
+    /** @hide */
+    public static final String KEY_MAX_SUBSCRIBE_NUMBER = "key_max_subscribe_number";
+    /** @hide */
+    public static final String KEY_MAX_NDI_NUMBER = "key_max_ndi_number";
+    /** @hide */
+    public static final String KEY_SUPPORT_NAN_PAIRING = "key_support_nan_pairing";
+    /** @hide */
+    public static final String KEY_SUPPORT_SUSPENSION = "key_support_suspension";
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    public static final String KEY_SUPPORT_PERIODIC_RANGING = "key_support_periodic_ranging";
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    public static final String KEY_MAX_SUPPORTED_RANGING_PKT_BANDWIDTH =
+            "key_max_supported_ranging_pkt_bandwidth";
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    public static final String KEY_MAX_SUPPORTED_RX_CHAINS = "key_max_supported_rx_chains";
+    /** @hide */
+    @FlaggedApi(FLAG_AWARE_PERIODIC_RANGING_INTERVALS)
+    public static final String KEY_SUPPORTED_PERIODIC_RANGING_INTERVALS =
+            "key_supported_periodic_ranging_intervals";
 
-    private Bundle mCharacteristics = new Bundle();
+    private final Bundle mCharacteristics;
 
     /** @hide : should not be created by apps */
     public Characteristics(Bundle characteristics) {
@@ -71,10 +122,315 @@ public final class Characteristics implements Parcelable {
      * {@link PublishConfig.Builder#setMatchFilter(java.util.List)} and
      * {@link SubscribeConfig.Builder#setMatchFilter(java.util.List)}.
      *
-     * @return A positive integer, maximum legngth of byte array for Aware discovery match filter.
+     * @return A positive integer, maximum length of byte array for Aware discovery match filter.
      */
     public int getMaxMatchFilterLength() {
         return mCharacteristics.getInt(KEY_MAX_MATCH_FILTER_LENGTH);
+    }
+
+    /**
+     * Returns the maximum number of Aware data interfaces supported by the device.
+     *
+     * @return A positive integer, maximum number of Aware data interfaces supported by the device.
+     */
+    @IntRange(from = 1)
+    public int getNumberOfSupportedDataInterfaces() {
+        return mCharacteristics.getInt(KEY_MAX_NDI_NUMBER);
+    }
+
+    /**
+     * Returns the maximum number of Aware publish sessions supported by the device.
+     * Use {@link AwareResources#getAvailablePublishSessionsCount()} to get the number of available
+     * publish sessions which are not currently used by any app.
+     *
+     * @return A positive integer, maximum number of publish sessions supported by the device.
+     */
+    @IntRange(from = 1)
+    public int getNumberOfSupportedPublishSessions() {
+        return mCharacteristics.getInt(KEY_MAX_PUBLISH_NUMBER);
+    }
+
+    /**
+     * Returns the maximum number of Aware subscribe session supported by the device.
+     * Use {@link AwareResources#getAvailableSubscribeSessionsCount()} to get the number of
+     * available subscribe sessions which are not currently used by any app.
+     *
+     * @return A positive integer, maximum number of subscribe sessions supported by the device.
+     */
+    @IntRange(from = 1)
+    public int getNumberOfSupportedSubscribeSessions() {
+        return mCharacteristics.getInt(KEY_MAX_SUBSCRIBE_NUMBER);
+    }
+
+    /**
+     * Returns the maximum number of Aware data paths(also known as NDPs - NAN Data Paths) supported
+     * by the device.
+     * Use {@link AwareResources#getAvailableDataPathsCount()} to get the number of available Aware
+     * data paths which are not currently used by any app.
+     *
+     * @return A positive integer, maximum number of Aware data paths supported by the device.
+     */
+    @IntRange(from = 1)
+    public int getNumberOfSupportedDataPaths() {
+        return mCharacteristics.getInt(KEY_MAX_NDP_NUMBER);
+    }
+
+    /**
+     * Check if instant communication mode is supported by device. The instant communication mode is
+     * defined as per Wi-Fi Alliance (WFA) Wi-Fi Aware specifications version 3.1 Section 12.3.
+     * @return True if supported, false otherwise.
+     */
+    @RequiresApi(Build.VERSION_CODES.S)
+    public boolean isInstantCommunicationModeSupported() {
+        if (!SdkLevel.isAtLeastS()) {
+            throw new UnsupportedOperationException();
+        }
+        return mCharacteristics.getBoolean(KEY_IS_INSTANT_COMMUNICATION_MODE_SUPPORTED);
+    }
+
+
+    /**
+     * Check if the Aware Pairing and all associated security features as defined in Wi-Fi Alliance
+     * (WFA) Wi-Fi Aware Specification version 4.0 are supported.
+     * This includes:
+     * <ol>
+     * <li>NAN Pairing (as in Wi-Fi Aware Specification Version 4.0 section 7.6) with NIK caching
+     * <li>NDP unicast data frame encryption (as in Wi-Fi Aware Specification Version 4.0 section
+     * 7.3.1)
+     * <li>Group addressed data frame encryption (as in Wi-Fi Aware Specification Version 4.0
+     * section 7.3.3)
+     * <li>Management frame protection (as in Wi-Fi Aware Specification Version 4.0 section 7.3.2
+     * for both unicast and multicast frames)
+     * <li>Beacon integrity protection (as in Wi-Fi Aware Specification Version 4.0 section 7.3.4)
+     * </ol>
+     *
+     * @return True if supported, false otherwise.
+     */
+    public boolean isAwarePairingSupported() {
+        return mCharacteristics.getBoolean(KEY_SUPPORT_NAN_PAIRING);
+    }
+
+    /**
+     * Check if Aware Suspension is supported. Aware Suspension is a mechanism of putting an Aware
+     * connection in and out of a low-power mode while preserving the discovery sessions and data
+     * paths.
+     * @return True if supported, false otherwise.
+     */
+    public boolean isSuspensionSupported() {
+        return mCharacteristics.getBoolean(KEY_SUPPORT_SUSPENSION);
+    }
+
+    /**
+     * Check if Periodic Ranging is supported.
+     * Periodic Ranging on Aware allows applications to get the asynchronous ranging
+     * report periodically.
+     * @return True if supported, false otherwise.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public boolean isPeriodicRangingSupported() {
+        return mCharacteristics.getBoolean(KEY_SUPPORT_PERIODIC_RANGING);
+    }
+
+    /** @hide */
+    @IntDef(flag = true, prefix = { "SUPPORTED_PERIODIC_RANGING_INTERVAL_" }, value = {
+            SUPPORTED_PERIODIC_RANGING_INTERVAL_NONE,
+            SUPPORTED_PERIODIC_RANGING_INTERVAL_128TU,
+            SUPPORTED_PERIODIC_RANGING_INTERVAL_256TU,
+            SUPPORTED_PERIODIC_RANGING_INTERVAL_512TU,
+            SUPPORTED_PERIODIC_RANGING_INTERVAL_1024TU,
+            SUPPORTED_PERIODIC_RANGING_INTERVAL_2048TU,
+            SUPPORTED_PERIODIC_RANGING_INTERVAL_4096TU,
+            SUPPORTED_PERIODIC_RANGING_INTERVAL_8192TU,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface SupportedPeriodicRangingIntervals {}
+
+    /**
+     * Indicates that periodic ranging is not supported.
+     * @hide
+     */
+    @FlaggedApi(FLAG_AWARE_PERIODIC_RANGING_INTERVALS)
+    @SystemApi
+    public static final int SUPPORTED_PERIODIC_RANGING_INTERVAL_NONE = 0;
+
+    /** @hide */
+    @FlaggedApi(FLAG_AWARE_PERIODIC_RANGING_INTERVALS)
+    @SystemApi
+    public static final int SUPPORTED_PERIODIC_RANGING_INTERVAL_128TU = 1 << 0;
+    /** @hide */
+    @FlaggedApi(FLAG_AWARE_PERIODIC_RANGING_INTERVALS)
+    @SystemApi
+    public static final int SUPPORTED_PERIODIC_RANGING_INTERVAL_256TU = 1 << 1;
+    /** @hide */
+    @FlaggedApi(FLAG_AWARE_PERIODIC_RANGING_INTERVALS)
+    @SystemApi
+    public static final int SUPPORTED_PERIODIC_RANGING_INTERVAL_512TU = 1 << 2;
+    /** @hide */
+    @FlaggedApi(FLAG_AWARE_PERIODIC_RANGING_INTERVALS)
+    @SystemApi
+    public static final int SUPPORTED_PERIODIC_RANGING_INTERVAL_1024TU = 1 << 3;
+    /** @hide */
+    @FlaggedApi(FLAG_AWARE_PERIODIC_RANGING_INTERVALS)
+    @SystemApi
+    public static final int SUPPORTED_PERIODIC_RANGING_INTERVAL_2048TU = 1 << 4;
+    /** @hide */
+    @FlaggedApi(FLAG_AWARE_PERIODIC_RANGING_INTERVALS)
+    @SystemApi
+    public static final int SUPPORTED_PERIODIC_RANGING_INTERVAL_4096TU = 1 << 5;
+    /** @hide */
+    @FlaggedApi(FLAG_AWARE_PERIODIC_RANGING_INTERVALS)
+    @SystemApi
+    public static final int SUPPORTED_PERIODIC_RANGING_INTERVAL_8192TU = 1 << 6;
+
+    /**
+     * Get the supported periodic ranging intervals. The intervals are specified in Time Units (TU),
+     * as defined in the Wi-Fi Aware Specification.
+     *
+     * @return A bitmask of the supported intervals. The value will be a combination of the
+     * {@code SUPPORTED_PERIODIC_RANGING_INTERVAL_*} constants, or
+     * {@link #SUPPORTED_PERIODIC_RANGING_INTERVAL_NONE} if the feature is not supported.
+     * @hide
+     */
+    @FlaggedApi(FLAG_AWARE_PERIODIC_RANGING_INTERVALS)
+    @SystemApi
+    public @SupportedPeriodicRangingIntervals int getSupportedPeriodicRangingIntervals() {
+        return mCharacteristics.getInt(KEY_SUPPORTED_PERIODIC_RANGING_INTERVALS);
+    }
+
+    /** @hide */
+    @IntDef(flag = true, prefix = { "SUPPORTED_RX_CHAINS_" }, value = {
+            SUPPORTED_RX_CHAINS_UNSPECIFIED,
+            SUPPORTED_RX_CHAINS_1,
+            SUPPORTED_RX_CHAINS_2,
+            SUPPORTED_RX_CHAINS_3,
+            SUPPORTED_RX_CHAINS_4,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface SupportedRxChains {}
+
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int SUPPORTED_RX_CHAINS_1 = 1;
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int SUPPORTED_RX_CHAINS_2 = 2;
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int SUPPORTED_RX_CHAINS_3 = 3;
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int SUPPORTED_RX_CHAINS_4 = 4;
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int SUPPORTED_RX_CHAINS_UNSPECIFIED = 0;
+
+    /**
+     * Get the supported number of receive chains.
+     *
+     * @return Number of supported receive chains.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public @SupportedRxChains int getMaxSupportedRxChains() {
+        return mCharacteristics.getInt(KEY_MAX_SUPPORTED_RX_CHAINS);
+    }
+
+    /**
+     * Get Max supported ranging per packet Bandwidth
+     *
+     * @return the bandwidth representation of the Wi-Fi channel from
+     * {@link ScanResult#CHANNEL_WIDTH_20MHZ}, {@link ScanResult#CHANNEL_WIDTH_40MHZ},
+     * {@link ScanResult#CHANNEL_WIDTH_80MHZ}, {@link ScanResult#CHANNEL_WIDTH_160MHZ},
+     * or {@link ScanResult#CHANNEL_WIDTH_320MHZ}.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public @WifiAnnotations.ChannelWidth int getMaxSupportedRangingPacketBandwidth() {
+        return mCharacteristics.getInt(KEY_MAX_SUPPORTED_RANGING_PKT_BANDWIDTH);
+    }
+
+    /** @hide */
+    @IntDef(flag = true, prefix = { "WIFI_AWARE_CIPHER_SUITE_" }, value = {
+            WIFI_AWARE_CIPHER_SUITE_NONE,
+            WIFI_AWARE_CIPHER_SUITE_NCS_SK_128,
+            WIFI_AWARE_CIPHER_SUITE_NCS_SK_256,
+            WIFI_AWARE_CIPHER_SUITE_NCS_PK_128,
+            WIFI_AWARE_CIPHER_SUITE_NCS_PK_256,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface WifiAwareDataPathCipherSuites {}
+
+    /**
+     * Wi-Fi Aware supported open (unencrypted) data-path.
+     */
+    public static final int WIFI_AWARE_CIPHER_SUITE_NONE = 0;
+    /**
+     * Wi-Fi Aware supported cipher suite representing NCS SK 128: 128 bit shared-key.
+     */
+    public static final int WIFI_AWARE_CIPHER_SUITE_NCS_SK_128 = 1 << 0;
+
+    /**
+     * Wi-Fi Aware supported cipher suite representing NCS SK 256: 256 bit shared-key.
+     */
+    public static final int WIFI_AWARE_CIPHER_SUITE_NCS_SK_256 = 1 << 1;
+
+    /**
+     * Wi-Fi Aware supported cipher suite representing NCS PK 2WDH 128: 128 bit public-key.
+     */
+    public static final int WIFI_AWARE_CIPHER_SUITE_NCS_PK_128 = 1 << 2;
+
+    /**
+     * Wi-Fi Aware supported cipher suite representing NCS 2WDH 256: 256 bit public-key.
+     */
+    public static final int WIFI_AWARE_CIPHER_SUITE_NCS_PK_256 = 1 << 3;
+
+    /**
+     * Wi-Fi Aware supported cipher suite representing NCS PASN 128: 128 bit public-key.
+     */
+    public static final int WIFI_AWARE_CIPHER_SUITE_NCS_PK_PASN_128 = 1 << 4;
+
+    /**
+     * Wi-Fi Aware supported cipher suite representing NCS PASN 256: 256 bit public-key.
+     */
+    public static final int WIFI_AWARE_CIPHER_SUITE_NCS_PK_PASN_256 = 1 << 5;
+
+    /** @hide */
+    @IntDef(flag = true, prefix = { "WIFI_AWARE_CIPHER_SUITE_NCS_PK_PASN_" }, value = {
+            WIFI_AWARE_CIPHER_SUITE_NCS_PK_PASN_128,
+            WIFI_AWARE_CIPHER_SUITE_NCS_PK_PASN_256
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface WifiAwarePairingCipherSuites {}
+
+    /**
+     * Returns the set of cipher suites supported by the device for use in Wi-Fi Aware data-paths.
+     * The device automatically picks the strongest cipher suite when initiating a data-path setup.
+     *
+     * @return A set of flags from {@link #WIFI_AWARE_CIPHER_SUITE_NCS_SK_128},
+     * {@link #WIFI_AWARE_CIPHER_SUITE_NCS_SK_256}, {@link #WIFI_AWARE_CIPHER_SUITE_NCS_PK_128},
+     * or {@link #WIFI_AWARE_CIPHER_SUITE_NCS_PK_256}
+     */
+    public @WifiAwareDataPathCipherSuites int getSupportedCipherSuites() {
+        return mCharacteristics.getInt(KEY_SUPPORTED_DATA_PATH_CIPHER_SUITES);
+    }
+
+    /**
+     * Returns the set of cipher suites supported by the device for use in Wi-Fi Aware pairing.
+     *
+     * @return A set of flags from {@link #WIFI_AWARE_CIPHER_SUITE_NCS_PK_PASN_256},
+     * or {@link #WIFI_AWARE_CIPHER_SUITE_NCS_PK_PASN_256}
+     */
+    public @WifiAwarePairingCipherSuites int getSupportedPairingCipherSuites() {
+        return mCharacteristics.getInt(KEY_SUPPORTED_PAIRING_CIPHER_SUITES);
     }
 
     @Override
@@ -87,7 +443,7 @@ public final class Characteristics implements Parcelable {
         return 0;
     }
 
-    public static final Creator<Characteristics> CREATOR =
+    public static final @android.annotation.NonNull Creator<Characteristics> CREATOR =
             new Creator<Characteristics>() {
                 @Override
                 public Characteristics createFromParcel(Parcel in) {

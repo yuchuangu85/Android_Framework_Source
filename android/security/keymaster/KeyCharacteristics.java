@@ -16,6 +16,8 @@
 
 package android.security.keymaster;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -31,7 +33,7 @@ public class KeyCharacteristics implements Parcelable {
     public KeymasterArguments swEnforced;
     public KeymasterArguments hwEnforced;
 
-    public static final Parcelable.Creator<KeyCharacteristics> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<KeyCharacteristics> CREATOR =
             new Parcelable.Creator<KeyCharacteristics>() {
                 @Override
                 public KeyCharacteristics createFromParcel(Parcel in) {
@@ -44,10 +46,19 @@ public class KeyCharacteristics implements Parcelable {
                 }
             };
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public KeyCharacteristics() {}
 
     protected KeyCharacteristics(Parcel in) {
         readFromParcel(in);
+    }
+
+    /**
+     * Makes a shallow copy of other by copying the other's references to the KeymasterArguments
+     */
+    public void shallowCopyFrom(KeyCharacteristics other) {
+        this.swEnforced = other.swEnforced;
+        this.hwEnforced = other.hwEnforced;
     }
 
     @Override
@@ -61,6 +72,7 @@ public class KeyCharacteristics implements Parcelable {
         hwEnforced.writeToParcel(out, flags);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void readFromParcel(Parcel in) {
         swEnforced = KeymasterArguments.CREATOR.createFromParcel(in);
         hwEnforced = KeymasterArguments.CREATOR.createFromParcel(in);

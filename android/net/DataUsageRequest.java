@@ -16,6 +16,7 @@
 
 package android.net;
 
+import android.annotation.Nullable;
 import android.net.NetworkTemplate;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -69,12 +70,12 @@ public final class DataUsageRequest implements Parcelable {
         dest.writeLong(thresholdInBytes);
     }
 
-    public static final Creator<DataUsageRequest> CREATOR =
+    public static final @android.annotation.NonNull Creator<DataUsageRequest> CREATOR =
             new Creator<DataUsageRequest>() {
                 @Override
                 public DataUsageRequest createFromParcel(Parcel in) {
                     int requestId = in.readInt();
-                    NetworkTemplate template = in.readParcelable(null);
+                    NetworkTemplate template = in.readParcelable(null, android.net.NetworkTemplate.class);
                     long thresholdInBytes = in.readLong();
                     DataUsageRequest result = new DataUsageRequest(requestId, template,
                             thresholdInBytes);
@@ -95,7 +96,7 @@ public final class DataUsageRequest implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (obj instanceof DataUsageRequest == false) return false;
         DataUsageRequest that = (DataUsageRequest) obj;
         return that.requestId == this.requestId

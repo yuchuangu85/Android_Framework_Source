@@ -16,13 +16,77 @@
 
 package android.view;
 
+import android.annotation.IntDef;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+
 /**
  * Constants to be used to perform haptic feedback effects via
  * {@link View#performHapticFeedback(int)} 
  */
 public class HapticFeedbackConstants {
+    /** @hide **/
+    @IntDef(flag = true, prefix = "FLAG_", value = {
+            FLAG_IGNORE_VIEW_SETTING,
+            FLAG_IGNORE_GLOBAL_SETTING,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface Flags {}
+
+    /** @hide **/
+    @IntDef(flag = true, prefix = "PRIVATE_FLAG_", value = {
+            PRIVATE_FLAG_APPLY_INPUT_METHOD_SETTINGS,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface PrivateFlags {}
 
     private HapticFeedbackConstants() {}
+
+    /** @hide */
+    @IntDef(value = {
+            NO_HAPTICS,
+            LONG_PRESS,
+            VIRTUAL_KEY,
+            KEYBOARD_TAP,
+            CLOCK_TICK,
+            CALENDAR_DATE,
+            CONTEXT_CLICK,
+            KEYBOARD_RELEASE,
+            VIRTUAL_KEY_RELEASE,
+            TEXT_HANDLE_MOVE,
+            DRAG_CROSSING,
+            GESTURE_START,
+            GESTURE_END,
+            EDGE_SQUEEZE,
+            EDGE_RELEASE,
+            CONFIRM,
+            REJECT,
+            SCROLL_TICK,
+            SCROLL_ITEM_FOCUS,
+            SCROLL_LIMIT,
+            TOGGLE_ON,
+            TOGGLE_OFF,
+            GESTURE_THRESHOLD_ACTIVATE,
+            GESTURE_THRESHOLD_DEACTIVATE,
+            DRAG_START,
+            SEGMENT_TICK,
+            SEGMENT_FREQUENT_TICK,
+            SAFE_MODE_ENABLED,
+            ASSISTANT_BUTTON,
+            LONG_PRESS_POWER_BUTTON,
+            BIOMETRIC_CONFIRM,
+            BIOMETRIC_REJECT,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface FeedbackConstant {}
+
+    /**
+     * No haptic feedback should be performed. Applications may use this value to indicate skipping
+     * a call to {@link View#performHapticFeedback} entirely, or else rely that it will immediately
+     * return {@code false}.
+     */
+    public static final int NO_HAPTICS = -1;
 
     /**
      * The user has performed a long press on an object that is resulting
@@ -76,11 +140,7 @@ public class HapticFeedbackConstants {
      */
     public static final int TEXT_HANDLE_MOVE = 9;
 
-    /**
-     * The user unlocked the device
-     * @hide
-     */
-    public static final int ENTRY_BUMP = 10;
+    // REMOVED: ENTRY_BUMP = 10
 
     /**
      * The user has moved the dragged object within a droppable area.
@@ -90,13 +150,11 @@ public class HapticFeedbackConstants {
 
     /**
      * The user has started a gesture (e.g. on the soft keyboard).
-     * @hide
      */
     public static final int GESTURE_START = 12;
 
     /**
      * The user has finished a gesture (e.g. on the soft keyboard).
-     * @hide
      */
     public static final int GESTURE_END = 13;
 
@@ -115,15 +173,92 @@ public class HapticFeedbackConstants {
     /**
      * A haptic effect to signal the confirmation or successful completion of a user
      * interaction.
-     * @hide
      */
     public static final int CONFIRM = 16;
 
     /**
      * A haptic effect to signal the rejection or failure of a user interaction.
-     * @hide
      */
     public static final int REJECT = 17;
+
+    /**
+     * A haptic effect to provide texture while scrolling.
+     *
+     * @hide
+     */
+    public static final int SCROLL_TICK = 18;
+
+    /**
+     * A haptic effect to signal that a list element has been focused while scrolling.
+     *
+     * @hide
+     */
+    public static final int SCROLL_ITEM_FOCUS = 19;
+
+    /**
+     * A haptic effect to signal reaching the scrolling limits of a list while scrolling.
+     *
+     * @hide
+     */
+    public static final int SCROLL_LIMIT = 20;
+
+    /**
+     * The user has toggled a switch or button into the on position.
+     */
+    public static final int TOGGLE_ON = 21;
+
+    /**
+     * The user has toggled a switch or button into the off position.
+     */
+    public static final int TOGGLE_OFF = 22;
+
+    /**
+     * The user is executing a swipe/drag-style gesture, such as pull-to-refresh, where the
+     * gesture action is "eligible" at a certain threshold of movement, and can be cancelled by
+     * moving back past the threshold. This constant indicates that the user's motion has just
+     * passed the threshold for the action to be activated on release.
+     *
+     * @see #GESTURE_THRESHOLD_DEACTIVATE
+     */
+    public static final int GESTURE_THRESHOLD_ACTIVATE = 23;
+
+    /**
+     * The user is executing a swipe/drag-style gesture, such as pull-to-refresh, where the
+     * gesture action is "eligible" at a certain threshold of movement, and can be cancelled by
+     * moving back past the threshold. This constant indicates that the user's motion has just
+     * re-crossed back "under" the threshold for the action to be activated, meaning the gesture is
+     * currently in a cancelled state.
+     *
+     * @see #GESTURE_THRESHOLD_ACTIVATE
+     */
+    public static final int GESTURE_THRESHOLD_DEACTIVATE = 24;
+
+    /**
+     * The user has started a drag-and-drop gesture. The drag target has just been "picked up".
+     */
+    public static final int DRAG_START = 25;
+
+    /**
+     * The user is switching between a series of potential choices, for example items in a list
+     * or discrete points on a slider.
+     *
+     * <p>See also {@link #SEGMENT_FREQUENT_TICK} for cases where density of choices is high, and
+     * the haptics should be lighter or suppressed for a better user experience.
+     */
+    public static final int SEGMENT_TICK = 26;
+
+    /**
+     * The user is switching between a series of many potential choices, for example minutes on a
+     * clock face, or individual percentages. This constant is expected to be very soft, so as
+     * not to be uncomfortable when performed a lot in quick succession. If the device can’t make
+     * a suitably soft vibration, then it may not make any vibration.
+     *
+     * <p>Some specializations of this constant exist for specific actions, notably
+     * {@link #CLOCK_TICK} and {@link #TEXT_HANDLE_MOVE}.
+     *
+     * <p>See also {@link #SEGMENT_TICK}.
+    */
+    public static final int SEGMENT_FREQUENT_TICK = 27;
 
     /**
      * The phone has booted with safe mode enabled.
@@ -131,6 +266,37 @@ public class HapticFeedbackConstants {
      * @hide
      */
     public static final int SAFE_MODE_ENABLED = 10001;
+
+    /**
+     * Invocation of the voice assistant via hardware button.
+     * This is a private constant.  Feel free to renumber as desired.
+     * @hide
+     */
+    public static final int ASSISTANT_BUTTON = 10002;
+
+    /**
+     * The user has performed a long press on the power button hardware that is resulting
+     * in an action being performed.
+     * This is a private constant.  Feel free to renumber as desired.
+     * @hide
+     */
+    public static final int LONG_PRESS_POWER_BUTTON = 10003;
+
+    /**
+     * A haptic effect to signal the confirmation of a user biometric authentication
+     * (e.g. fingerprint reading).
+     * This is a private constant to be used only by system apps.
+     * @hide
+     */
+    public static final int BIOMETRIC_CONFIRM = 10004;
+
+    /**
+     * A haptic effect to signal the rejection of a user biometric authentication attempt
+     * (e.g. fingerprint reading).
+     * This is a private constant to be used only by system apps.
+     * @hide
+     */
+    public static final int BIOMETRIC_REJECT = 10005;
 
     /**
      * Flag for {@link View#performHapticFeedback(int, int)
@@ -143,6 +309,20 @@ public class HapticFeedbackConstants {
      * Flag for {@link View#performHapticFeedback(int, int)
      * View.performHapticFeedback(int, int)}: Ignore the global setting
      * for whether to perform haptic feedback, do it always.
+     *
+     * @deprecated Starting from {@link android.os.Build.VERSION_CODES#TIRAMISU} only privileged
+     * apps can ignore user settings for touch feedback.
      */
+    @Deprecated
     public static final int FLAG_IGNORE_GLOBAL_SETTING = 0x0002;
+
+    /**
+     * Flag for {@link android.os.Vibrator#performHapticFeedback(int, boolean, String, int, int)} or
+     * {@link ViewRootImpl#performHapticFeedback(int, boolean, int, int)}: Perform the haptic
+     * feedback with the input method vibration settings, e.g. applying the keyboard vibration
+     * user settings to the KEYBOARD_* constants.
+     *
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_APPLY_INPUT_METHOD_SETTINGS = 0x0001;
 }

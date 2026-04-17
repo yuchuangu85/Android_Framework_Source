@@ -32,6 +32,7 @@ import android.text.TextUtils;
  * LeadingMarginSpans should be attached from the first character to the last
  * character of a single paragraph.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface LeadingMarginSpan
 extends ParagraphStyle
 {

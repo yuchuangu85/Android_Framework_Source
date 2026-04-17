@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -76,6 +76,10 @@ import java.util.Spliterators;
 import java.util.function.BiPredicate;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
+
+import jdk.internal.access.SharedSecrets;
+import sun.nio.ch.FileChannelImpl;
+import sun.nio.fs.AbstractFileSystemProvider;
 
 /**
  * This class consists exclusively of static methods that operate on files,
@@ -231,10 +235,14 @@ public final class Files {
      * <p> In the addition to {@code READ} and {@code WRITE}, the following
      * options may be present:
      *
-     * <table border=1 cellpadding=5 summary="Options">
-     * <tr> <th>Option</th> <th>Description</th> </tr>
+     * <table class="striped">
+     * <caption style="display:none">Options</caption>
+     * <thead>
+     * <tr> <th scope="col">Option</th> <th scope="col">Description</th> </tr>
+     * </thead>
+     * <tbody>
      * <tr>
-     *   <td> {@link StandardOpenOption#APPEND APPEND} </td>
+     *   <th scope="row"> {@link StandardOpenOption#APPEND APPEND} </th>
      *   <td> If this option is present then the file is opened for writing and
      *     each invocation of the channel's {@code write} method first advances
      *     the position to the end of the file and then writes the requested
@@ -244,13 +252,13 @@ public final class Files {
      *     with the {@code READ} or {@code TRUNCATE_EXISTING} options. </td>
      * </tr>
      * <tr>
-     *   <td> {@link StandardOpenOption#TRUNCATE_EXISTING TRUNCATE_EXISTING} </td>
+     *   <th scope="row"> {@link StandardOpenOption#TRUNCATE_EXISTING TRUNCATE_EXISTING} </th>
      *   <td> If this option is present then the existing file is truncated to
      *   a size of 0 bytes. This option is ignored when the file is opened only
      *   for reading. </td>
      * </tr>
      * <tr>
-     *   <td> {@link StandardOpenOption#CREATE_NEW CREATE_NEW} </td>
+     *   <th scope="row"> {@link StandardOpenOption#CREATE_NEW CREATE_NEW} </th>
      *   <td> If this option is present then a new file is created, failing if
      *   the file already exists or is a symbolic link. When creating a file the
      *   check for the existence of the file and the creation of the file if it
@@ -258,14 +266,14 @@ public final class Files {
      *   This option is ignored when the file is opened only for reading. </td>
      * </tr>
      * <tr>
-     *   <td > {@link StandardOpenOption#CREATE CREATE} </td>
+     *   <th scope="row" > {@link StandardOpenOption#CREATE CREATE} </th>
      *   <td> If this option is present then an existing file is opened if it
      *   exists, otherwise a new file is created. This option is ignored if the
      *   {@code CREATE_NEW} option is also present or the file is opened only
      *   for reading. </td>
      * </tr>
      * <tr>
-     *   <td > {@link StandardOpenOption#DELETE_ON_CLOSE DELETE_ON_CLOSE} </td>
+     *   <th scope="row" > {@link StandardOpenOption#DELETE_ON_CLOSE DELETE_ON_CLOSE} </th>
      *   <td> When this option is present then the implementation makes a
      *   <em>best effort</em> attempt to delete the file when closed by the
      *   {@link SeekableByteChannel#close close} method. If the {@code close}
@@ -273,25 +281,26 @@ public final class Files {
      *   delete the file when the Java virtual machine terminates. </td>
      * </tr>
      * <tr>
-     *   <td>{@link StandardOpenOption#SPARSE SPARSE} </td>
+     *   <th scope="row">{@link StandardOpenOption#SPARSE SPARSE} </th>
      *   <td> When creating a new file this option is a <em>hint</em> that the
      *   new file will be sparse. This option is ignored when not creating
      *   a new file. </td>
      * </tr>
      * <tr>
-     *   <td> {@link StandardOpenOption#SYNC SYNC} </td>
+     *   <th scope="row"> {@link StandardOpenOption#SYNC SYNC} </th>
      *   <td> Requires that every update to the file's content or metadata be
      *   written synchronously to the underlying storage device. (see <a
      *   href="package-summary.html#integrity"> Synchronized I/O file
      *   integrity</a>). </td>
      * </tr>
      * <tr>
-     *   <td> {@link StandardOpenOption#DSYNC DSYNC} </td>
+     *   <th scope="row"> {@link StandardOpenOption#DSYNC DSYNC} </th>
      *   <td> Requires that every update to the file's content be written
      *   synchronously to the underlying storage device. (see <a
      *   href="package-summary.html#integrity"> Synchronized I/O file
      *   integrity</a>). </td>
      * </tr>
+     * </tbody>
      * </table>
      *
      * <p> An implementation may also support additional implementation specific
@@ -304,7 +313,7 @@ public final class Files {
      * is a {@link java.nio.channels.FileChannel}.
      *
      * <p> <b>Usage Examples:</b>
-     * <pre>
+     * <pre>{@code
      *     Path path = ...
      *
      *     // open file for reading
@@ -315,9 +324,10 @@ public final class Files {
      *     WritableByteChannel wbc = Files.newByteChannel(path, EnumSet.of(CREATE,APPEND));
      *
      *     // create file with initial permissions, opening it for both reading and writing
-     *     {@code FileAttribute<Set<PosixFilePermission>> perms = ...}
-     *     SeekableByteChannel sbc = Files.newByteChannel(path, EnumSet.of(CREATE_NEW,READ,WRITE), perms);
-     * </pre>
+     *     FileAttribute<Set<PosixFilePermission>> perms = ...
+     *     SeekableByteChannel sbc =
+     *         Files.newByteChannel(path, EnumSet.of(CREATE_NEW,READ,WRITE), perms);
+     * }</pre>
      *
      * @param   path
      *          the path to the file to open or create
@@ -402,8 +412,13 @@ public final class Files {
     public static SeekableByteChannel newByteChannel(Path path, OpenOption... options)
         throws IOException
     {
-        Set<OpenOption> set = new HashSet<OpenOption>(options.length);
-        Collections.addAll(set, options);
+        Set<OpenOption> set;
+        if (options.length == 0) {
+            set = Collections.emptySet();
+        } else {
+            set = new HashSet<>();
+            Collections.addAll(set, options);
+        }
         return newByteChannel(path, set);
     }
 
@@ -516,7 +531,7 @@ public final class Files {
         // create a matcher and return a filter that uses it.
         FileSystem fs = dir.getFileSystem();
         final PathMatcher matcher = fs.getPathMatcher("glob:" + glob);
-        DirectoryStream.Filter<Path> filter = new DirectoryStream.Filter<Path>() {
+        DirectoryStream.Filter<Path> filter = new DirectoryStream.Filter<>() {
             @Override
             public boolean accept(Path entry)  {
                 return matcher.matches(entry.getFileName());
@@ -591,6 +606,9 @@ public final class Files {
 
     // -- Creation and deletion --
 
+    private static final Set<OpenOption> DEFAULT_CREATE_OPTIONS =
+        Set.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+
     /**
      * Creates a new and empty file, failing if the file already exists. The
      * check for the existence of the file and the creation of the new file if
@@ -627,9 +645,7 @@ public final class Files {
     public static Path createFile(Path path, FileAttribute<?>... attrs)
         throws IOException
     {
-        EnumSet<StandardOpenOption> options =
-            EnumSet.<StandardOpenOption>of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
-        newByteChannel(path, options, attrs).close();
+        newByteChannel(path, DEFAULT_CREATE_OPTIONS, attrs).close();
         return path;
     }
 
@@ -739,7 +755,7 @@ public final class Files {
             // don't have permission to get absolute path
             se = x;
         }
-        // find a decendent that exists
+        // find a descendant that exists
         Path parent = dir.getParent();
         while (parent != null) {
             try {
@@ -1032,7 +1048,7 @@ public final class Files {
      *          if an I/O error occurs
      * @throws  SecurityException
      *          In the case of the default provider, and a security manager
-     *          is installed, it denies {@link LinkPermission}<tt>("symbolic")</tt>
+     *          is installed, it denies {@link LinkPermission}{@code ("symbolic")}
      *          or its {@link SecurityManager#checkWrite(String) checkWrite}
      *          method denies write access to the path of the symbolic link.
      */
@@ -1077,7 +1093,7 @@ public final class Files {
      *          if an I/O error occurs
      * @throws  SecurityException
      *          In the case of the default provider, and a security manager
-     *          is installed, it denies {@link LinkPermission}<tt>("hard")</tt>
+     *          is installed, it denies {@link LinkPermission}{@code ("hard")}
      *          or its {@link SecurityManager#checkWrite(String) checkWrite}
      *          method denies write access to either the link or the
      *          existing file.
@@ -1185,17 +1201,21 @@ public final class Files {
      *
      * <p> The {@code options} parameter may include any of the following:
      *
-     * <table border=1 cellpadding=5 summary="">
-     * <tr> <th>Option</th> <th>Description</th> </tr>
+     * <table class="striped">
+     * <caption style="display:none">Options</caption>
+     * <thead>
+     * <tr> <th scope="col">Option</th> <th scope="col">Description</th> </tr>
+     * </thead>
+     * <tbody>
      * <tr>
-     *   <td> {@link StandardCopyOption#REPLACE_EXISTING REPLACE_EXISTING} </td>
+     *   <th scope="row"> {@link StandardCopyOption#REPLACE_EXISTING REPLACE_EXISTING} </th>
      *   <td> If the target file exists, then the target file is replaced if it
      *     is not a non-empty directory. If the target file exists and is a
      *     symbolic link, then the symbolic link itself, not the target of
      *     the link, is replaced. </td>
      * </tr>
      * <tr>
-     *   <td> {@link StandardCopyOption#COPY_ATTRIBUTES COPY_ATTRIBUTES} </td>
+     *   <th scope="row"> {@link StandardCopyOption#COPY_ATTRIBUTES COPY_ATTRIBUTES} </th>
      *   <td> Attempts to copy the file attributes associated with this file to
      *     the target file. The exact file attributes that are copied is platform
      *     and file system dependent and therefore unspecified. Minimally, the
@@ -1205,13 +1225,14 @@ public final class Files {
      *     loss. </td>
      * </tr>
      * <tr>
-     *   <td> {@link LinkOption#NOFOLLOW_LINKS NOFOLLOW_LINKS} </td>
+     *   <th scope="row"> {@link LinkOption#NOFOLLOW_LINKS NOFOLLOW_LINKS} </th>
      *   <td> Symbolic links are not followed. If the file is a symbolic link,
      *     then the symbolic link itself, not the target of the link, is copied.
      *     It is implementation specific if file attributes can be copied to the
      *     new link. In other words, the {@code COPY_ATTRIBUTES} option may be
      *     ignored when copying a symbolic link. </td>
      * </tr>
+     * </tbody>
      * </table>
      *
      * <p> An implementation of this interface may support additional
@@ -1303,17 +1324,21 @@ public final class Files {
      *
      * <p> The {@code options} parameter may include any of the following:
      *
-     * <table border=1 cellpadding=5 summary="">
-     * <tr> <th>Option</th> <th>Description</th> </tr>
+     * <table class="striped">
+     * <caption style="display:none">Options</caption>
+     * <thead>
+     * <tr> <th scope="col">Option</th> <th scope="col">Description</th> </tr>
+     * </thead>
+     * <tbody>
      * <tr>
-     *   <td> {@link StandardCopyOption#REPLACE_EXISTING REPLACE_EXISTING} </td>
+     *   <th scope="row"> {@link StandardCopyOption#REPLACE_EXISTING REPLACE_EXISTING} </th>
      *   <td> If the target file exists, then the target file is replaced if it
      *     is not a non-empty directory. If the target file exists and is a
      *     symbolic link, then the symbolic link itself, not the target of
      *     the link, is replaced. </td>
      * </tr>
      * <tr>
-     *   <td> {@link StandardCopyOption#ATOMIC_MOVE ATOMIC_MOVE} </td>
+     *   <th scope="row"> {@link StandardCopyOption#ATOMIC_MOVE ATOMIC_MOVE} </th>
      *   <td> The move is performed as an atomic file system operation and all
      *     other options are ignored. If the target file exists then it is
      *     implementation specific if the existing file is replaced or this method
@@ -1323,6 +1348,7 @@ public final class Files {
      *     example, when the target location is on a different {@code FileStore}
      *     and would require that the file be copied, or target location is
      *     associated with a different provider to this object. </td>
+     * </tbody>
      * </table>
      *
      * <p> An implementation of this interface may support additional
@@ -1373,8 +1399,9 @@ public final class Files {
      *          specific exception)</i>
      * @throws  DirectoryNotEmptyException
      *          the {@code REPLACE_EXISTING} option is specified but the file
-     *          cannot be replaced because it is a non-empty directory
-     *          <i>(optional specific exception)</i>
+     *          cannot be replaced because it is a non-empty directory, or the
+     *          source is a non-empty directory containing entries that would
+     *          be required to be moved <i>(optional specific exceptions)</i>
      * @throws  AtomicMoveNotSupportedException
      *          if the options array contains the {@code ATOMIC_MOVE} option but
      *          the file cannot be moved as an atomic file system operation.
@@ -1400,7 +1427,7 @@ public final class Files {
         return target;
     }
 
-    // -- Miscellenous --
+    // -- Miscellaneous --
 
     /**
      * Reads the target of a symbolic link <i>(optional operation)</i>.
@@ -1454,8 +1481,8 @@ public final class Files {
      *          In the case of the default provider, and a security manager is
      *          installed, the {@link SecurityManager#checkRead(String) checkRead}
      *          method is invoked to check read access to the file, and in
-     *          addition it checks {@link RuntimePermission}<tt>
-     *          ("getFileStoreAttributes")</tt>
+     *          addition it checks
+     *          {@link RuntimePermission}{@code ("getFileStoreAttributes")}
      */
     public static FileStore getFileStore(Path path) throws IOException {
         return provider(path).getFileStore(path);
@@ -1481,7 +1508,7 @@ public final class Files {
      * <li>It is <i>transitive</i>: for three {@code Paths}
      *     {@code f}, {@code g}, and {@code h}, if {@code isSameFile(f,g)} returns
      *     {@code true} and {@code isSameFile(g,h)} returns {@code true}, then
-     *     {@code isSameFile(f,h)} will return return {@code true}.
+     *     {@code isSameFile(f,h)} will return {@code true}.
      * </ul>
      *
      * @param   path
@@ -1535,13 +1562,13 @@ public final class Files {
     private static class FileTypeDetectors{
         static final FileTypeDetector defaultFileTypeDetector =
             createDefaultFileTypeDetector();
-        static final List<FileTypeDetector> installeDetectors =
+        static final List<FileTypeDetector> installedDetectors =
             loadInstalledDetectors();
 
         // creates the default file type detector
         private static FileTypeDetector createDefaultFileTypeDetector() {
             return AccessController
-                .doPrivileged(new PrivilegedAction<FileTypeDetector>() {
+                .doPrivileged(new PrivilegedAction<>() {
                     @Override public FileTypeDetector run() {
                         return sun.nio.fs.DefaultFileTypeDetector.create();
                 }});
@@ -1550,7 +1577,7 @@ public final class Files {
         // loads all installed file type detectors
         private static List<FileTypeDetector> loadInstalledDetectors() {
             return AccessController
-                .doPrivileged(new PrivilegedAction<List<FileTypeDetector>>() {
+                .doPrivileged(new PrivilegedAction<>() {
                     @Override public List<FileTypeDetector> run() {
                         List<FileTypeDetector> list = new ArrayList<>();
                         ServiceLoader<FileTypeDetector> loader = ServiceLoader
@@ -1578,11 +1605,10 @@ public final class Files {
      * list of file type detectors. Installed file type detectors are loaded
      * using the service-provider loading facility defined by the {@link ServiceLoader}
      * class. Installed file type detectors are loaded using the system class
-     * loader. If the system class loader cannot be found then the extension class
-     * loader is used; If the extension class loader cannot be found then the
-     * bootstrap class loader is used. File type detectors are typically installed
-     * by placing them in a JAR file on the application class path or in the
-     * extension directory, the JAR file contains a provider-configuration file
+     * loader. If the system class loader cannot be found then the platform class
+     * loader is used. File type detectors are typically installed
+     * by placing them in a JAR file on the application class path,
+     * the JAR file contains a provider-configuration file
      * named {@code java.nio.file.spi.FileTypeDetector} in the resource directory
      * {@code META-INF/services}, and the file lists one or more fully-qualified
      * names of concrete subclass of {@code FileTypeDetector } that have a zero
@@ -1614,7 +1640,7 @@ public final class Files {
         throws IOException
     {
         // try installed file type detectors
-        for (FileTypeDetector detector: FileTypeDetectors.installeDetectors) {
+        for (FileTypeDetector detector: FileTypeDetectors.installedDetectors) {
             String result = detector.probeContentType(path);
             if (result != null)
                 return result;
@@ -1703,7 +1729,8 @@ public final class Files {
      * Alternatively, suppose we want to read file's POSIX attributes without
      * following symbolic links:
      * <pre>
-     *    PosixFileAttributes attrs = Files.readAttributes(path, PosixFileAttributes.class, NOFOLLOW_LINKS);
+     *    PosixFileAttributes attrs =
+     *        Files.readAttributes(path, PosixFileAttributes.class, NOFOLLOW_LINKS);
      * </pre>
      *
      * @param   <A>
@@ -1777,7 +1804,7 @@ public final class Files {
      * @param   options
      *          options indicating how symbolic links are handled
      *
-     * @return  the {@code path} parameter
+     * @return  the given path
      *
      * @throws  UnsupportedOperationException
      *          if the attribute view is not available
@@ -1896,7 +1923,7 @@ public final class Files {
      * many file systems.
      *
      * <p> The <i>attribute-list</i> component is a comma separated list of
-     * zero or more names of attributes to read. If the list contains the value
+     * one or more names of attributes to read. If the list contains the value
      * {@code "*"} then all attributes are read. Attributes that are not supported
      * are ignored and will not be present in the returned map. It is
      * implementation specific if all attributes are read as an atomic operation
@@ -1905,27 +1932,33 @@ public final class Files {
      * <p> The following examples demonstrate possible values for the {@code
      * attributes} parameter:
      *
-     * <blockquote>
-     * <table border="0" summary="Possible values">
+     * <table class="striped" style="text-align: left; margin-left:2em">
+     * <caption style="display:none">Possible values</caption>
+     * <thead>
      * <tr>
-     *   <td> {@code "*"} </td>
+     *  <th scope="col">Example
+     *  <th scope="col">Description
+     * </thead>
+     * <tbody>
+     * <tr>
+     *   <th scope="row"> {@code "*"} </th>
      *   <td> Read all {@link BasicFileAttributes basic-file-attributes}. </td>
      * </tr>
      * <tr>
-     *   <td> {@code "size,lastModifiedTime,lastAccessTime"} </td>
+     *   <th scope="row"> {@code "size,lastModifiedTime,lastAccessTime"} </th>
      *   <td> Reads the file size, last modified time, and last access time
      *     attributes. </td>
      * </tr>
      * <tr>
-     *   <td> {@code "posix:*"} </td>
+     *   <th scope="row"> {@code "posix:*"} </th>
      *   <td> Read all {@link PosixFileAttributes POSIX-file-attributes}. </td>
      * </tr>
      * <tr>
-     *   <td> {@code "posix:permissions,owner,size"} </td>
-     *   <td> Reads the POSX file permissions, owner, and file size. </td>
+     *   <th scope="row"> {@code "posix:permissions,owner,size"} </th>
+     *   <td> Reads the POSIX file permissions, owner, and file size. </td>
      * </tr>
+     * </tbody>
      * </table>
-     * </blockquote>
      *
      * <p> The {@code options} array may be used to indicate how symbolic links
      * are handled for the case that the file is a symbolic link. By default,
@@ -1946,7 +1979,7 @@ public final class Files {
      * @throws  UnsupportedOperationException
      *          if the attribute view is not available
      * @throws  IllegalArgumentException
-     *          if no attributes are specified or an unrecognized attributes is
+     *          if no attributes are specified or an unrecognized attribute is
      *          specified
      * @throws  IOException
      *          if an I/O error occurs
@@ -1993,7 +2026,8 @@ public final class Files {
      *          if an I/O error occurs
      * @throws  SecurityException
      *          In the case of the default provider, a security manager is
-     *          installed, and it denies {@link RuntimePermission}<tt>("accessUserInformation")</tt>
+     *          installed, and it denies
+     *          {@link RuntimePermission}{@code ("accessUserInformation")}
      *          or its {@link SecurityManager#checkRead(String) checkRead} method
      *          denies read access to the file.
      */
@@ -2018,7 +2052,7 @@ public final class Files {
      * @param   perms
      *          The new set of permissions
      *
-     * @return  The path
+     * @return  The given path
      *
      * @throws  UnsupportedOperationException
      *          if the associated file system does not support the {@code
@@ -2030,7 +2064,8 @@ public final class Files {
      *          if an I/O error occurs
      * @throws  SecurityException
      *          In the case of the default provider, and a security manager is
-     *          installed, it denies {@link RuntimePermission}<tt>("accessUserInformation")</tt>
+     *          installed, it denies
+     *          {@link RuntimePermission}{@code ("accessUserInformation")}
      *          or its {@link SecurityManager#checkWrite(String) checkWrite}
      *          method denies write access to the file.
      */
@@ -2067,7 +2102,8 @@ public final class Files {
      *          if an I/O error occurs
      * @throws  SecurityException
      *          In the case of the default provider, and a security manager is
-     *          installed, it denies {@link RuntimePermission}<tt>("accessUserInformation")</tt>
+     *          installed, it denies
+     *          {@link RuntimePermission}{@code ("accessUserInformation")}
      *          or its {@link SecurityManager#checkRead(String) checkRead} method
      *          denies read access to the file.
      */
@@ -2101,7 +2137,7 @@ public final class Files {
      * @param   owner
      *          The new file owner
      *
-     * @return  The path
+     * @return  The given path
      *
      * @throws  UnsupportedOperationException
      *          if the associated file system does not support the {@code
@@ -2110,7 +2146,8 @@ public final class Files {
      *          if an I/O error occurs
      * @throws  SecurityException
      *          In the case of the default provider, and a security manager is
-     *          installed, it denies {@link RuntimePermission}<tt>("accessUserInformation")</tt>
+     *          installed, it denies
+     *          {@link RuntimePermission}{@code ("accessUserInformation")}
      *          or its {@link SecurityManager#checkWrite(String) checkWrite}
      *          method denies write access to the file.
      *
@@ -2188,6 +2225,12 @@ public final class Files {
      *          method denies read access to the file.
      */
     public static boolean isDirectory(Path path, LinkOption... options) {
+        if (options.length == 0) {
+            FileSystemProvider provider = provider(path);
+            if (provider instanceof AbstractFileSystemProvider)
+                return ((AbstractFileSystemProvider)provider).isDirectory(path);
+        }
+
         try {
             return readAttributes(path, BasicFileAttributes.class, options).isDirectory();
         } catch (IOException ioe) {
@@ -2225,6 +2268,12 @@ public final class Files {
      *          method denies read access to the file.
      */
     public static boolean isRegularFile(Path path, LinkOption... options) {
+        if (options.length == 0) {
+            FileSystemProvider provider = provider(path);
+            if (provider instanceof AbstractFileSystemProvider)
+                return ((AbstractFileSystemProvider)provider).isRegularFile(path);
+        }
+
         try {
             return readAttributes(path, BasicFileAttributes.class, options).isRegularFile();
         } catch (IOException ioe) {
@@ -2288,22 +2337,27 @@ public final class Files {
      * @param   time
      *          the new last modified time
      *
-     * @return  the path
+     * @return  the given path
      *
      * @throws  IOException
      *          if an I/O error occurs
      * @throws  SecurityException
-     *          In the case of the default provider, the security manager's {@link
-     *          SecurityManager#checkWrite(String) checkWrite} method is invoked
-     *          to check write access to file
+     *          In the case of the default provider, and a security manager is
+     *          installed, its {@link SecurityManager#checkWrite(String)
+     *          checkWrite} method denies write access to the file.
      *
      * @see BasicFileAttributeView#setTimes
      */
     public static Path setLastModifiedTime(Path path, FileTime time)
         throws IOException
     {
-        getFileAttributeView(path, BasicFileAttributeView.class)
-            .setTimes(time, null, null);
+        // Android-added: App compat. Android ignores null time instead of throwing NPE.
+        // getFileAttributeView(path, BasicFileAttributeView.class)
+        //         .setTimes(Objects.requireNonNull(time), null, null);
+        if (time != null) {
+            getFileAttributeView(path, BasicFileAttributeView.class)
+                    .setTimes(time, null, null);
+        }
         return path;
     }
 
@@ -2361,7 +2415,7 @@ public final class Files {
      *
      * <p> Note that the result of this method is immediately outdated. If this
      * method indicates the file exists then there is no guarantee that a
-     * subsequence access will succeed. Care should be taken when using this
+     * subsequent access will succeed. Care should be taken when using this
      * method in security sensitive applications.
      *
      * @param   path
@@ -2380,6 +2434,12 @@ public final class Files {
      * @see #notExists
      */
     public static boolean exists(Path path, LinkOption... options) {
+        if (options.length == 0) {
+            FileSystemProvider provider = provider(path);
+            if (provider instanceof AbstractFileSystemProvider)
+                return ((AbstractFileSystemProvider)provider).exists(path);
+        }
+
         try {
             if (followLinks(options)) {
                 provider(path).checkAccess(path);
@@ -2412,7 +2472,7 @@ public final class Files {
      * or not then both methods return {@code false}. As with the {@code exists}
      * method, the result of this method is immediately outdated. If this
      * method indicates the file does exist then there is no guarantee that a
-     * subsequence attempt to create the file will succeed. Care should be taken
+     * subsequent attempt to create the file will succeed. Care should be taken
      * when using this method in security sensitive applications.
      *
      * @param   path
@@ -2448,7 +2508,7 @@ public final class Files {
     }
 
     /**
-     * Used by isReadbale, isWritable, isExecutable to test access to a file.
+     * Used by isReadable, isWritable, isExecutable to test access to a file.
      */
     private static boolean isAccessible(Path path, AccessMode... modes) {
         try {
@@ -2813,13 +2873,15 @@ public final class Files {
      * @since 1.8
      */
     public static BufferedReader newBufferedReader(Path path) throws IOException {
+        // Android-changed: use StandardCharsets.
+        // return newBufferedReader(path, UTF_8.INSTANCE);
         return newBufferedReader(path, StandardCharsets.UTF_8);
     }
 
     /**
      * Opens or creates a file for writing, returning a {@code BufferedWriter}
      * that may be used to write text to the file in an efficient manner.
-     * The {@code options} parameter specifies how the the file is created or
+     * The {@code options} parameter specifies how the file is created or
      * opened. If no options are present then this method works as if the {@link
      * StandardOpenOption#CREATE CREATE}, {@link
      * StandardOpenOption#TRUNCATE_EXISTING TRUNCATE_EXISTING}, and {@link
@@ -2841,6 +2903,8 @@ public final class Files {
      * @return  a new buffered writer, with default buffer size, to write text
      *          to the file
      *
+     * @throws  IllegalArgumentException
+     *          if {@code options} contains an invalid combination of options
      * @throws  IOException
      *          if an I/O error occurs opening or creating the file
      * @throws  UnsupportedOperationException
@@ -2848,7 +2912,10 @@ public final class Files {
      * @throws  SecurityException
      *          In the case of the default provider, and a security manager is
      *          installed, the {@link SecurityManager#checkWrite(String) checkWrite}
-     *          method is invoked to check write access to the file.
+     *          method is invoked to check write access to the file. The {@link
+     *          SecurityManager#checkDelete(String) checkDelete} method is
+     *          invoked to check delete access if the file is opened with the
+     *          {@code DELETE_ON_CLOSE} option.
      *
      * @see #write(Path,Iterable,Charset,OpenOption[])
      */
@@ -2881,6 +2948,8 @@ public final class Files {
      * @return  a new buffered writer, with default buffer size, to write text
      *          to the file
      *
+     * @throws  IllegalArgumentException
+     *          if {@code options} contains an invalid combination of options
      * @throws  IOException
      *          if an I/O error occurs opening or creating the file
      * @throws  UnsupportedOperationException
@@ -2888,28 +2957,19 @@ public final class Files {
      * @throws  SecurityException
      *          In the case of the default provider, and a security manager is
      *          installed, the {@link SecurityManager#checkWrite(String) checkWrite}
-     *          method is invoked to check write access to the file.
+     *          method is invoked to check write access to the file. The {@link
+     *          SecurityManager#checkDelete(String) checkDelete} method is
+     *          invoked to check delete access if the file is opened with the
+     *          {@code DELETE_ON_CLOSE} option.
      *
      * @since 1.8
      */
-    public static BufferedWriter newBufferedWriter(Path path, OpenOption... options) throws IOException {
-        return newBufferedWriter(path, StandardCharsets.UTF_8, options);
-    }
-
-    /**
-     * Reads all bytes from an input stream and writes them to an output stream.
-     */
-    private static long copy(InputStream source, OutputStream sink)
+    public static BufferedWriter newBufferedWriter(Path path, OpenOption... options)
         throws IOException
     {
-        long nread = 0L;
-        byte[] buf = new byte[BUFFER_SIZE];
-        int n;
-        while ((n = source.read(buf)) > 0) {
-            sink.write(buf, 0, n);
-            nread += n;
-        }
-        return nread;
+        // Android-changed: use StandardCharsets.
+        //return newBufferedWriter(path, UTF_8.INSTANCE, options);
+        return newBufferedWriter(path, StandardCharsets.UTF_8, options);
     }
 
     /**
@@ -3024,7 +3084,7 @@ public final class Files {
 
         // do the copy
         try (OutputStream out = ostream) {
-            return copy(in, out);
+            return in.transferTo(out);
         }
     }
 
@@ -3066,7 +3126,7 @@ public final class Files {
         Objects.requireNonNull(out);
 
         try (InputStream in = newInputStream(source)) {
-            return copy(in, out);
+            return in.transferTo(out);
         }
     }
 
@@ -3077,6 +3137,8 @@ public final class Files {
      * OutOfMemoryError: Requested array size exceeds VM limit
      */
     private static final int MAX_BUFFER_SIZE = Integer.MAX_VALUE - 8;
+
+    private static final JavaLangAccess JLA = SharedSecrets.getJavaLangAccess();
 
     /**
      * Reads all the bytes from an input stream. Uses {@code initialSize} as a hint
@@ -3151,12 +3213,89 @@ public final class Files {
     public static byte[] readAllBytes(Path path) throws IOException {
         try (SeekableByteChannel sbc = Files.newByteChannel(path);
              InputStream in = Channels.newInputStream(sbc)) {
+            if (sbc instanceof FileChannelImpl)
+                ((FileChannelImpl) sbc).setUninterruptible();
             long size = sbc.size();
-            if (size > (long)MAX_BUFFER_SIZE)
+            if (size > (long) MAX_BUFFER_SIZE)
                 throw new OutOfMemoryError("Required array size too large");
-
             return read(in, (int)size);
         }
+    }
+
+    /**
+     * Reads all content from a file into a string, decoding from bytes to characters
+     * using the {@link StandardCharsets#UTF_8 UTF-8} {@link Charset charset}.
+     * The method ensures that the file is closed when all content have been read
+     * or an I/O error, or other runtime exception, is thrown.
+     *
+     * <p> This method is equivalent to:
+     * {@code readString(path, StandardCharsets.UTF_8) }
+     *
+     * @param   path the path to the file
+     *
+     * @return  a String containing the content read from the file
+     *
+     * @throws  IOException
+     *          if an I/O error occurs reading from the file or a malformed or
+     *          unmappable byte sequence is read
+     * @throws  OutOfMemoryError
+     *          if the file is extremely large, for example larger than {@code 2GB}
+     * @throws  SecurityException
+     *          In the case of the default provider, and a security manager is
+     *          installed, the {@link SecurityManager#checkRead(String) checkRead}
+     *          method is invoked to check read access to the file.
+     *
+     * @since 11
+     */
+    public static String readString(Path path) throws IOException {
+        // Android-changed: use StandardCharsets.
+        //return readString(path, UTF_8.INSTANCE);
+        return readString(path, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Reads all characters from a file into a string, decoding from bytes to characters
+     * using the specified {@linkplain Charset charset}.
+     * The method ensures that the file is closed when all content have been read
+     * or an I/O error, or other runtime exception, is thrown.
+     *
+     * <p> This method reads all content including the line separators in the middle
+     * and/or at the end. The resulting string will contain line separators as they
+     * appear in the file.
+     *
+     * @apiNote
+     * This method is intended for simple cases where it is appropriate and convenient
+     * to read the content of a file into a String. It is not intended for reading
+     * very large files.
+     *
+     *
+     *
+     * @param   path the path to the file
+     * @param   cs the charset to use for decoding
+     *
+     * @return  a String containing the content read from the file
+     *
+     * @throws  IOException
+     *          if an I/O error occurs reading from the file or a malformed or
+     *          unmappable byte sequence is read
+     * @throws  OutOfMemoryError
+     *          if the file is extremely large, for example larger than {@code 2GB}
+     * @throws  SecurityException
+     *          In the case of the default provider, and a security manager is
+     *          installed, the {@link SecurityManager#checkRead(String) checkRead}
+     *          method is invoked to check read access to the file.
+     *
+     * @since 11
+     */
+    public static String readString(Path path, Charset cs) throws IOException {
+        Objects.requireNonNull(path);
+        Objects.requireNonNull(cs);
+
+        byte[] ba = readAllBytes(path);
+        // Android-changed: Android's JLA.newStringNoRepl doesn't take ownership of the byte[].
+        // if (path.getClass().getModule() != Object.class.getModule())
+        //     ba = ba.clone();
+        return JLA.newStringNoRepl(ba, cs);
     }
 
     /**
@@ -3239,11 +3378,13 @@ public final class Files {
      * @since 1.8
      */
     public static List<String> readAllLines(Path path) throws IOException {
+        // Android-changed: use StandardCharsets.
+        //return readAllLines(path, UTF_8.INSTANCE);
         return readAllLines(path, StandardCharsets.UTF_8);
     }
 
     /**
-     * Writes bytes to a file. The {@code options} parameter specifies how the
+     * Writes bytes to a file. The {@code options} parameter specifies how
      * the file is created or opened. If no options are present then this method
      * works as if the {@link StandardOpenOption#CREATE CREATE}, {@link
      * StandardOpenOption#TRUNCATE_EXISTING TRUNCATE_EXISTING}, and {@link
@@ -3253,8 +3394,8 @@ public final class Files {
      * a size of {@code 0}. All bytes in the byte array are written to the file.
      * The method ensures that the file is closed when all bytes have been
      * written (or an I/O error or other runtime exception is thrown). If an I/O
-     * error occurs then it may do so after the file has created or truncated,
-     * or after some bytes have been written to the file.
+     * error occurs then it may do so after the file has been created or
+     * truncated, or after some bytes have been written to the file.
      *
      * <p> <b>Usage example</b>: By default the method creates a new file or
      * overwrites an existing file. Suppose you instead want to append bytes
@@ -3274,6 +3415,8 @@ public final class Files {
      *
      * @return  the path
      *
+     * @throws  IllegalArgumentException
+     *          if {@code options} contains an invalid combination of options
      * @throws  IOException
      *          if an I/O error occurs writing to or creating the file
      * @throws  UnsupportedOperationException
@@ -3281,7 +3424,10 @@ public final class Files {
      * @throws  SecurityException
      *          In the case of the default provider, and a security manager is
      *          installed, the {@link SecurityManager#checkWrite(String) checkWrite}
-     *          method is invoked to check write access to the file.
+     *          method is invoked to check write access to the file. The {@link
+     *          SecurityManager#checkDelete(String) checkDelete} method is
+     *          invoked to check delete access if the file is opened with the
+     *          {@code DELETE_ON_CLOSE} option.
      */
     public static Path write(Path path, byte[] bytes, OpenOption... options)
         throws IOException
@@ -3308,7 +3454,7 @@ public final class Files {
      * line.separator}. Characters are encoded into bytes using the specified
      * charset.
      *
-     * <p> The {@code options} parameter specifies how the the file is created
+     * <p> The {@code options} parameter specifies how the file is created
      * or opened. If no options are present then this method works as if the
      * {@link StandardOpenOption#CREATE CREATE}, {@link
      * StandardOpenOption#TRUNCATE_EXISTING TRUNCATE_EXISTING}, and {@link
@@ -3318,7 +3464,8 @@ public final class Files {
      * a size of {@code 0}. The method ensures that the file is closed when all
      * lines have been written (or an I/O error or other runtime exception is
      * thrown). If an I/O error occurs then it may do so after the file has
-     * created or truncated, or after some bytes have been written to the file.
+     * been created or truncated, or after some bytes have been written to the
+     * file.
      *
      * @param   path
      *          the path to the file
@@ -3331,6 +3478,8 @@ public final class Files {
      *
      * @return  the path
      *
+     * @throws  IllegalArgumentException
+     *          if {@code options} contains an invalid combination of options
      * @throws  IOException
      *          if an I/O error occurs writing to or creating the file, or the
      *          text cannot be encoded using the specified charset
@@ -3339,7 +3488,10 @@ public final class Files {
      * @throws  SecurityException
      *          In the case of the default provider, and a security manager is
      *          installed, the {@link SecurityManager#checkWrite(String) checkWrite}
-     *          method is invoked to check write access to the file.
+     *          method is invoked to check write access to the file. The {@link
+     *          SecurityManager#checkDelete(String) checkDelete} method is
+     *          invoked to check delete access if the file is opened with the
+     *          {@code DELETE_ON_CLOSE} option.
      */
     public static Path write(Path path, Iterable<? extends CharSequence> lines,
                              Charset cs, OpenOption... options)
@@ -3348,8 +3500,8 @@ public final class Files {
         // ensure lines is not null before opening file
         Objects.requireNonNull(lines);
         CharsetEncoder encoder = cs.newEncoder();
-        OutputStream out = newOutputStream(path, options);
-        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(out, encoder))) {
+        try (OutputStream out = newOutputStream(path, options);
+             BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(out, encoder))) {
             for (CharSequence line: lines) {
                 writer.append(line);
                 writer.newLine();
@@ -3377,6 +3529,8 @@ public final class Files {
      *
      * @return  the path
      *
+     * @throws  IllegalArgumentException
+     *          if {@code options} contains an invalid combination of options
      * @throws  IOException
      *          if an I/O error occurs writing to or creating the file, or the
      *          text cannot be encoded as {@code UTF-8}
@@ -3385,7 +3539,10 @@ public final class Files {
      * @throws  SecurityException
      *          In the case of the default provider, and a security manager is
      *          installed, the {@link SecurityManager#checkWrite(String) checkWrite}
-     *          method is invoked to check write access to the file.
+     *          method is invoked to check write access to the file. The {@link
+     *          SecurityManager#checkDelete(String) checkDelete} method is
+     *          invoked to check delete access if the file is opened with the
+     *          {@code DELETE_ON_CLOSE} option.
      *
      * @since 1.8
      */
@@ -3394,7 +3551,115 @@ public final class Files {
                              OpenOption... options)
         throws IOException
     {
+        // Android-changed: use StandardCharsets.
+        //return write(path, lines, UTF_8.INSTANCE, options);
         return write(path, lines, StandardCharsets.UTF_8, options);
+    }
+
+    /**
+     * Write a {@linkplain java.lang.CharSequence CharSequence} to a file.
+     * Characters are encoded into bytes using the
+     * {@link StandardCharsets#UTF_8 UTF-8} {@link Charset charset}.
+     *
+     * <p> This method is equivalent to:
+     * {@code writeString(path, test, StandardCharsets.UTF_8, options) }
+     *
+     * @param   path
+     *          the path to the file
+     * @param   csq
+     *          the CharSequence to be written
+     * @param   options
+     *          options specifying how the file is opened
+     *
+     * @return  the path
+     *
+     * @throws  IllegalArgumentException
+     *          if {@code options} contains an invalid combination of options
+     * @throws  IOException
+     *          if an I/O error occurs writing to or creating the file, or the
+     *          text cannot be encoded using the specified charset
+     * @throws  UnsupportedOperationException
+     *          if an unsupported option is specified
+     * @throws  SecurityException
+     *          In the case of the default provider, and a security manager is
+     *          installed, the {@link SecurityManager#checkWrite(String) checkWrite}
+     *          method is invoked to check write access to the file. The {@link
+     *          SecurityManager#checkDelete(String) checkDelete} method is
+     *          invoked to check delete access if the file is opened with the
+     *          {@code DELETE_ON_CLOSE} option.
+     *
+     * @since 11
+     */
+    public static Path writeString(Path path, CharSequence csq, OpenOption... options)
+            throws IOException
+    {
+        // Android-changed: use StandardCharsets.
+        //return writeString(path, csq, UTF_8.INSTANCE, options);
+        return writeString(path, csq, StandardCharsets.UTF_8, options);
+    }
+
+    /**
+     * Write a {@linkplain java.lang.CharSequence CharSequence} to a file.
+     * Characters are encoded into bytes using the specified
+     * {@linkplain java.nio.charset.Charset charset}.
+     *
+     * <p> All characters are written as they are, including the line separators in
+     * the char sequence. No extra characters are added.
+     *
+     * <p> The {@code options} parameter specifies how the file is created
+     * or opened. If no options are present then this method works as if the
+     * {@link StandardOpenOption#CREATE CREATE}, {@link
+     * StandardOpenOption#TRUNCATE_EXISTING TRUNCATE_EXISTING}, and {@link
+     * StandardOpenOption#WRITE WRITE} options are present. In other words, it
+     * opens the file for writing, creating the file if it doesn't exist, or
+     * initially truncating an existing {@link #isRegularFile regular-file} to
+     * a size of {@code 0}.
+     *
+     *
+     * @param   path
+     *          the path to the file
+     * @param   csq
+     *          the CharSequence to be written
+     * @param   cs
+     *          the charset to use for encoding
+     * @param   options
+     *          options specifying how the file is opened
+     *
+     * @return  the path
+     *
+     * @throws  IllegalArgumentException
+     *          if {@code options} contains an invalid combination of options
+     * @throws  IOException
+     *          if an I/O error occurs writing to or creating the file, or the
+     *          text cannot be encoded using the specified charset
+     * @throws  UnsupportedOperationException
+     *          if an unsupported option is specified
+     * @throws  SecurityException
+     *          In the case of the default provider, and a security manager is
+     *          installed, the {@link SecurityManager#checkWrite(String) checkWrite}
+     *          method is invoked to check write access to the file. The {@link
+     *          SecurityManager#checkDelete(String) checkDelete} method is
+     *          invoked to check delete access if the file is opened with the
+     *          {@code DELETE_ON_CLOSE} option.
+     *
+     * @since 11
+     */
+    public static Path writeString(Path path, CharSequence csq, Charset cs, OpenOption... options)
+            throws IOException
+    {
+        // ensure the text is not null before opening file
+        Objects.requireNonNull(path);
+        Objects.requireNonNull(csq);
+        Objects.requireNonNull(cs);
+
+        byte[] bytes = JLA.getBytesNoRepl(String.valueOf(csq), cs);
+
+        // Android-changed: Android's JLA.getBytesNoRepl returns a copy.
+        // if (path.getClass().getModule() != Object.class.getModule())
+        //     bytes = bytes.clone();
+        write(path, bytes, options);
+
+        return path;
     }
 
     // -- Stream APIs --
@@ -3414,11 +3679,8 @@ public final class Files {
      * reflect updates to the directory that occur after returning from this
      * method.
      *
-     * <p> The returned stream encapsulates a {@link DirectoryStream}.
-     * If timely disposal of file system resources is required, the
-     * {@code try}-with-resources construct should be used to ensure that the
-     * stream's {@link Stream#close close} method is invoked after the stream
-     * operations are completed.
+     * <p> The returned stream contains a reference to an open directory.
+     * The directory is closed by closing the stream.
      *
      * <p> Operating on a closed stream behaves as if the end of stream
      * has been reached. Due to read-ahead, one or more elements may be
@@ -3428,6 +3690,11 @@ public final class Files {
      * after this method has returned, it is wrapped in an {@link
      * UncheckedIOException} which will be thrown from the method that caused
      * the access to take place.
+     *
+     * @apiNote
+     * This method must be used within a try-with-resources statement or similar
+     * control structure to ensure that the stream's open directory is closed
+     * promptly after the stream's operations have completed.
      *
      * @param   dir  The path to the directory
      *
@@ -3453,7 +3720,7 @@ public final class Files {
             final Iterator<Path> delegate = ds.iterator();
 
             // Re-wrap DirectoryIteratorException to UncheckedIOException
-            Iterator<Path> it = new Iterator<Path>() {
+            Iterator<Path> iterator = new Iterator<>() {
                 @Override
                 public boolean hasNext() {
                     try {
@@ -3472,7 +3739,9 @@ public final class Files {
                 }
             };
 
-            return StreamSupport.stream(Spliterators.spliteratorUnknownSize(it, Spliterator.DISTINCT), false)
+            Spliterator<Path> spliterator =
+                Spliterators.spliteratorUnknownSize(iterator, Spliterator.DISTINCT);
+            return StreamSupport.stream(spliterator, false)
                                 .onClose(asUncheckedRunnable(ds));
         } catch (Error|RuntimeException e) {
             try {
@@ -3534,17 +3803,18 @@ public final class Files {
      * <p> When a security manager is installed and it denies access to a file
      * (or directory), then it is ignored and not included in the stream.
      *
-     * <p> The returned stream encapsulates one or more {@link DirectoryStream}s.
-     * If timely disposal of file system resources is required, the
-     * {@code try}-with-resources construct should be used to ensure that the
-     * stream's {@link Stream#close close} method is invoked after the stream
-     * operations are completed.  Operating on a closed stream will result in an
-     * {@link java.lang.IllegalStateException}.
+     * <p> The returned stream contains references to one or more open directories.
+     * The directories are closed by closing the stream.
      *
      * <p> If an {@link IOException} is thrown when accessing the directory
      * after this method has returned, it is wrapped in an {@link
      * UncheckedIOException} which will be thrown from the method that caused
      * the access to take place.
+     *
+     * @apiNote
+     * This method must be used within a try-with-resources statement or similar
+     * control structure to ensure that the stream's open directories are closed
+     * promptly after the stream's operations have completed.
      *
      * @param   start
      *          the starting file
@@ -3573,7 +3843,9 @@ public final class Files {
     {
         FileTreeIterator iterator = new FileTreeIterator(start, maxDepth, options);
         try {
-            return StreamSupport.stream(Spliterators.spliteratorUnknownSize(iterator, Spliterator.DISTINCT), false)
+            Spliterator<FileTreeWalker.Event> spliterator =
+                Spliterators.spliteratorUnknownSize(iterator, Spliterator.DISTINCT);
+            return StreamSupport.stream(spliterator, false)
                                 .onClose(iterator::close)
                                 .map(entry -> entry.file());
         } catch (Error|RuntimeException e) {
@@ -3596,12 +3868,13 @@ public final class Files {
      * </pre></blockquote>
      * In other words, it visits all levels of the file tree.
      *
-     * <p> The returned stream encapsulates one or more {@link DirectoryStream}s.
-     * If timely disposal of file system resources is required, the
-     * {@code try}-with-resources construct should be used to ensure that the
-     * stream's {@link Stream#close close} method is invoked after the stream
-     * operations are completed.  Operating on a closed stream will result in an
-     * {@link java.lang.IllegalStateException}.
+     * <p> The returned stream contains references to one or more open directories.
+     * The directories are closed by closing the stream.
+     *
+     * @apiNote
+     * This method must be used within a try-with-resources statement or similar
+     * control structure to ensure that the stream's open directories are closed
+     * promptly after the stream's operations have completed.
      *
      * @param   start
      *          the starting file
@@ -3641,17 +3914,18 @@ public final class Files {
      * returned by {@code walk} method, this method may be more efficient by
      * avoiding redundant retrieval of the {@code BasicFileAttributes}.
      *
-     * <p> The returned stream encapsulates one or more {@link DirectoryStream}s.
-     * If timely disposal of file system resources is required, the
-     * {@code try}-with-resources construct should be used to ensure that the
-     * stream's {@link Stream#close close} method is invoked after the stream
-     * operations are completed.  Operating on a closed stream will result in an
-     * {@link java.lang.IllegalStateException}.
+     * <p> The returned stream contains references to one or more open directories.
+     * The directories are closed by closing the stream.
      *
      * <p> If an {@link IOException} is thrown when accessing the directory
      * after returned from this method, it is wrapped in an {@link
      * UncheckedIOException} which will be thrown from the method that caused
      * the access to take place.
+     *
+     * @apiNote
+     * This method must be used within a try-with-resources statement or similar
+     * control structure to ensure that the stream's open directories are closed
+     * promptly after the stream's operations have completed.
      *
      * @param   start
      *          the starting file
@@ -3686,7 +3960,9 @@ public final class Files {
     {
         FileTreeIterator iterator = new FileTreeIterator(start, maxDepth, options);
         try {
-            return StreamSupport.stream(Spliterators.spliteratorUnknownSize(iterator, Spliterator.DISTINCT), false)
+            Spliterator<FileTreeWalker.Event> spliterator =
+                Spliterators.spliteratorUnknownSize(iterator, Spliterator.DISTINCT);
+            return StreamSupport.stream(spliterator, false)
                                 .onClose(iterator::close)
                                 .filter(entry -> matcher.test(entry.file(), entry.attributes()))
                                 .map(entry -> entry.file());
@@ -3695,6 +3971,7 @@ public final class Files {
             throw e;
         }
     }
+
 
     /**
      * Read all lines from a file as a {@code Stream}. Unlike {@link
@@ -3706,6 +3983,13 @@ public final class Files {
      * charset and the same line terminators as specified by {@code
      * readAllLines} are supported.
      *
+     * <p> The returned stream contains a reference to an open file. The file
+     * is closed by closing the stream.
+     *
+     * <p> The file contents should not be modified during the execution of the
+     * terminal stream operation. Otherwise, the result of the terminal stream
+     * operation is undefined.
+     *
      * <p> After this method returns, then any subsequent I/O exception that
      * occurs while reading from the file or when a malformed or unmappable byte
      * sequence is read, is wrapped in an {@link UncheckedIOException} that will
@@ -3714,12 +3998,34 @@ public final class Files {
      * place. In case an {@code IOException} is thrown when closing the file,
      * it is also wrapped as an {@code UncheckedIOException}.
      *
-     * <p> The returned stream encapsulates a {@link Reader}.  If timely
-     * disposal of file system resources is required, the try-with-resources
-     * construct should be used to ensure that the stream's
-     * {@link Stream#close close} method is invoked after the stream operations
-     * are completed.
+     * @apiNote
+     * This method must be used within a try-with-resources statement or similar
+     * control structure to ensure that the stream's open file is closed promptly
+     * after the stream's operations have completed.
      *
+     * @implNote
+     * This implementation supports good parallel stream performance for the
+     * standard charsets {@link StandardCharsets#UTF_8 UTF-8},
+     * {@link StandardCharsets#US_ASCII US-ASCII} and
+     * {@link StandardCharsets#ISO_8859_1 ISO-8859-1}.  Such
+     * <em>line-optimal</em> charsets have the property that the encoded bytes
+     * of a line feed ('\n') or a carriage return ('\r') are efficiently
+     * identifiable from other encoded characters when randomly accessing the
+     * bytes of the file.
+     *
+     * <p> For non-<em>line-optimal</em> charsets the stream source's
+     * spliterator has poor splitting properties, similar to that of a
+     * spliterator associated with an iterator or that associated with a stream
+     * returned from {@link BufferedReader#lines()}.  Poor splitting properties
+     * can result in poor parallel stream performance.
+     *
+     * <p> For <em>line-optimal</em> charsets the stream source's spliterator
+     * has good splitting properties, assuming the file contains a regular
+     * sequence of lines.  Good splitting properties can result in good parallel
+     * stream performance.  The spliterator for a <em>line-optimal</em> charset
+     * takes advantage of the charset properties (a line feed or a carriage
+     * return being efficient identifiable) such that when splitting it can
+     * approximately divide the number of covered lines in half.
      *
      * @param   path
      *          the path to the file
@@ -3741,7 +4047,52 @@ public final class Files {
      * @since   1.8
      */
     public static Stream<String> lines(Path path, Charset cs) throws IOException {
-        BufferedReader br = Files.newBufferedReader(path, cs);
+        // Use the good splitting spliterator if:
+        // 1) the path is associated with the default file system;
+        // 2) the character set is supported; and
+        // 3) the file size is such that all bytes can be indexed by int values
+        //    (this limitation is imposed by ByteBuffer)
+        if (path.getFileSystem() == FileSystems.getDefault() &&
+            FileChannelLinesSpliterator.SUPPORTED_CHARSET_NAMES.contains(cs.name())) {
+            FileChannel fc = FileChannel.open(path, StandardOpenOption.READ);
+
+            Stream<String> fcls = createFileChannelLinesStream(fc, cs);
+            if (fcls != null) {
+                return fcls;
+            }
+            fc.close();
+        }
+
+        return createBufferedReaderLinesStream(Files.newBufferedReader(path, cs));
+    }
+
+    private static Stream<String> createFileChannelLinesStream(FileChannel fc, Charset cs) throws IOException {
+        try {
+            // Obtaining the size from the FileChannel is much faster
+            // than obtaining using path.toFile().length()
+            long length = fc.size();
+            // FileChannel.size() may in certain circumstances return zero
+            // for a non-zero length file so disallow this case.
+            if (length > 0 && length <= Integer.MAX_VALUE) {
+                Spliterator<String> s = new FileChannelLinesSpliterator(fc, cs, 0, (int) length);
+                return StreamSupport.stream(s, false)
+                        .onClose(Files.asUncheckedRunnable(fc));
+            }
+        } catch (Error|RuntimeException|IOException e) {
+            try {
+                fc.close();
+            } catch (IOException ex) {
+                try {
+                    e.addSuppressed(ex);
+                } catch (Throwable ignore) {
+                }
+            }
+            throw e;
+        }
+        return null;
+    }
+
+    private static Stream<String> createBufferedReaderLinesStream(BufferedReader br) {
         try {
             return br.lines().onClose(asUncheckedRunnable(br));
         } catch (Error|RuntimeException e) {
@@ -3750,7 +4101,8 @@ public final class Files {
             } catch (IOException ex) {
                 try {
                     e.addSuppressed(ex);
-                } catch (Throwable ignore) {}
+                } catch (Throwable ignore) {
+                }
             }
             throw e;
         }
@@ -3761,11 +4113,23 @@ public final class Files {
      * decoded into characters using the {@link StandardCharsets#UTF_8 UTF-8}
      * {@link Charset charset}.
      *
+     * <p> The returned stream contains a reference to an open file. The file
+     * is closed by closing the stream.
+     *
+     * <p> The file contents should not be modified during the execution of the
+     * terminal stream operation. Otherwise, the result of the terminal stream
+     * operation is undefined.
+     *
      * <p> This method works as if invoking it were equivalent to evaluating the
      * expression:
      * <pre>{@code
      * Files.lines(path, StandardCharsets.UTF_8)
      * }</pre>
+     *
+     * @apiNote
+     * This method must be used within a try-with-resources statement or similar
+     * control structure to ensure that the stream's open file is closed promptly
+     * after the stream's operations have completed.
      *
      * @param   path
      *          the path to the file
@@ -3782,6 +4146,8 @@ public final class Files {
      * @since 1.8
      */
     public static Stream<String> lines(Path path) throws IOException {
+        // Android-changed: use StandardCharsets.
+        //return lines(path, UTF_8.INSTANCE);
         return lines(path, StandardCharsets.UTF_8);
     }
 }

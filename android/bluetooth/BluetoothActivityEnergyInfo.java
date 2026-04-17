@@ -16,34 +16,60 @@
 
 package android.bluetooth;
 
+import android.annotation.ElapsedRealtimeLong;
+import android.annotation.Hide;
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.RequiresNoPermission;
+import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-import java.util.Arrays;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.Collections;
+import java.util.List;
 
 /**
- * Record of energy and activity information from controller and
- * underlying bt stack state.Timestamp the record with system
- * time
- *
- * @hide
+ * Record of energy and activity information from controller and underlying bt stack state.Timestamp
+ * the record with system time.
  */
+@Hide
+@SystemApi(client = SystemApi.Client.PRIVILEGED_APPS)
 public final class BluetoothActivityEnergyInfo implements Parcelable {
     private final long mTimestamp;
-    private int mBluetoothStackState;
-    private long mControllerTxTimeMs;
-    private long mControllerRxTimeMs;
-    private long mControllerIdleTimeMs;
-    private long mControllerEnergyUsed;
-    private UidTraffic[] mUidTraffic;
+    private final int mBluetoothStackState;
+    private final long mControllerTxTimeMs;
+    private final long mControllerRxTimeMs;
+    private final long mControllerIdleTimeMs;
+    private final long mControllerEnergyUsed;
+    private List<UidTraffic> mUidTraffic;
+
+    @Hide
+    @IntDef(
+            prefix = {"BT_STACK_STATE_"},
+            value = {
+                BT_STACK_STATE_INVALID,
+                BT_STACK_STATE_STATE_ACTIVE,
+                BT_STACK_STATE_STATE_SCANNING,
+                BT_STACK_STATE_STATE_IDLE
+            })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface BluetoothStackState {}
 
     public static final int BT_STACK_STATE_INVALID = 0;
     public static final int BT_STACK_STATE_STATE_ACTIVE = 1;
     public static final int BT_STACK_STATE_STATE_SCANNING = 2;
     public static final int BT_STACK_STATE_STATE_IDLE = 3;
 
-    public BluetoothActivityEnergyInfo(long timestamp, int stackState,
-            long txTime, long rxTime, long idleTime, long energyUsed) {
+    @Hide
+    public BluetoothActivityEnergyInfo(
+            long timestamp,
+            int stackState,
+            long txTime,
+            long rxTime,
+            long idleTime,
+            long energyUsed) {
         mTimestamp = timestamp;
         mBluetoothStackState = stackState;
         mControllerTxTimeMs = txTime;
@@ -52,31 +78,30 @@ public final class BluetoothActivityEnergyInfo implements Parcelable {
         mControllerEnergyUsed = energyUsed;
     }
 
-    @SuppressWarnings("unchecked")
-    BluetoothActivityEnergyInfo(Parcel in) {
+    @Hide
+    private BluetoothActivityEnergyInfo(Parcel in) {
         mTimestamp = in.readLong();
         mBluetoothStackState = in.readInt();
         mControllerTxTimeMs = in.readLong();
         mControllerRxTimeMs = in.readLong();
         mControllerIdleTimeMs = in.readLong();
         mControllerEnergyUsed = in.readLong();
-        mUidTraffic = in.createTypedArray(UidTraffic.CREATOR);
+        mUidTraffic = in.createTypedArrayList(UidTraffic.CREATOR);
     }
 
     @Override
     public String toString() {
-        return "BluetoothActivityEnergyInfo{"
-                + " mTimestamp=" + mTimestamp
-                + " mBluetoothStackState=" + mBluetoothStackState
-                + " mControllerTxTimeMs=" + mControllerTxTimeMs
-                + " mControllerRxTimeMs=" + mControllerRxTimeMs
-                + " mControllerIdleTimeMs=" + mControllerIdleTimeMs
-                + " mControllerEnergyUsed=" + mControllerEnergyUsed
-                + " mUidTraffic=" + Arrays.toString(mUidTraffic)
-                + " }";
+        return "BluetoothActivityEnergyInfo ["
+                + (" mTimestamp=" + mTimestamp)
+                + (" mBluetoothStackState=" + mBluetoothStackState)
+                + (" mControllerTxTimeMs=" + mControllerTxTimeMs)
+                + (" mControllerRxTimeMs=" + mControllerRxTimeMs)
+                + (" mControllerIdleTimeMs=" + mControllerIdleTimeMs)
+                + (" mControllerEnergyUsed=" + mControllerEnergyUsed)
+                + (" mUidTraffic=" + mUidTraffic + "]");
     }
 
-    public static final Parcelable.Creator<BluetoothActivityEnergyInfo> CREATOR =
+    public static final @NonNull Parcelable.Creator<BluetoothActivityEnergyInfo> CREATOR =
             new Parcelable.Creator<BluetoothActivityEnergyInfo>() {
                 public BluetoothActivityEnergyInfo createFromParcel(Parcel in) {
                     return new BluetoothActivityEnergyInfo(in);
@@ -87,9 +112,7 @@ public final class BluetoothActivityEnergyInfo implements Parcelable {
                 }
             };
 
-
     @Override
-    @SuppressWarnings("unchecked")
     public void writeToParcel(Parcel out, int flags) {
         out.writeLong(mTimestamp);
         out.writeInt(mBluetoothStackState);
@@ -97,7 +120,7 @@ public final class BluetoothActivityEnergyInfo implements Parcelable {
         out.writeLong(mControllerRxTimeMs);
         out.writeLong(mControllerIdleTimeMs);
         out.writeLong(mControllerEnergyUsed);
-        out.writeTypedArray(mUidTraffic, flags);
+        out.writeTypedList(mUidTraffic);
     }
 
     @Override
@@ -106,15 +129,17 @@ public final class BluetoothActivityEnergyInfo implements Parcelable {
     }
 
     /**
-     * @return bt stack reported state
+     * @return the Bluetooth stack state associated with the energy info.
      */
-    public int getBluetoothStackState() {
+    @RequiresNoPermission
+    public @BluetoothStackState int getBluetoothStackState() {
         return mBluetoothStackState;
     }
 
     /**
      * @return tx time in ms
      */
+    @RequiresNoPermission
     public long getControllerTxTimeMillis() {
         return mControllerTxTimeMs;
     }
@@ -122,6 +147,7 @@ public final class BluetoothActivityEnergyInfo implements Parcelable {
     /**
      * @return rx time in ms
      */
+    @RequiresNoPermission
     public long getControllerRxTimeMillis() {
         return mControllerRxTimeMs;
     }
@@ -129,39 +155,55 @@ public final class BluetoothActivityEnergyInfo implements Parcelable {
     /**
      * @return idle time in ms
      */
+    @RequiresNoPermission
     public long getControllerIdleTimeMillis() {
         return mControllerIdleTimeMs;
     }
 
     /**
-     * product of current(mA), voltage(V) and time(ms)
+     * Get the product of current (mA), voltage (V), and time (ms).
      *
      * @return energy used
      */
+    @RequiresNoPermission
     public long getControllerEnergyUsed() {
         return mControllerEnergyUsed;
     }
 
     /**
-     * @return timestamp(real time elapsed in milliseconds since boot) of record creation.
+     * @return timestamp (real time elapsed in milliseconds since boot) of record creation
      */
-    public long getTimeStamp() {
+    @RequiresNoPermission
+    public @ElapsedRealtimeLong long getTimestampMillis() {
         return mTimestamp;
     }
 
-    public UidTraffic[] getUidTraffic() {
+    /**
+     * Get the {@link List} of each application {@link android.bluetooth.UidTraffic}.
+     *
+     * @return current {@link List} of {@link android.bluetooth.UidTraffic}
+     */
+    @RequiresNoPermission
+    public @NonNull List<UidTraffic> getUidTraffic() {
+        if (mUidTraffic == null) {
+            return Collections.emptyList();
+        }
         return mUidTraffic;
     }
 
-    public void setUidTraffic(UidTraffic[] traffic) {
+    @Hide
+    @RequiresNoPermission
+    public void setUidTraffic(List<UidTraffic> traffic) {
         mUidTraffic = traffic;
     }
 
     /**
-     * @return if the record is valid
+     * @return true if the record Tx time, Rx time, and Idle time are more than 0.
      */
+    @RequiresNoPermission
     public boolean isValid() {
-        return ((mControllerTxTimeMs >= 0) && (mControllerRxTimeMs >= 0)
+        return ((mControllerTxTimeMs >= 0)
+                && (mControllerRxTimeMs >= 0)
                 && (mControllerIdleTimeMs >= 0));
     }
 }

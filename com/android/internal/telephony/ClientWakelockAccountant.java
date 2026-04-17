@@ -17,9 +17,10 @@
 package com.android.internal.telephony;
 
 import android.telephony.ClientRequestStats;
-import android.telephony.Rlog;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.telephony.Rlog;
+
 import java.util.ArrayList;
 
 public class ClientWakelockAccountant {

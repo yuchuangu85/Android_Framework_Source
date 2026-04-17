@@ -29,6 +29,7 @@ import com.android.internal.util.GrowingArrayUtils;
  * @hide
  */
 @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class PackedIntVector {
     private final int mColumns;
     private int mRows;

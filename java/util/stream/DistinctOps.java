@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -65,6 +65,7 @@ final class DistinctOps {
             }
 
             @Override
+            // Android-changed: Make public, to match the method it's overriding.
             public <P_IN> Node<T> opEvaluateParallel(PipelineHelper<T> helper,
                                               Spliterator<P_IN> spliterator,
                                               IntFunction<T[]> generator) {
@@ -100,6 +101,7 @@ final class DistinctOps {
             }
 
             @Override
+            // Android-changed: Make public, to match the method it's overriding.
             public <P_IN> Spliterator<T> opEvaluateParallelLazy(PipelineHelper<T> helper, Spliterator<P_IN> spliterator) {
                 if (StreamOpFlag.DISTINCT.isKnown(helper.getStreamAndOpFlags())) {
                     // No-op
@@ -116,13 +118,14 @@ final class DistinctOps {
             }
 
             @Override
+            // Android-changed: Make public, to match the method it's overriding.
             public Sink<T> opWrapSink(int flags, Sink<T> sink) {
                 Objects.requireNonNull(sink);
 
                 if (StreamOpFlag.DISTINCT.isKnown(flags)) {
                     return sink;
                 } else if (StreamOpFlag.SORTED.isKnown(flags)) {
-                    return new Sink.ChainedReference<T, T>(sink) {
+                    return new Sink.ChainedReference<>(sink) {
                         boolean seenNull;
                         T lastSeen;
 
@@ -153,7 +156,7 @@ final class DistinctOps {
                         }
                     };
                 } else {
-                    return new Sink.ChainedReference<T, T>(sink) {
+                    return new Sink.ChainedReference<>(sink) {
                         Set<T> seen;
 
                         @Override
@@ -170,8 +173,7 @@ final class DistinctOps {
 
                         @Override
                         public void accept(T t) {
-                            if (!seen.contains(t)) {
-                                seen.add(t);
+                            if (seen.add(t)) {
                                 downstream.accept(t);
                             }
                         }

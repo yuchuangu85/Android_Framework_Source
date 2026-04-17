@@ -16,6 +16,7 @@
 
 package android.speech.tts;
 
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -83,7 +84,7 @@ public class Voice implements Parcelable {
 
     private Voice(Parcel in) {
         this.mName = in.readString();
-        this.mLocale = (Locale)in.readSerializable();
+        this.mLocale = (Locale)in.readSerializable(java.util.Locale.class.getClassLoader(), java.util.Locale.class);
         this.mQuality = in.readInt();
         this.mLatency = in.readInt();
         this.mRequiresNetworkConnection = (in.readByte() == 1);
@@ -106,7 +107,7 @@ public class Voice implements Parcelable {
         return 0;
     }
 
-    public static final Parcelable.Creator<Voice> CREATOR = new Parcelable.Creator<Voice>() {
+    public static final @android.annotation.NonNull Parcelable.Creator<Voice> CREATOR = new Parcelable.Creator<Voice>() {
         @Override
         public Voice createFromParcel(Parcel in) {
             return new Voice(in);
@@ -208,7 +209,7 @@ public class Voice implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) {
             return true;
         }

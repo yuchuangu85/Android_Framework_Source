@@ -16,15 +16,22 @@
 
 package android.media;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
+
 /**
  * The AudioHandle is used by the audio framework implementation to
  * uniquely identify a particular component of the routing topology
  * (AudioPort or AudioPatch)
  * It is not visible or used at the API.
  */
+@RavenwoodKeepWholeClass
 class AudioHandle {
+    @UnsupportedAppUsage
     private final int mId;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     AudioHandle(int id) {
         mId = id;
     }

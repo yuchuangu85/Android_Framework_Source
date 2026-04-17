@@ -16,7 +16,16 @@
 
 package android.media;
 
-import android.media.AudioSystem;
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
+
+import com.android.aconfig.annotations.VisibleForTesting;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * The AudioDevicePort is a specialized type of AudioPort
@@ -26,30 +35,107 @@ import android.media.AudioSystem;
  * device at the boundary of the audio system.
  * In addition to base audio port attributes, the device descriptor contains:
  * - the device type (e.g AudioManager.DEVICE_OUT_SPEAKER)
- * - the device address (e.g MAC adddress for AD2P sink).
+ * - the device address (e.g MAC address for AD2P sink).
  * @see AudioPort
  * @hide
  */
-
+@RavenwoodKeepWholeClass
 public class AudioDevicePort extends AudioPort {
+
+    /** @hide */
+    // TODO: b/316864909 - Remove this method once there's a way to fake audio device ports further
+    // down the stack.
+    @VisibleForTesting
+    public static AudioDevicePort createForTesting(
+            int type, @NonNull String name, @NonNull String address) {
+        return new AudioDevicePort(
+                new AudioHandle(/* id= */ 0),
+                name,
+                /* samplingRates= */ null,
+                /* channelMasks= */ null,
+                /* channelIndexMasks= */ null,
+                /* formats= */ null,
+                /* gains= */ null,
+                type,
+                address,
+                /* encapsulationModes= */ null,
+                /* encapsulationMetadataTypes= */ null);
+    }
+
+    /** @hide */
+    // TODO: b/316864909 - Remove this method once there's a way to fake audio device ports further
+    // down the stack.
+    @VisibleForTesting
+    public static AudioDevicePort createForTesting(int speakerLayoutChannelMask) {
+        return new AudioDevicePort(
+                new AudioHandle(/* id= */ 0),
+                /* name= */ "testAudioDevicePort",
+                /* profiles= */ new ArrayList<>(),
+                /* gains= */ null,
+                /* type= */ AudioManager.DEVICE_OUT_SPEAKER,
+                /* address= */ "testAddress",
+                /* speakerLayoutChannelMask= */ speakerLayoutChannelMask,
+                /* encapsulationModes= */ null,
+                /* encapsulationMetadataTypes= */ null,
+                /* descriptors= */ new ArrayList<>());
+    }
 
     private final int mType;
     private final String mAddress;
+    private final int mSpeakerLayoutChannelMask;
+    private final int[] mEncapsulationModes;
+    private final int[] mEncapsulationMetadataTypes;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     AudioDevicePort(AudioHandle handle, String deviceName,
             int[] samplingRates, int[] channelMasks, int[] channelIndexMasks,
-            int[] formats, AudioGain[] gains, int type, String address) {
+            int[] formats, AudioGain[] gains, int type, String address, int[] encapsulationModes,
+            @AudioTrack.EncapsulationMetadataType int[] encapsulationMetadataTypes) {
+        this(handle, deviceName, samplingRates,
+                new AudioFormat.ChannelMasksArray(channelMasks, channelIndexMasks),
+                formats, gains, type, address, encapsulationModes, encapsulationMetadataTypes);
+    }
+
+    AudioDevicePort(AudioHandle handle, String deviceName,
+            int[] samplingRates, AudioFormat.ChannelMasksArray channelMasks,
+            int[] formats, AudioGain[] gains, int type, String address, int[] encapsulationModes,
+            @AudioTrack.EncapsulationMetadataType int[] encapsulationMetadataTypes) {
         super(handle,
              (AudioManager.isInputDevice(type) == true)  ?
                         AudioPort.ROLE_SOURCE : AudioPort.ROLE_SINK,
-             deviceName, samplingRates, channelMasks, channelIndexMasks, formats, gains);
+                deviceName, samplingRates, channelMasks, formats, gains);
         mType = type;
         mAddress = address;
+        mSpeakerLayoutChannelMask = AudioFormat.CHANNEL_INVALID;
+        mEncapsulationModes = encapsulationModes;
+        mEncapsulationMetadataTypes = encapsulationMetadataTypes;
+    }
+
+    AudioDevicePort(
+            AudioHandle handle,
+            String deviceName,
+            List<AudioProfile> profiles,
+            AudioGain[] gains,
+            int type,
+            String address,
+            int speakerLayoutChannelMask,
+            int[] encapsulationModes,
+            @AudioTrack.EncapsulationMetadataType int[] encapsulationMetadataTypes,
+            List<AudioDescriptor> descriptors) {
+        super(handle,
+                AudioManager.isInputDevice(type) ? AudioPort.ROLE_SOURCE : AudioPort.ROLE_SINK,
+                deviceName, profiles, gains, descriptors);
+        mType = type;
+        mAddress = address;
+        mSpeakerLayoutChannelMask = speakerLayoutChannelMask;
+        mEncapsulationModes = encapsulationModes;
+        mEncapsulationMetadataTypes = encapsulationMetadataTypes;
     }
 
     /**
      * Get the device type (e.g AudioManager.DEVICE_OUT_SPEAKER)
      */
+    @UnsupportedAppUsage
     public int type() {
         return mType;
     }
@@ -60,13 +146,51 @@ public class AudioDevicePort extends AudioPort {
      * {@link AudioManager#DEVICE_IN_USB_DEVICE}) use an address composed of the ALSA card number
      * and device number: "card=2;device=1"
      * - Bluetooth devices ({@link AudioManager#DEVICE_OUT_BLUETOOTH_SCO},
-     * {@link AudioManager#DEVICE_OUT_BLUETOOTH_SCO}, {@link AudioManager#DEVICE_OUT_BLUETOOTH_A2DP})
+     * {@link AudioManager#DEVICE_OUT_BLUETOOTH_SCO},
+     * {@link AudioManager#DEVICE_OUT_BLUETOOTH_A2DP}),
+     * {@link AudioManager#DEVICE_OUT_BLE_HEADSET}, {@link AudioManager#DEVICE_OUT_BLE_SPEAKER})
      * use the MAC address of the bluetooth device in the form "00:11:22:AA:BB:CC" as reported by
      * {@link BluetoothDevice#getAddress()}.
-     * - Deivces that do not have an address will indicate an empty string "".
+     * - Bluetooth LE broadcast group ({@link AudioManager#DEVICE_OUT_BLE_BROADCAST} use the group number.
+     * - Devices that do not have an address will indicate an empty string "".
      */
     public String address() {
         return mAddress;
+    }
+
+    /** Get the channel mask representing the physical output speaker layout of the device.
+     *
+     * The layout channel mask only indicates which speaker channels are present, the
+     * physical layout of the speakers should be informed by a standard for multi-channel
+     * sound playback systems, such as ITU-R BS.2051.
+    */
+    public int speakerLayoutChannelMask() {
+        return mSpeakerLayoutChannelMask;
+    }
+
+    /**
+     * Get supported encapsulation modes.
+     */
+    public @NonNull @AudioTrack.EncapsulationMode int[] encapsulationModes() {
+        if (mEncapsulationModes == null) {
+            return new int[0];
+        }
+        return Arrays.stream(mEncapsulationModes).boxed()
+                .filter(mode -> mode != AudioTrack.ENCAPSULATION_MODE_HANDLE)
+                .mapToInt(Integer::intValue).toArray();
+    }
+
+    /**
+     * Get supported encapsulation metadata types.
+     */
+    public @NonNull @AudioTrack.EncapsulationMetadataType int[] encapsulationMetadataTypes() {
+        if (mEncapsulationMetadataTypes == null) {
+            return new int[0];
+        }
+        int[] encapsulationMetadataTypes = new int[mEncapsulationMetadataTypes.length];
+        System.arraycopy(mEncapsulationMetadataTypes, 0,
+                         encapsulationMetadataTypes, 0, mEncapsulationMetadataTypes.length);
+        return encapsulationMetadataTypes;
     }
 
     /**
@@ -76,6 +200,16 @@ public class AudioDevicePort extends AudioPort {
     public AudioDevicePortConfig buildConfig(int samplingRate, int channelMask, int format,
                                           AudioGainConfig gain) {
         return new AudioDevicePortConfig(this, samplingRate, channelMask, format, gain);
+    }
+
+    /**
+     * Build a specific configuration of this audio device port for use by methods
+     * like AudioManager.connectAudioPatch().
+     */
+    public AudioDevicePortConfig buildConfig(int samplingRate,
+                                        @NonNull AudioFormat.ChannelMasks channelMasks, int format,
+                                        AudioGainConfig gain) {
+        return new AudioDevicePortConfig(this, samplingRate, channelMasks, format, gain);
     }
 
     @Override
@@ -96,6 +230,27 @@ public class AudioDevicePort extends AudioPort {
         return super.equals(o);
     }
 
+    /**
+     * Returns true if the AudioDevicePort passed as argument represents the same device (same
+     * type and same address). This is different from equals() in that the port IDs are not compared
+     * which allows matching devices across native audio server restarts.
+     * @param other the other audio device port to compare to.
+     * @return true if both device port correspond to the same audio device, false otherwise.
+     * @hide
+     */
+    public boolean isSameAs(AudioDevicePort other) {
+        if (mType != other.type()) {
+            return false;
+        }
+        if (mAddress == null && other.address() != null) {
+            return false;
+        }
+        if (!mAddress.equals(other.address())) {
+            return false;
+        }
+        return true;
+    }
+
     @Override
     public String toString() {
         String type = (mRole == ROLE_SOURCE ?
@@ -103,7 +258,7 @@ public class AudioDevicePort extends AudioPort {
                             AudioSystem.getOutputDeviceName(mType));
         return "{" + super.toString()
                 + ", mType: " + type
-                + ", mAddress: " + mAddress
+                + ", mAddress: " + Utils.anonymizeBluetoothAddress(mType, mAddress)
                 + "}";
     }
 }

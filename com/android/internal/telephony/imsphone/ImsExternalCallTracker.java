@@ -16,27 +16,29 @@
 
 package com.android.internal.telephony.imsphone;
 
-import android.telephony.ims.ImsCallProfile;
-import android.telephony.ims.ImsExternalCallState;
-import com.android.ims.ImsExternalCallStateListener;
-import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.telephony.Call;
-import com.android.internal.telephony.Connection;
-import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.PhoneConstants;
-
 import android.os.AsyncResult;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.telecom.PhoneAccountHandle;
 import android.telecom.VideoProfile;
+import android.telephony.ims.ImsCallProfile;
+import android.telephony.ims.ImsExternalCallState;
 import android.util.ArrayMap;
 import android.util.Log;
+
+import com.android.ims.ImsExternalCallStateListener;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.Call;
+import com.android.internal.telephony.Connection;
+import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.PhoneConstants;
+import com.android.internal.telephony.util.TelephonyUtils;
 
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 
 /**
  * Responsible for tracking external calls known to the system.
@@ -70,9 +72,15 @@ public class ImsExternalCallTracker implements ImsPhoneCallTracker.PhoneStateLis
      * external call state updates from the IMS framework.
      */
     public class ExternalCallStateListener extends ImsExternalCallStateListener {
+        public ExternalCallStateListener(Executor executor) {
+            super(executor);
+        }
+
         @Override
-        public void onImsExternalCallStateUpdate(List<ImsExternalCallState> externalCallState) {
-            refreshExternalCallState(externalCallState);
+        public void onImsExternalCallStateUpdate(List<ImsExternalCallState> externalCallState,
+                    Executor executor) {
+            TelephonyUtils.runWithCleanCallingIdentity(()->
+                        refreshExternalCallState(externalCallState), executor);
         }
     }
 
@@ -149,15 +157,15 @@ public class ImsExternalCallTracker implements ImsPhoneCallTracker.PhoneStateLis
 
     @VisibleForTesting
     public ImsExternalCallTracker(ImsPhone phone, ImsPullCall callPuller,
-            ImsCallNotify callNotifier) {
+            ImsCallNotify callNotifier, Executor executor) {
 
         mPhone = phone;
         mCallStateNotifier = callNotifier;
-        mExternalCallStateListener = new ExternalCallStateListener();
+        mExternalCallStateListener = new ExternalCallStateListener(executor);
         mCallPuller = callPuller;
     }
 
-    public ImsExternalCallTracker(ImsPhone phone) {
+    public ImsExternalCallTracker(ImsPhone phone, Executor executor) {
         mPhone = phone;
         mCallStateNotifier = new ImsCallNotify() {
             @Override
@@ -170,7 +178,7 @@ public class ImsExternalCallTracker implements ImsPhoneCallTracker.PhoneStateLis
                 mPhone.notifyPreciseCallStateChanged();
             }
         };
-        mExternalCallStateListener = new ExternalCallStateListener();
+        mExternalCallStateListener = new ExternalCallStateListener(executor);
         registerForNotifications();
     }
 
@@ -225,7 +233,7 @@ public class ImsExternalCallTracker implements ImsPhoneCallTracker.PhoneStateLis
     private void unregisterForNotifications() {
         if (mPhone != null) {
             Log.d(TAG, "Unregistering: " + mPhone);
-            mPhone.unregisterForVideoCapabilityChanged(mHandler);
+            mPhone.getDefaultPhone().unregisterForVideoCapabilityChanged(mHandler);
         }
     }
 

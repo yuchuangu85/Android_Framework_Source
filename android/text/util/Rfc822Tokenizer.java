@@ -27,6 +27,7 @@ import java.util.Collection;
  * a string of addresses (such as might be typed into such a field)
  * into a series of Rfc822Tokens.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class Rfc822Tokenizer implements MultiAutoCompleteTextView.Tokenizer {
 
     /**

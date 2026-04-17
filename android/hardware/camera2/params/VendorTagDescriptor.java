@@ -32,17 +32,11 @@ public final class VendorTagDescriptor implements Parcelable {
     private VendorTagDescriptor(Parcel source) {
     }
 
-    public static final Parcelable.Creator<VendorTagDescriptor> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<VendorTagDescriptor> CREATOR =
             new Parcelable.Creator<VendorTagDescriptor>() {
         @Override
         public VendorTagDescriptor createFromParcel(Parcel source) {
-            try {
-                VendorTagDescriptor vendorDescriptor = new VendorTagDescriptor(source);
-                return vendorDescriptor;
-            } catch (Exception e) {
-                Log.e(TAG, "Exception creating VendorTagDescriptor from parcel", e);
-                return null;
-            }
+            return new VendorTagDescriptor(source);
         }
 
         @Override

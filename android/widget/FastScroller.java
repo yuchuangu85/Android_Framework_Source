@@ -23,6 +23,8 @@ import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
 import android.animation.PropertyValuesHolder;
 import android.annotation.StyleRes;
+import android.companion.virtualdevice.flags.Flags;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
@@ -93,18 +95,18 @@ class FastScroller {
     private static final int PREVIEW_LEFT = 0;
     private static final int PREVIEW_RIGHT = 1;
 
-    /** Delay before considering a tap in the thumb area to be a drag. */
-    private static final long TAP_TIMEOUT = ViewConfiguration.getTapTimeout();
-
     private final Rect mTempBounds = new Rect();
     private final Rect mTempMargins = new Rect();
+    @UnsupportedAppUsage
     private final Rect mContainerRect = new Rect();
 
     private final AbsListView mList;
     private final ViewGroupOverlay mOverlay;
     private final TextView mPrimaryText;
     private final TextView mSecondaryText;
+    @UnsupportedAppUsage
     private final ImageView mThumbImage;
+    @UnsupportedAppUsage
     private final ImageView mTrackImage;
     private final View mPreviewImage;
     /**
@@ -114,6 +116,7 @@ class FastScroller {
     private final int[] mPreviewResId = new int[2];
 
     /** The minimum touch target size in pixels. */
+    @UnsupportedAppUsage
     private final int mMinimumTouchTarget;
 
     /**
@@ -133,7 +136,9 @@ class FastScroller {
     /** Theme-specified text color. Used only if text appearance is not set. */
     private ColorStateList mTextColor;
 
+    @UnsupportedAppUsage
     private Drawable mThumbDrawable;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private Drawable mTrackDrawable;
     private int mTextAppearance;
     private int mThumbPosition;
@@ -161,6 +166,7 @@ class FastScroller {
     private int mFirstVisibleItem;
 
     /** The number of headers at the top of the view. */
+    @UnsupportedAppUsage
     private int mHeaderCount;
 
     /** The index of the current section. */
@@ -170,6 +176,7 @@ class FastScroller {
     private int mScrollbarPosition = -1;
 
     /** Whether the list is long enough to need a fast scroller. */
+    @UnsupportedAppUsage
     private boolean mLongList;
 
     private Object[] mSections;
@@ -220,7 +227,8 @@ class FastScroller {
 
     private float mInitialTouchY;
     private long mPendingDrag = -1;
-    private int mScaledTouchSlop;
+    private final int mScaledTouchSlop;
+    private final int mTapTimeoutMillis;
 
     private int mOldItemCount;
     private int mOldChildCount;
@@ -245,13 +253,17 @@ class FastScroller {
         }
     };
 
+    @UnsupportedAppUsage
     public FastScroller(AbsListView listView, int styleResId) {
         mList = listView;
         mOldItemCount = listView.getCount();
         mOldChildCount = listView.getChildCount();
 
         final Context context = listView.getContext();
-        mScaledTouchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+        final ViewConfiguration viewConfiguration = ViewConfiguration.get(context);
+        mScaledTouchSlop = viewConfiguration.getScaledTouchSlop();
+        mTapTimeoutMillis = Flags.viewconfigurationApis()
+                ? viewConfiguration.getTapTimeoutMillis() : ViewConfiguration.getTapTimeout();
         mScrollBarStyle = listView.getScrollBarStyle();
 
         mScrollCompleted = true;
@@ -392,6 +404,7 @@ class FastScroller {
     /**
      * Removes this FastScroller overlay from the host view.
      */
+    @UnsupportedAppUsage
     public void remove() {
         mOverlay.remove(mTrackImage);
         mOverlay.remove(mThumbImage);
@@ -507,6 +520,7 @@ class FastScroller {
         return mWidth;
     }
 
+    @UnsupportedAppUsage
     public void onSizeChanged(int w, int h, int oldw, int oldh) {
         updateLayout();
     }
@@ -816,6 +830,7 @@ class FastScroller {
         mThumbRange = max - min;
     }
 
+    @UnsupportedAppUsage
     private void setState(int state) {
         mList.removeCallbacks(mDeferHide);
 
@@ -1360,7 +1375,7 @@ class FastScroller {
      * scrolling, rather than tapping.
      */
     private void startPendingDrag() {
-        mPendingDrag = SystemClock.uptimeMillis() + TAP_TIMEOUT;
+        mPendingDrag = SystemClock.uptimeMillis() + mTapTimeoutMillis;
     }
 
     private void beginDrag() {
@@ -1380,6 +1395,7 @@ class FastScroller {
         cancelFling();
     }
 
+    @UnsupportedAppUsage
     public boolean onInterceptTouchEvent(MotionEvent ev) {
         if (!isEnabled()) {
             return false;
@@ -1449,6 +1465,7 @@ class FastScroller {
         return null;
     }
 
+    @UnsupportedAppUsage
     public boolean onTouchEvent(MotionEvent me) {
         if (!isEnabled()) {
             return false;

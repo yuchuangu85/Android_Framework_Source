@@ -26,6 +26,8 @@ import android.view.accessibility.AccessibilityNodeInfo;
  * It is used to replace URLSpans in {@link AccessibilityNodeInfo#setText(CharSequence)}
  * @hide
  */
+@SuppressWarnings("ParcelableCreator")
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class AccessibilityURLSpan extends URLSpan implements Parcelable {
     final AccessibilityClickableSpan mAccessibilityClickableSpan;
 

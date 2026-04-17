@@ -16,6 +16,8 @@
 
 package android.view;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -30,7 +32,12 @@ import android.os.Parcelable;
  * #getRefreshPeriodNano()}. If the system does not render a frame every refresh
  * period the user will see irregular window transitions. The time when the frame was
  * actually presented on the display by calling {@link #getFramePresentedTimeNano(int)}.
+ *
+ * @deprecated Use Shared
+ *             <a href="https://perfetto.dev/docs/data-sources/frametimeline">FrameTimeline</a>
+ *             jank metrics instead.
  */
+@Deprecated
 public final class WindowAnimationFrameStats extends FrameStats implements Parcelable {
     /**
      * @hide
@@ -47,6 +54,7 @@ public final class WindowAnimationFrameStats extends FrameStats implements Parce
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void init(long refreshPeriodNano, long[] framesPresentedTimeNano) {
         mRefreshPeriodNano = refreshPeriodNano;
         mFramesPresentedTimeNano = framesPresentedTimeNano;
@@ -79,7 +87,7 @@ public final class WindowAnimationFrameStats extends FrameStats implements Parce
         return builder.toString();
     }
 
-    public static final Creator<WindowAnimationFrameStats> CREATOR =
+    public static final @android.annotation.NonNull Creator<WindowAnimationFrameStats> CREATOR =
             new Creator<WindowAnimationFrameStats>() {
                 @Override
                 public WindowAnimationFrameStats createFromParcel(Parcel parcel) {

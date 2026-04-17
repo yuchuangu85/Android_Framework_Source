@@ -296,6 +296,7 @@ public interface CallableStatement extends PreparedStatement {
      *             or <code>getBigDecimal(String parameterName)</code>
      * @see #setBigDecimal
      */
+    // Android-added: @Deprecated annotation from OpenJDK8u121-b13 to fix build warnings.
     @Deprecated
     BigDecimal getBigDecimal(int parameterIndex, int scale)
         throws SQLException;
@@ -1564,7 +1565,7 @@ public interface CallableStatement extends PreparedStatement {
      * @param parameterName the name of the parameter
      * @return the parameter value in full precision.  If the value is
      * SQL <code>NULL</code>, the result is <code>null</code>.
-     * @exception SQLExceptionif parameterName does not correspond to a named
+     * @exception SQLException if parameterName does not correspond to a named
      * parameter;  if a database access error occurs or
      * this method is called on a closed <code>CallableStatement</code>
      * @exception SQLFeatureNotSupportedException if the JDBC driver does not support
@@ -2438,4 +2439,6 @@ public interface CallableStatement extends PreparedStatement {
      */
      void setNClob(String parameterName, Reader reader)
        throws SQLException;
+
+    // Android-removed: JDBC 4.1 methods were removed immediately after the initial import.
 }

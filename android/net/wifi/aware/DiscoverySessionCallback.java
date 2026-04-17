@@ -16,7 +16,15 @@
 
 package android.net.wifi.aware;
 
+import static com.android.ranging.flags.Flags.FLAG_RANGING_RTT_ENABLED;
+import static com.android.wifi.flags.Flags.FLAG_MULTI_PEER_AWARE_DATAPATH;
+import static com.android.wifi.flags.Flags.FLAG_SEND_SERVICE_SPECIFIC_INFO_IN_BOOTSTRAPPING_REQUEST;
+
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
+import android.net.wifi.rtt.RangingResult;
 
 import java.util.List;
 
@@ -93,12 +101,68 @@ public class DiscoverySessionCallback {
     }
 
     /**
-     * Called when a discovery (publish or subscribe) operation results in a
-     * service discovery.
+     * Called when a discovery session (publish or subscribe) has been suspended successfully.
+     * Suspension is triggered by {@link DiscoverySession#suspend()}.
+     * @hide
+     */
+    @SystemApi
+    public void onSessionSuspendSucceeded() {
+        /* empty */
+    }
+
+    /**
+     * Called when a discovery session (publish or subscribe) has failed to be suspended
+     * successfully. Suspension is triggered by {@link DiscoverySession#suspend()}.
+     *
+     * @param reason One of:
+     *      {@link WifiAwareManager#WIFI_AWARE_SUSPEND_REDUNDANT_REQUEST},
+     *      {@link WifiAwareManager#WIFI_AWARE_SUSPEND_INVALID_SESSION},
+     *      {@link WifiAwareManager#WIFI_AWARE_SUSPEND_CANNOT_SUSPEND},
+     *      {@link WifiAwareManager#WIFI_AWARE_SUSPEND_INTERNAL_ERROR}
+     * @hide
+     */
+    @SystemApi
+    public void onSessionSuspendFailed(
+            @WifiAwareManager.SessionSuspensionFailedReasonCode int reason) {
+        /* empty */
+    }
+
+    /**
+     * Called when a discovery session (publish or subscribe) has been resumed from suspension
+     * successfully. Resumption is triggered by {@link DiscoverySession#resume()}.
+     * @hide
+     */
+    @SystemApi
+    public void onSessionResumeSucceeded() {
+        /* empty */
+    }
+
+    /**
+     * Called when a discovery session (publish or subscribe) has failed to be resumed from
+     * suspension successfully. Resumption is triggered by {@link DiscoverySession#resume()}.
+     *
+     * @param reason One of:
+     *      {@link WifiAwareManager#WIFI_AWARE_RESUME_REDUNDANT_REQUEST},
+     *      {@link WifiAwareManager#WIFI_AWARE_RESUME_INVALID_SESSION},
+     *      {@link WifiAwareManager#WIFI_AWARE_RESUME_INTERNAL_ERROR}
+     * @hide
+     */
+    @SystemApi
+    public void onSessionResumeFailed(
+            @WifiAwareManager.SessionResumptionFailedReasonCode int reason) {
+        /* empty */
+    }
+
+    /**
+     * Called when a subscribe operation results in a service discovery.
      * <p>
      * Note that this method and
      * {@link #onServiceDiscoveredWithinRange(PeerHandle, byte[], List, int)} may be called
      * multiple times per service discovery.
+     * <p>
+     * Note: This method is superseded by {@link #onServiceDiscovered(ServiceDiscoveryInfo)} which
+     * returns more information. Note that both legacy and new callback will be triggered on
+     * discovery.
      *
      * @param peerHandle An opaque handle to the peer matching our discovery operation.
      * @param serviceSpecificInfo The service specific information (arbitrary
@@ -117,11 +181,25 @@ public class DiscoverySessionCallback {
     }
 
     /**
-     * Called when a discovery (publish or subscribe) operation results in a
+     * Called when a subscribe operation results in a service discovery.
+     * <p>
+     * Note: This method supersedes {@link #onServiceDiscovered(PeerHandle, byte[], List)} and
+     * provides additional information - including cipher suite type and security context of the
+     * peer. Both the legacy and the new callback will be triggered on discovery.
+     *
+     * @param info A {@link ServiceDiscoveryInfo} structure containing information on the discovery
+     *             session and the discovered peer.
+     */
+    public void onServiceDiscovered(@NonNull ServiceDiscoveryInfo info) {
+        /* empty */
+    }
+
+    /**
+     * Called when a subscribe operation results in a
      * service discovery. Called when a Subscribe service was configured with a range requirement
-     * {@link SubscribeConfig.Builder#setMinDistanceMm(int)} and/or
-     * {@link SubscribeConfig.Builder#setMaxDistanceMm(int)} and the Publish service was configured
-     * with {@link PublishConfig.Builder#setRangingEnabled(boolean)}.
+     * {@link SubscribeConfig.Builder#setEgressDistanceMm(int)} and/or
+     * {@link SubscribeConfig.Builder#setIngressDistanceMm(int)} and the Publish service was
+     * configured with {@link PublishConfig.Builder#setRangingEnabled(boolean)}.
      * <p>
      * If either Publisher or Subscriber does not enable Ranging, or if Ranging is temporarily
      * disabled by the underlying device, service discovery proceeds without ranging and the
@@ -129,6 +207,10 @@ public class DiscoverySessionCallback {
      * <p>
      * Note that this method and {@link #onServiceDiscovered(PeerHandle, byte[], List)} may be
      * called multiple times per service discovery.
+     * <p>
+     * Note: This method is superseded by
+     * {@link #onServiceDiscoveredWithinRange(ServiceDiscoveryInfo, int)} which returns more
+     * information. Note that both legacy and new callback will be triggered on discovery.
      *
      * @param peerHandle An opaque handle to the peer matching our discovery operation.
      * @param serviceSpecificInfo The service specific information (arbitrary
@@ -145,6 +227,31 @@ public class DiscoverySessionCallback {
      */
     public void onServiceDiscoveredWithinRange(PeerHandle peerHandle,
         byte[] serviceSpecificInfo, List<byte[]> matchFilter, int distanceMm) {
+        /* empty */
+    }
+
+    /**
+     * Called when a subscribe operation results in a
+     * service discovery. Called when a Subscribe service was configured with a range requirement
+     * {@link SubscribeConfig.Builder#setEgressDistanceMm(int)} and/or
+     * {@link SubscribeConfig.Builder#setIngressDistanceMm(int)} and the Publish service was
+     * configured with {@link PublishConfig.Builder#setRangingEnabled(boolean)}.
+     * <p>
+     * If either Publisher or Subscriber does not enable Ranging, or if Ranging is temporarily
+     * disabled by the underlying device, service discovery proceeds without ranging and the
+     * {@link #onServiceDiscovered(PeerHandle, byte[], List)} is called.
+     * <p>
+     * Note: This method supersedes
+     * {@link #onServiceDiscoveredWithinRange(PeerHandle, byte[], List, int)} and provides
+     * additional information - including cipher suite type and security context of the peer. Both
+     * the legacy and the new callback will be triggered on discovery.
+     *
+     * @param info A {@link ServiceDiscoveryInfo} which indicate service config of the descovery
+     *             sessions.
+     * @param distanceMm The measured distance to the Publisher in mm. Note: the measured distance
+ *                   may be negative for very close devices.
+     */
+    public void onServiceDiscoveredWithinRange(@NonNull ServiceDiscoveryInfo info, int distanceMm) {
         /* empty */
     }
 
@@ -188,5 +295,183 @@ public class DiscoverySessionCallback {
      */
     public void onMessageReceived(PeerHandle peerHandle, byte[] message) {
         /* empty */
+    }
+
+    /**
+     * Called when the discovered service is not available. All further operations on this
+     * discovery session will fail. If the service is available again,
+     * {@link #onServiceDiscovered(PeerHandle, byte[], List)} or
+     * {@link #onServiceDiscoveredWithinRange(PeerHandle, byte[], List, int)} will be called.
+     *
+     * @param peerHandle An opaque handle to the peer matching our discovery operation.
+     * @param reason Discovered service lost reason code. One of
+     *               {@link WifiAwareManager#WIFI_AWARE_DISCOVERY_LOST_REASON_PEER_NOT_VISIBLE},
+     *               {@link WifiAwareManager#WIFI_AWARE_DISCOVERY_LOST_REASON_UNKNOWN}
+     */
+    public void onServiceLost(@NonNull PeerHandle peerHandle,
+            @WifiAwareManager.DiscoveryLostReasonCode int reason) {
+        /* empty */
+    }
+
+    /**
+     * Callback indicating that a pairing request is received from peer.
+     *
+     * @param peerHandle The peer's handle where the request is from
+     * @param requestId The ID of the Aware pairing session
+     */
+    public void onPairingSetupRequestReceived(@NonNull PeerHandle peerHandle, int requestId) {
+
+    }
+
+    /**
+     * Callback indicating that a pairing setup process succeeded.
+     *
+     * @param peerHandle The pairing peer handle.
+     * @param alias      This is the paired device alias set by the caller.
+     *                   {@link DiscoverySession#initiatePairingRequest(PeerHandle, String, int, String)}
+     *                   or
+     *                   {@link DiscoverySession#acceptPairingRequest(int, PeerHandle, String, int, String)}
+     */
+    public void onPairingSetupSucceeded(@NonNull PeerHandle peerHandle,
+            @NonNull String alias) {
+
+    }
+
+    /**
+     * Callback indicating that a pairing setup process failed.
+     *
+     * @param peerHandle The pairing peer handle.
+     */
+    public void onPairingSetupFailed(@NonNull PeerHandle peerHandle) {
+
+    }
+
+    /**
+     * Callback indicating that a pairing verification process succeeded.
+     *
+     * @param peerHandle The pairing peer handle
+     * @param alias      This is the paired device alias set by the caller.
+     *                   {@link DiscoverySession#initiatePairingRequest(PeerHandle, String, int, String)}
+     *                   or
+     *                   {@link DiscoverySession#acceptPairingRequest(int, PeerHandle, String, int, String)}
+     */
+    public void onPairingVerificationSucceed(@NonNull PeerHandle peerHandle,
+            @NonNull String alias){
+
+    }
+
+    /**
+     * Callback indicating that a pairing verification process failed.
+     *
+     * @param peerHandle The pairing peer handle
+     */
+    public void onPairingVerificationFailed(@NonNull PeerHandle peerHandle) {
+
+    }
+
+    /**
+     * Callback indicating that a Bootstrapping method negotiation succeeded.
+     * The follow-up out-of-band bootstrapping can start
+     *
+     * @param peerHandle The bootstrapping peer handle
+     * @param method     The bootstrapping method accepted by the peer
+     *
+     */
+    public void onBootstrappingSucceeded(@NonNull PeerHandle peerHandle,
+            @AwarePairingConfig.BootstrappingMethod int method){
+
+    }
+
+    /**
+     * Callback indicating that a Bootstrapping method negotiation succeeded.
+     * The follow-up out-of-band bootstrapping can start.
+     *
+     * <p>
+     * This variant is similar to {@link #onBootstrappingSucceeded(PeerHandle, int)}, but
+     * includes optional service specific information provided by the peer during the request.
+     *
+     * @param peerHandle The bootstrapping peer handle
+     * @param method     The bootstrapping method accepted by the peer
+     * @param message    An arbitrary byte array sent by the peer as part of its bootstrapping
+     *                   request {@link DiscoverySession#initiateBootstrappingRequest(PeerHandle, int, byte[])}.
+     *                   It will be non-null only on publisher side when the peer sets a message in
+     *                   its bootstrapping request. It will always be null on subscriber side.
+     */
+    @FlaggedApi(FLAG_SEND_SERVICE_SPECIFIC_INFO_IN_BOOTSTRAPPING_REQUEST)
+    public void onBootstrappingSucceeded(@NonNull PeerHandle peerHandle,
+            @AwarePairingConfig.BootstrappingMethod int method,
+            @Nullable byte[] message){
+        onBootstrappingSucceeded(peerHandle, method);
+    }
+
+    /**
+     * Callback indicating that a Bootstrapping method negotiation failed.
+     *
+     * @param peerHandle The bootstrapping peer handle
+     */
+    public void onBootstrappingFailed(@NonNull PeerHandle peerHandle) {
+
+    }
+
+    /**
+     * Callback indicating that ranging results have been received.
+     *
+     * @param rangingResults List of range measurements.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public void onRangingResultsReceived(@NonNull List<RangingResult> rangingResults) {
+
+    }
+
+    /**
+     * Callback indicating that a data path has been connected.
+     *
+     * @param peerHandle The peer's handle for the data path request.
+     * @param info The network information of the connected data path.
+     */
+    @FlaggedApi(FLAG_MULTI_PEER_AWARE_DATAPATH)
+    public void onDataPathConnected(@NonNull PeerHandle peerHandle,
+            @NonNull WifiAwareNetworkInfo info) {
+
+    }
+
+    /**
+     * Callback indicating that a data path request has failed.
+     *
+     * @param peerHandle The peer's handle for the data path request.
+     * @param reason The reason for the data path connection failure.
+     */
+    @FlaggedApi(FLAG_MULTI_PEER_AWARE_DATAPATH)
+    public void onDataPathRequestFailed(@NonNull PeerHandle peerHandle,
+            @AwareDataPathRequest.DataPathConnectionFailureReason int reason) {
+
+    }
+
+    /**
+     * Callback indicating that a data path has been disconnected. Could be triggered by either side
+     * calling {@link DiscoverySession#releaseDataPath(PeerHandle)}.
+     *
+     * @param peerHandle The peer's handle for the data path request.
+     */
+    @FlaggedApi(FLAG_MULTI_PEER_AWARE_DATAPATH)
+    public void onDataPathDisconnected(@NonNull PeerHandle peerHandle) {
+
+    }
+
+    /**
+     * Callback indicating that a data path request has been received.
+     * Caller should call {@link PublishDiscoverySession#acceptDataPathRequest(PeerHandle,
+     * AwareDataPathRequest)} to set up the data path.
+     * Or call {@link PublishDiscoverySession#rejectDataPathRequest(PeerHandle)} to reject the
+     * request.
+     *
+     * @param peerHandle The peer's handle for the data path request.
+     */
+
+    @FlaggedApi(FLAG_MULTI_PEER_AWARE_DATAPATH)
+    public void onDataPathRequestReceived(@NonNull PeerHandle peerHandle) {
+
     }
 }

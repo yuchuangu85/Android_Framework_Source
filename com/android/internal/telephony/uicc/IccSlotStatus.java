@@ -16,24 +16,60 @@
 
 package com.android.internal.telephony.uicc;
 
-import android.telephony.SubscriptionInfo;
 import android.text.TextUtils;
+
+import com.android.internal.telephony.util.TelephonyUtils;
+import com.android.telephony.Rlog;
+
+import java.util.Arrays;
 
 /**
  * This class represents the status of the physical UICC slots.
  */
 public class IccSlotStatus {
+    /* Added state active to check slotState in old HAL case.*/
+    public static final int STATE_ACTIVE = 1;
 
-    public enum SlotState {
-        SLOTSTATE_INACTIVE,
-        SLOTSTATE_ACTIVE;
+    public enum MultipleEnabledProfilesMode {
+        /**
+         * If there is no jointly supported MEP mode, set supported MEP mode to NONE.
+         */
+        NONE,
+        /**
+         * In case of MEP-A1, the ISD-R is selected on eSIM port 0 only and profiles are selected
+         * on eSIM ports 1 and higher, with the eSIM port being assigned by the LPA or platform.
+         */
+        MEP_A1,
+        /**
+         * In case of MEP-A2, the ISD-R is selected on eSIM port 0 only and profiles are selected
+         * on eSIM ports 1 and higher, with the eSIM port being assigned by the eUICC.
+         */
+        MEP_A2,
+        /**
+         * In case of MEP-B, profiles are selected on eSIM ports 0 and higher, with the ISD-R being
+         * selectable on any of these eSIM ports.
+         */
+        MEP_B;
+
+        public boolean isMepAMode() {
+            return (this == MEP_A1 || this == MEP_A2);
+        }
+
+        public boolean isMepA1Mode() {
+            return this == MEP_A1;
+        }
+
+        public boolean isMepMode() {
+            return this != NONE;
+        }
     }
 
     public IccCardStatus.CardState  cardState;
-    public SlotState  slotState;
-    public int        logicalSlotIndex;
     public String     atr;
-    public String     iccid;
+    public String     eid;
+
+    public IccSimPortInfo[] mSimPortInfos;
+    public MultipleEnabledProfilesMode mSupportedMepMode = MultipleEnabledProfilesMode.NONE;
 
     /**
      * Set the cardState according to the input state.
@@ -58,18 +94,24 @@ public class IccSlotStatus {
     }
 
     /**
-     * Set the slotState according to the input state.
+     * Set the MultipleEnabledProfilesMode according to the input mode.
      */
-    public void setSlotState(int state) {
-        switch(state) {
+    public void setMultipleEnabledProfilesMode(int mode) {
+        switch(mode) {
             case 0:
-                slotState = SlotState.SLOTSTATE_INACTIVE;
+                mSupportedMepMode = MultipleEnabledProfilesMode.NONE;
                 break;
             case 1:
-                slotState = SlotState.SLOTSTATE_ACTIVE;
+                mSupportedMepMode = MultipleEnabledProfilesMode.MEP_A1;
+                break;
+            case 2:
+                mSupportedMepMode = MultipleEnabledProfilesMode.MEP_A2;
+                break;
+            case 3:
+                mSupportedMepMode = MultipleEnabledProfilesMode.MEP_B;
                 break;
             default:
-                throw new RuntimeException("Unrecognized RIL_SlotState: " + state);
+                throw new RuntimeException("Unrecognized RIL_MultipleEnabledProfilesMode: " + mode);
         }
     }
 
@@ -77,11 +119,17 @@ public class IccSlotStatus {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("IccSlotStatus {").append(cardState).append(",")
-                .append(slotState).append(",")
-                .append("logicalSlotIndex=").append(logicalSlotIndex).append(",")
-                .append("atr=").append(atr).append(",iccid=")
-                .append(SubscriptionInfo.givePrintableIccid(iccid));
-
+                .append("atr=").append(atr).append(",")
+                .append("eid=").append(Rlog.pii(TelephonyUtils.IS_DEBUGGABLE, eid)).append(",");
+        if (mSimPortInfos != null) {
+            sb.append("num_ports=").append(mSimPortInfos.length);
+            for (int i =0; i < mSimPortInfos.length; i++) {
+                sb.append(", IccSimPortInfo-" + i + mSimPortInfos[i]);
+            }
+        } else {
+            sb.append("num_ports=null");
+        }
+        sb.append(", SupportedMepMode=" + mSupportedMepMode);
         sb.append("}");
         return sb.toString();
     }
@@ -97,10 +145,9 @@ public class IccSlotStatus {
 
         IccSlotStatus that = (IccSlotStatus) obj;
         return (cardState == that.cardState)
-                && (slotState == that.slotState)
-                && (logicalSlotIndex == that.logicalSlotIndex)
                 && (TextUtils.equals(atr, that.atr))
-                && (TextUtils.equals(iccid, that.iccid));
+                && (TextUtils.equals(eid, that.eid))
+                && Arrays.equals(mSimPortInfos, that.mSimPortInfos);
     }
 
 }

@@ -16,34 +16,62 @@
 
 package android.appwidget;
 
+import static android.appwidget.flags.Flags.remoteAdapterConversion;
+
 import android.annotation.BroadcastBehavior;
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresFeature;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemService;
+import android.annotation.TestApi;
+import android.annotation.UiThread;
+import android.annotation.UserIdInt;
+import android.annotation.WorkerThread;
 import android.app.IServiceConnection;
 import android.app.PendingIntent;
+import android.app.usage.UsageStatsManager;
+import android.appwidget.flags.Flags;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.Intent.FilterComparison;
 import android.content.IntentSender;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.content.pm.ParceledListSlice;
 import android.content.pm.ShortcutInfo;
+import android.os.Binder;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
+import android.os.Process;
 import android.os.RemoteException;
 import android.os.UserHandle;
+import android.util.ArrayMap;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.widget.RemoteViews;
 
 import com.android.internal.appwidget.IAppWidgetService;
+import com.android.internal.os.BackgroundThread;
+import com.android.internal.util.FunctionalUtils;
 
+import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.function.Consumer;
 
 /**
  * Updates AppWidget state; gets information about installed AppWidget providers and other
@@ -58,6 +86,7 @@ import java.util.List;
 @SystemService(Context.APPWIDGET_SERVICE)
 @RequiresFeature(PackageManager.FEATURE_APP_WIDGETS)
 public class AppWidgetManager {
+
 
     /**
      * Activity action to launch from your {@link AppWidgetHost} activity when you want to
@@ -173,7 +202,7 @@ public class AppWidgetManager {
     public static final String ACTION_APPWIDGET_CONFIGURE = "android.appwidget.action.APPWIDGET_CONFIGURE";
 
     /**
-     * An intent extra that contains one appWidgetId.
+     * An intent extra (int) that contains one appWidgetId.
      * <p>
      * The value will be an int that can be retrieved like this:
      * {@sample frameworks/base/tests/appwidgets/AppWidgetHostTest/src/com/android/tests/appwidgethost/AppWidgetHostActivity.java getExtra_EXTRA_APPWIDGET_ID}
@@ -181,33 +210,64 @@ public class AppWidgetManager {
     public static final String EXTRA_APPWIDGET_ID = "appWidgetId";
 
     /**
-     * A bundle extra that contains the lower bound on the current width, in dips, of a widget instance.
+     * A bundle extra (boolean) that contains whether or not an app has finished restoring a widget.
+     * <p> After restore, the app should set OPTION_APPWIDGET_RESTORE_COMPLETED to true on its
+     * widgets followed by calling {@link #updateAppWidget} to update the views.
+     *
+     * @see #updateAppWidgetOptions(int, Bundle)
+     */
+    public static final String OPTION_APPWIDGET_RESTORE_COMPLETED = "appWidgetRestoreCompleted";
+
+
+    /**
+     * A bundle extra (int) that contains the lower bound on the current width, in dips, of a
+     * widget instance.
      */
     public static final String OPTION_APPWIDGET_MIN_WIDTH = "appWidgetMinWidth";
 
     /**
-     * A bundle extra that contains the lower bound on the current height, in dips, of a widget instance.
+     * A bundle extra (int) that contains the lower bound on the current height, in dips, of a
+     * widget instance.
      */
     public static final String OPTION_APPWIDGET_MIN_HEIGHT = "appWidgetMinHeight";
 
     /**
-     * A bundle extra that contains the upper bound on the current width, in dips, of a widget instance.
+     * A bundle extra (int) that contains the upper bound on the current width, in dips, of a
+     * widget instance.
      */
     public static final String OPTION_APPWIDGET_MAX_WIDTH = "appWidgetMaxWidth";
 
     /**
-     * A bundle extra that contains the upper bound on the current width, in dips, of a widget instance.
+     * A bundle extra (int) that contains the upper bound on the current width, in dips, of a
+     * widget instance.
      */
     public static final String OPTION_APPWIDGET_MAX_HEIGHT = "appWidgetMaxHeight";
+
+    /**
+     * A bundle extra ({@code List<SizeF>}) that contains the list of possible sizes, in dips, a
+     * widget instance can take.
+     */
+    public static final String OPTION_APPWIDGET_SIZES = "appWidgetSizes";
 
     /**
      * A bundle extra that hints to the AppWidgetProvider the category of host that owns this
      * this widget. Can have the value {@link
      * AppWidgetProviderInfo#WIDGET_CATEGORY_HOME_SCREEN} or {@link
      * AppWidgetProviderInfo#WIDGET_CATEGORY_KEYGUARD} or {@link
-     * AppWidgetProviderInfo#WIDGET_CATEGORY_SEARCHBOX}.
+     * AppWidgetProviderInfo#WIDGET_CATEGORY_SEARCHBOX} or {@link
+     * AppWidgetProviderInfo#WIDGET_CATEGORY_NOT_KEYGUARD}.
      */
     public static final String OPTION_APPWIDGET_HOST_CATEGORY = "appWidgetCategory";
+
+    /**
+     * A bundle extra (int) that indicates which display the widget is currently being displayed
+     * on. This can be used with {@link android.hardware.display.DisplayManager#getDisplay(int)} to
+     * retrieve the {@link android.view.Display} and its corresponding {@link DisplayMetrics}.
+     *
+     * @see android.view.Display#getDisplayId()
+     */
+    @FlaggedApi(Flags.FLAG_WIDGET_DISPLAY_CHANGES)
+    public static final String OPTION_APPWIDGET_DISPLAY_ID = "appWidgetDisplayId";
 
     /**
      * An intent extra which points to a bundle of extra information for a particular widget id.
@@ -306,6 +366,17 @@ public class AppWidgetManager {
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     @BroadcastBehavior(explicitOnly = true)
     public static final String ACTION_APPWIDGET_UPDATE = "android.appwidget.action.APPWIDGET_UPDATE";
+
+    /**
+     * A combination broadcast of APPWIDGET_ENABLED and APPWIDGET_UPDATE.
+     * Sent during boot time and when the host is binding the widget for the very first time
+     *
+     * @hide
+     */
+    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+    @BroadcastBehavior(explicitOnly = true)
+    public static final String ACTION_APPWIDGET_ENABLE_AND_UPDATE = "android.appwidget.action"
+            + ".APPWIDGET_ENABLE_AND_UPDATE";
 
     /**
      * Sent when the custom extras for an AppWidget change.
@@ -433,6 +504,88 @@ public class AppWidgetManager {
             = "android.appwidget.action.APPWIDGET_HOST_RESTORED";
 
     /**
+     * This is the value of {@link UsageStatsManager.EXTRA_EVENT_ACTION} in the event bundle for
+     * widget user interaction events.
+     *
+     * A single widget interaction event describes what user interactions happened during a single
+     * impression of the widget.
+     * @hide
+     */
+    static final String EVENT_TYPE_WIDGET_INTERACTION = "widget_interaction";
+
+    /**
+     * This is the value of {@link UsageStatsManager.EXTRA_EVENT_CATEGORY} in the event bundle for
+     * widget user interaction events.
+     * @hide
+     */
+    public static final String EVENT_CATEGORY_APPWIDGET = "android.appwidget";
+
+    /**
+     * This bundle extra describes which views have been clicked during a single impression of the
+     * widget. It is an integer array of view IDs of the clicked views. The array may contain up to
+     * 10 distinct IDs per event.
+     *
+     * Widget providers may set a different ID for event logging by setting the usage event tag on
+     * the view with {@link RemoteViews#setAppWidgetEventTag}.
+     *
+     * @see android.widget.RemoteViews#setAppWidgetEventTag
+     * @hide
+     */
+    static final String EXTRA_EVENT_CLICKED_VIEWS =
+            "android.appwidget.extra.EVENT_CLICKED_VIEWS";
+
+    /**
+     * This bundle extra describes which views have been scrolled during a single impression of the
+     * widget. It is an integer array of view IDs of the scrolled views. The array may contain up to
+     * 10 distinct IDs per event.
+     *
+     * Widget providers may set a different ID for event logging by setting the usage event tag on
+     * the view with {@link RemoteViews#setAppWidgetEventTag}.
+     *
+     * @see android.widget.RemoteViews#setAppWidgetEventTag
+     * @hide
+     */
+    static final String EXTRA_EVENT_SCROLLED_VIEWS =
+            "android.appwidget.extra.EVENT_SCROLLED_VIEWS";
+
+    /**
+     * This bundle extra contains a long that represents the duration of time in milliseconds
+     * during which the widget was visible.
+     * @hide
+     */
+    static final String EXTRA_EVENT_DURATION_MS =
+            "android.appwidget.extra.EVENT_DURATION_MS";
+
+    /**
+     * This bundle extra contains an integer array with 4 elements that describe the left, top,
+     * right, and bottom coordinates (in that order) of the widget at the end of the interaction
+     * event.
+     *
+     * This Rect indicates the current position and size of the widget.
+     * @hide
+     */
+    static final String EXTRA_EVENT_POSITION_RECT =
+            "android.appwidget.extra.EVENT_POSITION_RECT";
+
+    /**
+     * This bundle extra contains a long that describes the start (in epoch milliseconds) of the
+     * time range that this event represents.
+     * @hide
+     */
+    static final String EXTRA_EVENT_START = "android.appwidget.extra.EVENT_START";
+
+    /**
+     * This bundle extra contains a long that describes the end (in epoch milliseconds) of the time
+     * range that this event represents.
+     * @hide
+     */
+    static final String EXTRA_EVENT_END = "android.appwidget.extra.EVENT_END";
+
+    private static final String TAG = "AppWidgetManager";
+
+    private static Executor sUpdateExecutor;
+
+    /**
      * An intent extra that contains multiple appWidgetIds.  These are id values as
      * they were provided to the application during a recent restore from backup.  It is
      * attached to the {@link #ACTION_APPWIDGET_RESTORED} broadcast intent.
@@ -455,6 +608,13 @@ public class AppWidgetManager {
     public static final String EXTRA_APPWIDGET_PREVIEW = "appWidgetPreview";
 
     /**
+     * The maximum waiting time for remote adapter conversion in milliseconds
+     *
+     * @hide
+     */
+    private static final long MAX_ADAPTER_CONVERSION_WAITING_TIME_MS = 20_000;
+
+    /**
      * Field for the manifest meta-data tag.
      *
      * @see AppWidgetProviderInfo
@@ -463,8 +623,16 @@ public class AppWidgetManager {
 
     private final Context mContext;
     private final String mPackageName;
+    @UnsupportedAppUsage
     private final IAppWidgetService mService;
     private final DisplayMetrics mDisplayMetrics;
+
+    private int mMaxBitmapMemory = 0;
+
+    private boolean mHasPostedLegacyLists = false;
+
+    @NonNull
+    private final ServiceCollectionCache mServiceCollectionCache;
 
     /**
      * Get the AppWidgetManager instance to use for the supplied {@link android.content.Context
@@ -486,6 +654,86 @@ public class AppWidgetManager {
         mPackageName = context.getOpPackageName();
         mService = service;
         mDisplayMetrics = context.getResources().getDisplayMetrics();
+        mServiceCollectionCache = new ServiceCollectionCache(context, /* timeout= */ 5000L);
+        if (mService == null) {
+            return;
+        }
+        // Allowing some buffer when estimating the maximum bitmap cache size
+        try {
+            mMaxBitmapMemory = (int) (mService.getMaxBitmapMemory() * 0.9);
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting the maximum bitmap memory", e);
+        }
+        BackgroundThread.getExecutor().execute(() -> {
+            try {
+                mService.notifyProviderInheritance(getInstalledProvidersForPackage(mPackageName,
+                        null)
+                        .stream().filter(Objects::nonNull)
+                        .map(info -> info.provider).filter(p -> {
+                            try {
+                                Class clazz = Class.forName(p.getClassName());
+                                return AppWidgetProvider.class.isAssignableFrom(clazz);
+                            } catch (Exception e) {
+                                return false;
+                            }
+                        }).toArray(ComponentName[]::new));
+            } catch (Exception e) {
+                Log.e(TAG, "Notify service of inheritance info", e);
+            }
+        });
+    }
+
+    private void tryAdapterConversion(
+            FunctionalUtils.RemoteExceptionIgnoringConsumer<RemoteViews> action,
+            RemoteViews original, int[] appWidgetIds, String failureMsg) {
+        if (remoteAdapterConversion()) {
+            mHasPostedLegacyLists = mHasPostedLegacyLists
+                    || (original != null && original.hasLegacyLists());
+        }
+        if (remoteAdapterConversion() && mHasPostedLegacyLists && original != null) {
+            final RemoteViews viewsCopy = new RemoteViews(original);
+            Runnable updateWidgetWithTask = () -> {
+                try {
+                    if (shouldSkipListConversion(viewsCopy, appWidgetIds)) {
+                        Log.d(TAG, "Skipping legacy list conversion, pending config activity");
+                        viewsCopy.replaceAllIntentsWithEmptyList();
+                    } else {
+                        viewsCopy.collectAllIntents(mMaxBitmapMemory, false /* invalidateData */,
+                                        mServiceCollectionCache)
+                                .thenRun(() -> {
+                                    try {
+                                        action.acceptOrThrow(viewsCopy);
+                                    } catch (RemoteException e) {
+                                        e.rethrowFromSystemServer();
+                                    }
+                                }).exceptionally(e -> {
+                                    Log.e(TAG, failureMsg, e);
+                                    return null;
+                                });
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, failureMsg, e);
+                }
+            };
+            if (Looper.getMainLooper() == Looper.myLooper()) {
+                createUpdateExecutorIfNull().execute(updateWidgetWithTask);
+                return;
+            }
+            updateWidgetWithTask.run();
+        } else {
+            try {
+                action.acceptOrThrow(original);
+            } catch (RemoteException re) {
+                throw re.rethrowFromSystemServer();
+            }
+        }
+    }
+
+    private boolean shouldSkipListConversion(RemoteViews views, int[] appWidgetIds)
+            throws RemoteException {
+        return appWidgetIds.length == 1
+                && views.hasLegacyLists()
+                && mService.isFirstConfigActivityPending(mPackageName, appWidgetIds[0]);
     }
 
     /**
@@ -511,11 +759,10 @@ public class AppWidgetManager {
         if (mService == null) {
             return;
         }
-        try {
-            mService.updateAppWidgetIds(mPackageName, appWidgetIds, views);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+
+        views.setOriginalDensity(mDisplayMetrics.density);
+        tryAdapterConversion(view -> mService.updateAppWidgetIds(mPackageName, appWidgetIds,
+                view), views, appWidgetIds, "Error updating app widget views in background");
     }
 
     /**
@@ -523,6 +770,9 @@ public class AppWidgetManager {
      * <p>
      * The extras can be used to embed additional information about this widget to be accessed
      * by the associated widget's AppWidgetProvider.
+     *
+     * <p>
+     * The new options are merged into existing options using {@link Bundle#putAll} semantics.
      *
      * @see #getAppWidgetOptions(int)
      *
@@ -616,11 +866,11 @@ public class AppWidgetManager {
         if (mService == null) {
             return;
         }
-        try {
-            mService.partiallyUpdateAppWidgetIds(mPackageName, appWidgetIds, views);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+
+        views.setOriginalDensity(mDisplayMetrics.density);
+        tryAdapterConversion(view -> mService.partiallyUpdateAppWidgetIds(mPackageName,
+                appWidgetIds, view), views, appWidgetIds,
+                "Error partially updating app widget views in background");
     }
 
     /**
@@ -671,11 +921,10 @@ public class AppWidgetManager {
         if (mService == null) {
             return;
         }
-        try {
-            mService.updateAppWidgetProvider(provider, views);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+
+        views.setOriginalDensity(mDisplayMetrics.density);
+        tryAdapterConversion(view -> mService.updateAppWidgetProvider(provider, view), views,
+                new int[0], "Error updating app widget view using provider in background");
     }
 
     /**
@@ -714,15 +963,72 @@ public class AppWidgetManager {
      *
      * @param appWidgetIds  The AppWidget instances to notify of view data changes.
      * @param viewId        The collection view id.
+     * @deprecated The corresponding API
+     * {@link RemoteViews#setRemoteAdapter(int, Intent)} associated with this method has been
+     * deprecated. Moving forward please use
+     * {@link RemoteViews#setRemoteAdapter(int, android.widget.RemoteViews.RemoteCollectionItems)}
+     * instead to set {@link android.widget.RemoteViews.RemoteCollectionItems} for the remote
+     * adapter and update the widget views by calling {@link #updateAppWidget(int[], RemoteViews)},
+     * {@link #updateAppWidget(int, RemoteViews)},
+     * {@link #updateAppWidget(ComponentName, RemoteViews)},
+     * {@link #partiallyUpdateAppWidget(int[], RemoteViews)},
+     * or {@link #partiallyUpdateAppWidget(int, RemoteViews)}, whichever applicable.
      */
+    @Deprecated
     public void notifyAppWidgetViewDataChanged(int[] appWidgetIds, int viewId) {
         if (mService == null) {
             return;
         }
+
+        if (remoteAdapterConversion()) {
+            mHasPostedLegacyLists = true;
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                createUpdateExecutorIfNull().execute(
+                        () -> notifyCollectionWidgetChange(appWidgetIds, viewId));
+            } else {
+                notifyCollectionWidgetChange(appWidgetIds, viewId);
+            }
+        } else {
+            try {
+                mService.notifyAppWidgetViewDataChanged(mPackageName, appWidgetIds, viewId);
+            } catch (RemoteException re) {
+                throw re.rethrowFromSystemServer();
+            }
+        }
+    }
+
+    @WorkerThread
+    private void notifyCollectionWidgetChange(int[] appWidgetIds, int viewId) {
         try {
-            mService.notifyAppWidgetViewDataChanged(mPackageName, appWidgetIds, viewId);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+            for (final int widgetId : appWidgetIds) {
+                try {
+                    if (mService.isFirstConfigActivityPending(mPackageName, widgetId)) {
+                        Log.d(TAG, "Skipping collection notify, pending config activity");
+                        continue;
+                    }
+                    RemoteViews views = mService.getAppWidgetViews(mPackageName, widgetId);
+                    if (views == null || !views.replaceRemoteCollections(viewId)) {
+                        continue;
+                    }
+                    views.collectAllIntents(
+                            mMaxBitmapMemory, true /* invalidateData */, mServiceCollectionCache)
+                            .thenRun(() -> {
+                                try {
+                                    mService.updateAppWidgetIds(
+                                            mPackageName, new int[]{widgetId}, views);
+                                } catch (RemoteException e) {
+                                    e.rethrowFromSystemServer();
+                                }
+                            }).exceptionally(e -> {
+                                Log.e(TAG, "Error notifying changes in RemoteViews", e);
+                                return null;
+                            });
+                } catch (Exception e) {
+                    Log.e(TAG, "Error notifying changes in RemoteViews", e);
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error notifying changes for all widgets", e);
         }
     }
 
@@ -732,7 +1038,18 @@ public class AppWidgetManager {
      *
      * @param appWidgetId  The AppWidget instance to notify of view data changes.
      * @param viewId       The collection view id.
+     * @deprecated The corresponding API
+     * {@link RemoteViews#setRemoteAdapter(int, Intent)} associated with this method has been
+     * deprecated. Moving forward please use
+     * {@link RemoteViews#setRemoteAdapter(int, android.widget.RemoteViews.RemoteCollectionItems)}
+     * instead to set {@link android.widget.RemoteViews.RemoteCollectionItems} for the remote
+     * adapter and update the widget views by calling {@link #updateAppWidget(int[], RemoteViews)},
+     * {@link #updateAppWidget(int, RemoteViews)},
+     * {@link #updateAppWidget(ComponentName, RemoteViews)},
+     * {@link #partiallyUpdateAppWidget(int[], RemoteViews)},
+     * or {@link #partiallyUpdateAppWidget(int, RemoteViews)}, whichever applicable.
      */
+    @Deprecated
     public void notifyAppWidgetViewDataChanged(int appWidgetId, int viewId) {
         if (mService == null) {
             return;
@@ -816,6 +1133,7 @@ public class AppWidgetManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public List<AppWidgetProviderInfo> getInstalledProviders(int categoryFilter) {
         if (mService == null) {
             return Collections.emptyList();
@@ -842,6 +1160,7 @@ public class AppWidgetManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public List<AppWidgetProviderInfo> getInstalledProvidersForProfile(int categoryFilter,
             @Nullable UserHandle profile, @Nullable String packageName) {
         if (mService == null) {
@@ -869,13 +1188,15 @@ public class AppWidgetManager {
     }
 
     /**
-     * Get the available info about the AppWidget.
+     * Returns the {@link AppWidgetProviderInfo} for the specified AppWidget.
      *
-     * @return A appWidgetId.  If the appWidgetId has not been bound to a provider yet, or
-     * you don't have access to that appWidgetId, null is returned.
+     * @return Information regarding the provider of speficied widget, returns null if the
+     *         appWidgetId has not been bound to a provider yet, or you don't have access
+     *         to that widget.
      */
     public AppWidgetProviderInfo getAppWidgetInfo(int appWidgetId) {
         if (mService == null) {
+            Log.e(TAG, "Service wasn't initialized, appWidgetId=" + appWidgetId);
             return null;
         }
         try {
@@ -883,6 +1204,9 @@ public class AppWidgetManager {
             if (info != null) {
                 // Converting complex to dp.
                 info.updateDimensions(mDisplayMetrics);
+            } else {
+                Log.e(TAG, "App widget provider info is null. PackageName=" + mPackageName
+                        + " appWidgetId-" + appWidgetId);
             }
             return info;
         } catch (RemoteException e) {
@@ -902,6 +1226,7 @@ public class AppWidgetManager {
      *                      provider for this AppWidget.
      * @hide
      */
+    @UnsupportedAppUsage
     public void bindAppWidgetId(int appWidgetId, ComponentName provider) {
         if (mService == null) {
             return;
@@ -924,6 +1249,7 @@ public class AppWidgetManager {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void bindAppWidgetId(int appWidgetId, ComponentName provider, Bundle options) {
         if (mService == null) {
             return;
@@ -933,6 +1259,9 @@ public class AppWidgetManager {
 
     /**
      * Set the component for a given appWidgetId.
+     *
+     * If successful, the app widget provider will receive a {@link #ACTION_APPWIDGET_UPDATE}
+     * broadcast.
      *
      * <p class="note">You need the BIND_APPWIDGET permission or the user must have enabled binding
      *         widgets always for your component. Should be used by apps that host widgets; if this
@@ -953,6 +1282,9 @@ public class AppWidgetManager {
 
     /**
      * Set the component for a given appWidgetId.
+     *
+     * If successful, the app widget provider will receive a {@link #ACTION_APPWIDGET_UPDATE}
+     * broadcast.
      *
      * <p class="note">You need the BIND_APPWIDGET permission or the user must have enabled binding
      *         widgets always for your component. Should be used by apps that host widgets; if this
@@ -977,6 +1309,10 @@ public class AppWidgetManager {
 
     /**
      * Set the provider for a given appWidgetId if the caller has a permission.
+     *
+     * If successful, the app widget provider will receive a {@link #ACTION_APPWIDGET_UPDATE}
+     * broadcast.
+     *
      * <p>
      * <strong>Note:</strong> You need the {@link android.Manifest.permission#BIND_APPWIDGET}
      * permission or the user must have enabled binding widgets always for your component.
@@ -1068,7 +1404,9 @@ public class AppWidgetManager {
      *
      * @hide
      */
-    public void setBindAppWidgetPermission(String packageName, int userId, boolean permission) {
+    @TestApi
+    public void setBindAppWidgetPermission(
+            @NonNull String packageName, @UserIdInt int userId, boolean permission) {
         if (mService == null) {
             return;
         }
@@ -1089,19 +1427,23 @@ public class AppWidgetManager {
      * @param intent        The intent of the service which will be providing the data to the
      *                      RemoteViewsAdapter.
      * @param connection    The callback interface to be notified when a connection is made or lost.
-     * @param flags         Flags used for binding to the service
+     * @param flags         Flags used for binding to the service. Currently only
+     *                     {@link Context#BIND_AUTO_CREATE} and
+     *                     {@link Context#BIND_FOREGROUND_SERVICE_WHILE_AWAKE} are supported.
      *
-     * @see Context#getServiceDispatcher(ServiceConnection, Handler, int)
+     * @see Context#getServiceDispatcher(ServiceConnection, Handler, long)
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean bindRemoteViewsService(Context context, int appWidgetId, Intent intent,
-            IServiceConnection connection, @Context.BindServiceFlags int flags) {
+            IServiceConnection connection, @Context.BindServiceFlagsBits int flags) {
         if (mService == null) {
             return false;
         }
         try {
             return mService.bindRemoteViewsService(context.getOpPackageName(), appWidgetId, intent,
-                    context.getIApplicationThread(), context.getActivityToken(), connection, flags);
+                    context.getIApplicationThread(), context.getActivityToken(), connection,
+                    Integer.toUnsignedLong(flags));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -1139,6 +1481,7 @@ public class AppWidgetManager {
         }
     }
 
+    @UnsupportedAppUsage
     private boolean bindAppWidgetIdIfAllowed(int appWidgetId, int profileId,
             ComponentName provider, Bundle options) {
         if (mService == null) {
@@ -1158,7 +1501,7 @@ public class AppWidgetManager {
      */
     public boolean isRequestPinAppWidgetSupported() {
         try {
-            return mService.isRequestPinAppWidgetSupported();
+            return mService.isRequestPinAppWidgetSupported(mPackageName);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -1194,13 +1537,14 @@ public class AppWidgetManager {
      *
      * @param provider The {@link ComponentName} for the {@link
      *    android.content.BroadcastReceiver BroadcastReceiver} provider for your AppWidget.
-     * @param extras In not null, this is passed to the launcher app. For eg {@link
+     * @param extras IF not null, this is passed to the launcher app. e.g. {@link
      *    #EXTRA_APPWIDGET_PREVIEW} can be used for a custom preview.
      * @param successCallback If not null, this intent will be sent when the widget is created.
      *
      * @return {@code TRUE} if the launcher supports this feature. Note the API will return without
      *    waiting for the user to respond, so getting {@code TRUE} from this API does *not* mean
-     *    the shortcut is pinned. {@code FALSE} if the launcher doesn't support this feature.
+     *    the shortcut is pinned. {@code FALSE} if the launcher doesn't support this feature or if
+     *    calling app belongs to a user-profile with items restricted on home screen.
      *
      * @see android.content.pm.ShortcutManager#isRequestPinShortcutSupported()
      * @see android.content.pm.ShortcutManager#requestPinShortcut(ShortcutInfo, IntentSender)
@@ -1216,6 +1560,317 @@ public class AppWidgetManager {
                     successCallback == null ? null : successCallback.getIntentSender());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Note an app widget is tapped on.
+     *
+     * @param appWidgetId App widget id.
+     * @hide
+     */
+    public void noteAppWidgetTapped(int appWidgetId) {
+        try {
+            mService.noteAppWidgetTapped(mPackageName, appWidgetId);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Set a preview for this widget. This preview will be used instead of the provider's {@link
+     * AppWidgetProviderInfo#previewLayout previewLayout} or {@link
+     * AppWidgetProviderInfo#previewImage previewImage} for previewing the widget in the widget
+     * picker and pin app widget flow.
+     *
+     * @param provider The {@link ComponentName} for the {@link android.content.BroadcastReceiver
+     *    BroadcastReceiver} provider for the AppWidget you intend to provide a preview for.
+     * @param widgetCategories The categories that this preview should be used for. This can be a
+     *    single category or combination of categories. If multiple categories are specified,
+     *    then this preview will be used for each of those categories. For example, if you
+     *    set a preview for WIDGET_CATEGORY_HOME_SCREEN | WIDGET_CATEGORY_KEYGUARD, the preview will
+     *    be used when picking widgets for the home screen and keyguard.
+     *
+     *    <p>Note: You should only use the widget categories that the provider supports, as defined
+     *    in {@link AppWidgetProviderInfo#widgetCategory}.
+     * @param preview This preview will be used for previewing the provider when picking widgets for
+     *    the selected categories.
+     *
+     * @see AppWidgetProviderInfo#WIDGET_CATEGORY_HOME_SCREEN
+     * @see AppWidgetProviderInfo#WIDGET_CATEGORY_KEYGUARD
+     * @see AppWidgetProviderInfo#WIDGET_CATEGORY_SEARCHBOX
+     *
+     * @return true if the call was successful, false if it was rate-limited.
+     */
+    @FlaggedApi(Flags.FLAG_GENERATED_PREVIEWS)
+    public boolean setWidgetPreview(@NonNull ComponentName provider,
+            @AppWidgetProviderInfo.CategoryFlags int widgetCategories,
+            @NonNull RemoteViews preview) {
+        try {
+            preview.setOriginalDensity(mDisplayMetrics.density);
+            return mService.setWidgetPreview(provider, widgetCategories, preview);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Get the RemoteViews previews for this widget.
+     *
+     * @param provider The {@link ComponentName} for the {@link android.content.BroadcastReceiver
+     *    BroadcastReceiver} provider for the AppWidget you intend to get a preview for.
+     * @param profile The profile in which the provider resides. Passing null is equivalent
+     *        to querying for only the calling user.
+     * @param widgetCategory The widget category for which you want to display previews. This should
+     *    be a single category. If a combination of categories is provided, this function will
+     *    return a preview that matches at least one of the categories.
+     *
+     * @return The widget preview for the selected category, if available.
+     * @see AppWidgetProviderInfo#generatedPreviewCategories
+     */
+    @Nullable
+    @FlaggedApi(Flags.FLAG_GENERATED_PREVIEWS)
+    public RemoteViews getWidgetPreview(@NonNull ComponentName provider,
+            @Nullable UserHandle profile, @AppWidgetProviderInfo.CategoryFlags int widgetCategory) {
+        try {
+            if (profile == null) {
+                profile = mContext.getUser();
+            }
+            return mService.getWidgetPreview(mPackageName, provider, profile.getIdentifier(),
+                    widgetCategory);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Remove this provider's preview for the specified widget categories. If the provider does not
+     * have a preview for the specified widget category, this is a no-op.
+     *
+     * @param provider The AppWidgetProvider to remove previews for.
+     * @param widgetCategories The categories of the preview to remove. For example, removing the
+     *    preview for WIDGET_CATEGORY_HOME_SCREEN | WIDGET_CATEGORY_KEYGUARD will remove the
+     *    previews for both categories.
+     */
+    @FlaggedApi(Flags.FLAG_GENERATED_PREVIEWS)
+    public void removeWidgetPreview(@NonNull ComponentName provider,
+            @AppWidgetProviderInfo.CategoryFlags int widgetCategories) {
+        try {
+            mService.removeWidgetPreview(provider, widgetCategories);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /** @hide */
+    public void setConfigActivityComplete(int widgetId) {
+        try {
+            mService.setConfigActivityComplete(widgetId);
+        } catch (RemoteException e) {
+            Log.d(TAG, "Error notifying config activity completed");
+        }
+    }
+
+    /**
+     * Query for app widget interaction events in the given time range. Events are only kept by the
+     * system for a few days. This method only returns events for widgets provided by the calling
+     * package and does not require any additional permissions.
+     *
+     * @param beginTime The inclusive beginning of the range of events to include in the results.
+     *                  Defined in terms of "Unix time", see
+     *                  {@link java.lang.System#currentTimeMillis}.
+     * @param endTime The exclusive end of the range of events to include in the results. Defined
+     *                in terms of "Unix time", see {@link java.lang.System#currentTimeMillis}.
+     * @return An array of {@link AppWidgetEvent} objects.
+     */
+    @FlaggedApi(Flags.FLAG_ENGAGEMENT_METRICS)
+    @NonNull
+    public List<AppWidgetEvent> queryAppWidgetEvents(long beginTime, long endTime) {
+        try {
+            ParceledListSlice<AppWidgetEvent> events = mService.queryAppWidgetEvents(mPackageName,
+                    beginTime, endTime);
+            return events != null ? events.getList() : Collections.emptyList();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    @UiThread
+    private static @NonNull Executor createUpdateExecutorIfNull() {
+        if (sUpdateExecutor == null) {
+            sUpdateExecutor = createExecutorService(
+                    "widget_manager_update_helper_thread", Process.THREAD_PRIORITY_FOREGROUND);
+        }
+        return sUpdateExecutor;
+    }
+
+    private static ExecutorService createExecutorService(@NonNull String name, int priority) {
+        return Executors.newSingleThreadExecutor(r -> new Thread(() -> {
+            Process.setThreadPriority(Process.myTid(), priority);
+            r.run();
+        }, name));
+    }
+
+    /**
+     * @hide
+     */
+    public static class ServiceCollectionCache {
+
+        private final Context mContext;
+        private final Handler mHandler;
+        private final long mTimeOut;
+
+        private final Map<FilterComparison, ConnectionTask> mActiveConnections =
+                new ArrayMap<>();
+
+        public ServiceCollectionCache(Context context, long timeOut) {
+            mContext = context;
+            mHandler = new Handler(BackgroundThread.getHandler().getLooper());
+            mTimeOut = timeOut;
+        }
+
+        /**
+         * Connect to the service indicated by the {@code Intent}, and consume the binder on the
+         * specified executor
+         */
+        public void connectAndConsume(Intent intent, Consumer<IBinder> task) {
+            mHandler.post(() -> connectAndConsumeInner(intent, task));
+        }
+
+        private void connectAndConsumeInner(Intent intent, Consumer<IBinder> task) {
+            ConnectionTask activeConnection = mActiveConnections.computeIfAbsent(
+                    new FilterComparison(intent), ConnectionTask::new);
+            activeConnection.add(task);
+        }
+
+        private class ConnectionTask implements ServiceConnection {
+
+            private final Runnable mDestroyAfterTimeout = this::onDestroyTimeout;
+            private final Runnable mConnectionTimeout = this::onConnectionTimeout;
+            private final ArrayDeque<Consumer<IBinder>> mTaskQueue = new ArrayDeque<>();
+
+            private final String mExecutorName;
+            private boolean mOnDestroyTimeout = false;
+            private IBinder mIBinder;
+
+            private ExecutorService mBinderCallExecutor;
+            private Object mCurrentTaskToken;
+
+            ConnectionTask(@NonNull FilterComparison filter) {
+                mExecutorName = "appwidget-connectiontask-" + filter.hashCode();
+                try {
+                    mContext.bindService(filter.getIntent(),
+                            Context.BindServiceFlags.of(Context.BIND_AUTO_CREATE),
+                            mHandler::post,
+                            this);
+                } catch (Exception e) {
+                    Log.e(TAG, "Error connecting to service in connection cache", e);
+                }
+                mHandler.postDelayed(mConnectionTimeout, MAX_ADAPTER_CONVERSION_WAITING_TIME_MS);
+            }
+
+            @Override
+            public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
+                onBinderReceived(iBinder);
+            }
+
+            @Override
+            public void onNullBinding(ComponentName name) {
+                // Use an empty binder, follow up tasks will handle the failure
+                onServiceConnected(name, new Binder());
+            }
+
+            private void onConnectionTimeout() {
+                onBinderReceived(new Binder());
+            }
+
+            private void onBinderReceived(IBinder iBinder) {
+                if (mIBinder != null) {
+                    return;
+                }
+                mIBinder = iBinder;
+                mHandler.removeCallbacks(mConnectionTimeout);
+                mHandler.post(this::handleNext);
+            }
+
+            @Override
+            public void onServiceDisconnected(ComponentName componentName) { }
+
+            void add(Consumer<IBinder> task) {
+                mTaskQueue.add(task);
+                if (mOnDestroyTimeout) {
+                    // If we are waiting for timeout, cancel it and execute the next task
+                    handleNext();
+                }
+            }
+
+            private void onTaskComplete(Object taskToken) {
+                if (mCurrentTaskToken == taskToken) {
+                    mCurrentTaskToken = null;
+                    handleNext();
+                }
+            }
+
+            private void handleNext() {
+                mHandler.removeCallbacks(mDestroyAfterTimeout);
+                Consumer<IBinder> next = mTaskQueue.pollFirst();
+                if (next != null) {
+                    mCurrentTaskToken = next;
+                    mOnDestroyTimeout = false;
+                    if (mBinderCallExecutor == null) {
+                        mBinderCallExecutor = createExecutorService(
+                                mExecutorName, Process.THREAD_PRIORITY_FOREGROUND);
+                    }
+                    Future task = mBinderCallExecutor.submit(() -> {
+                        next.accept(mIBinder);
+                        mHandler.post(() -> onTaskComplete(next));
+                    });
+
+                    mHandler.postDelayed(
+                            () -> onTaskTimeout(task, next),
+                            MAX_ADAPTER_CONVERSION_WAITING_TIME_MS);
+
+                } else {
+                    // Finished all tasks, start a timeout to unbind this service
+                    mOnDestroyTimeout = true;
+                    mHandler.postDelayed(mDestroyAfterTimeout, mTimeOut);
+                }
+            }
+
+            /**
+             * If a task times out, we try to interrupt it, but also switch to a new executor,
+             * in case the previous executor gets blocked for ever
+             */
+            private void onTaskTimeout(Future task, Object taskToken) {
+                if (!task.isDone()) {
+                    ExecutorService oldExecutor = mBinderCallExecutor;
+                    mBinderCallExecutor = null;
+                    task.cancel(true);
+                    if (oldExecutor != null) {
+                        oldExecutor.shutdown();
+                    }
+                    onTaskComplete(taskToken);
+                }
+            }
+
+            /**
+             * Called after we have waited for {@link #mTimeOut} after the last task is finished
+             */
+            private void onDestroyTimeout() {
+                if (!mTaskQueue.isEmpty()) {
+                    handleNext();
+                    return;
+                }
+                try {
+                    mContext.unbindService(this);
+                } catch (Exception e) {
+                    Log.e(TAG, "Error unbinding the cached connection", e);
+                }
+                if (mBinderCallExecutor != null) {
+                    mBinderCallExecutor.shutdown();
+                }
+                mActiveConnections.values().remove(this);
+            }
         }
     }
 }

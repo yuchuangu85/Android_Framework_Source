@@ -35,21 +35,20 @@ import java.util.Iterator;
  * <p> A charset provider is a concrete subclass of this class that has a
  * zero-argument constructor and some number of associated charset
  * implementation classes.  Charset providers may be installed in an instance
- * of the Java platform as extensions, that is, jar files placed into any of
- * the usual extension directories.  Providers may also be made available by
+ * of the Java platform as extensions.  Providers may also be made available by
  * adding them to the applet or application class path or by some other
  * platform-specific means.  Charset providers are looked up via the current
  * thread's {@link java.lang.Thread#getContextClassLoader() context class
  * loader}.
  *
  * <p> A charset provider identifies itself with a provider-configuration file
- * named <tt>java.nio.charset.spi.CharsetProvider</tt> in the resource
- * directory <tt>META-INF/services</tt>.  The file should contain a list of
+ * named {@code java.nio.charset.spi.CharsetProvider} in the resource
+ * directory {@code META-INF/services}.  The file should contain a list of
  * fully-qualified concrete charset-provider class names, one per line.  A line
- * is terminated by any one of a line feed (<tt>'\n'</tt>), a carriage return
- * (<tt>'\r'</tt>), or a carriage return followed immediately by a line feed.
+ * is terminated by any one of a line feed ({@code '\n'}), a carriage return
+ * ({@code '\r'}), or a carriage return followed immediately by a line feed.
  * Space and tab characters surrounding each name, as well as blank lines, are
- * ignored.  The comment character is <tt>'#'</tt> (<tt>'&#92;u0023'</tt>); on
+ * ignored.  The comment character is {@code '#'} (<code>'&#92;u0023'</code>); on
  * each line all characters following the first comment character are ignored.
  * The file must be encoded in UTF-8.
  *
@@ -71,17 +70,23 @@ import java.util.Iterator;
 
 public abstract class CharsetProvider {
 
+    private static Void checkPermission() {
+        SecurityManager sm = System.getSecurityManager();
+        if (sm != null)
+            sm.checkPermission(new RuntimePermission("charsetProvider"));
+        return null;
+    }
+    private CharsetProvider(Void ignore) { }
+
     /**
      * Initializes a new charset provider.
      *
      * @throws  SecurityException
      *          If a security manager has been installed and it denies
-     *          {@link RuntimePermission}<tt>("charsetProvider")</tt>
+     *          {@link RuntimePermission}{@code ("charsetProvider")}
      */
     protected CharsetProvider() {
-        SecurityManager sm = System.getSecurityManager();
-        if (sm != null)
-            sm.checkPermission(new RuntimePermission("charsetProvider"));
+        this(checkPermission());
     }
 
     /**
@@ -102,7 +107,7 @@ public abstract class CharsetProvider {
      *         a canonical name or an alias
      *
      * @return  A charset object for the named charset,
-     *          or <tt>null</tt> if the named charset
+     *          or {@code null} if the named charset
      *          is not supported by this provider
      */
     public abstract Charset charsetForName(String charsetName);

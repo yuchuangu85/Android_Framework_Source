@@ -16,6 +16,7 @@
 
 package android.os.health;
 
+import android.annotation.TestApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.ArrayMap;
@@ -31,6 +32,7 @@ import java.util.Map;
  *
  * @hide
  */
+@TestApi
 public class HealthStatsWriter {
     private final HealthKeys.Constants mConstants;
 
@@ -56,7 +58,7 @@ public class HealthStatsWriter {
      * Construct a HealthStatsWriter object with the given constants.
      *
      * The "getDataType()" of the resulting HealthStats object will be the
-     * short name of the java class that the Constants object was initalized
+     * short name of the java class that the Constants object was initialized
      * with.
      */
     public HealthStatsWriter(HealthKeys.Constants constants) {

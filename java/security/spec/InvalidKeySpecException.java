@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,6 +40,7 @@ import java.security.GeneralSecurityException;
 
 public class InvalidKeySpecException extends GeneralSecurityException {
 
+    @java.io.Serial
     private static final long serialVersionUID = 3546139293998810778L;
 
     /**
@@ -63,7 +64,7 @@ public class InvalidKeySpecException extends GeneralSecurityException {
     }
 
     /**
-     * Creates a {@code InvalidKeySpecException} with the specified
+     * Creates an {@code InvalidKeySpecException} with the specified
      * detail message and cause.
      *
      * @param message the detail message (which is saved for later retrieval
@@ -78,7 +79,7 @@ public class InvalidKeySpecException extends GeneralSecurityException {
     }
 
     /**
-     * Creates a {@code InvalidKeySpecException} with the specified cause
+     * Creates an {@code InvalidKeySpecException} with the specified cause
      * and a detail message of {@code (cause==null ? null : cause.toString())}
      * (which typically contains the class and detail message of
      * {@code cause}).

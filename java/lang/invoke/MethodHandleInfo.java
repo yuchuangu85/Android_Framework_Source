@@ -27,6 +27,7 @@ package java.lang.invoke;
 
 import java.lang.reflect.*;
 import java.util.*;
+import java.lang.invoke.MethodHandleNatives.Constants;
 import java.lang.invoke.MethodHandles.Lookup;
 import static java.lang.invoke.MethodHandleStatics.*;
 
@@ -127,17 +128,16 @@ interface MethodHandleInfo {
      * A direct method handle reference kind,
      * as defined in the <a href="MethodHandleInfo.html#refkinds">table above</a>.
      */
-    // Android-changed: Inlined the values of these constants from MethodHandleNatives.Constants.
     public static final int
-        REF_getField                = 1,
-        REF_getStatic               = 2,
-        REF_putField                = 3,
-        REF_putStatic               = 4,
-        REF_invokeVirtual           = 5,
-        REF_invokeStatic            = 6,
-        REF_invokeSpecial           = 7,
-        REF_newInvokeSpecial        = 8,
-        REF_invokeInterface         = 9;
+        REF_getField                = Constants.REF_getField,
+        REF_getStatic               = Constants.REF_getStatic,
+        REF_putField                = Constants.REF_putField,
+        REF_putStatic               = Constants.REF_putStatic,
+        REF_invokeVirtual           = Constants.REF_invokeVirtual,
+        REF_invokeStatic            = Constants.REF_invokeStatic,
+        REF_invokeSpecial           = Constants.REF_invokeSpecial,
+        REF_newInvokeSpecial        = Constants.REF_newInvokeSpecial,
+        REF_invokeInterface         = Constants.REF_invokeInterface;
 
     /**
      * Returns the reference kind of the cracked method handle, which in turn
@@ -224,13 +224,11 @@ interface MethodHandleInfo {
     // spelling derived from java.lang.reflect.Executable, not MethodHandle.isVarargsCollector
     public default boolean isVarArgs()  {
         // fields are never varargs:
-        if (refKindIsField(getReferenceKind()))
+        if (MethodHandleNatives.refKindIsField((byte) getReferenceKind()))
             return false;
         // not in the public API: Modifier.VARARGS
         final int ACC_VARARGS = 0x00000080;  // from JVMS 4.6 (Table 4.20)
-
-        // Android-changed: Removed assert() due to http://b/30862573
-        // assert(ACC_VARARGS == Modifier.TRANSIENT);
+        assert(ACC_VARARGS == Modifier.TRANSIENT);
         return Modifier.isTransient(getModifiers());
     }
 
@@ -244,9 +242,9 @@ interface MethodHandleInfo {
      *            <a href="MethodHandleInfo.html#refkinds">reference kind number</a>
      */
     public static String referenceKindToString(int referenceKind) {
-        if (!refKindIsValid(referenceKind))
+        if (!MethodHandleNatives.refKindIsValid(referenceKind))
             throw newIllegalArgumentException("invalid reference kind", referenceKind);
-        return refKindName(referenceKind);
+        return MethodHandleNatives.refKindName((byte)referenceKind);
     }
 
     /**
@@ -284,31 +282,40 @@ interface MethodHandleInfo {
         return String.format("%s %s.%s:%s", referenceKindToString(kind), defc.getName(), name, type);
     }
 
-    // Android-changed: Inlined from MethodHandleNatives and changed to avoid references to
-    // REF_NONE and REF_LIMITED
+    // BEGIN Android-added: refKind...() methods needed for API compatibility with 26.
+    // These methods were accidentally added into the public API in API level. They are now
+    // deprecated as a prelude to being removed from the public API.
+    /**
+     * @deprecated This internal method was accidentally added to API 26 and must not be used. No
+     *             replacement is available but it is possible to replicate using information from
+     *             the <a href="MethodHandleInfo.html#refkinds">table above</a>, e.g.
+     *             {@code refKind >= 1 && refKind <= 9}. There are no guarantees that this logic
+     *             will work if future versions extend the table.
+     */
+    @Deprecated
     static boolean refKindIsValid(int refKind) {
-        return (refKind >= REF_getField && refKind <= REF_invokeInterface);
+        return MethodHandleNatives.refKindIsValid(refKind);
     }
 
-    // Android-changed: Inlined from MethodHandleNatives.
+    /**
+     * @deprecated This internal method was accidentally added to API 26 and must not be used. No
+     *             replacement is available but it is possible to replicate using information from
+     *             the <a href="MethodHandleInfo.html#refkinds">table above</a>, e.g.
+     *             {@code refKind >= 1 && refKind <= 4}.  There are no guarantees that this logic
+     *             will work if future versions extend the table.
+     */
+    @Deprecated
     static boolean refKindIsField(int refKind) {
-        return (refKind <= REF_putStatic);
+        return MethodHandleNatives.refKindIsField((byte) refKind);
     }
 
-    // Android-changed: Inlined from MethodHandleNatives and replaced 'byte' argument with
-    // 'int'.
+    /**
+     * @deprecated This internal method was accidentally added to API 26 and must not be used. Use
+     *             {@link MethodHandleInfo#referenceKindToString(int)} instead.
+     */
+    @Deprecated
     static String refKindName(int refKind) {
-        switch (refKind) {
-            case REF_getField:          return "getField";
-            case REF_getStatic:         return "getStatic";
-            case REF_putField:          return "putField";
-            case REF_putStatic:         return "putStatic";
-            case REF_invokeVirtual:     return "invokeVirtual";
-            case REF_invokeStatic:      return "invokeStatic";
-            case REF_invokeSpecial:     return "invokeSpecial";
-            case REF_newInvokeSpecial:  return "newInvokeSpecial";
-            case REF_invokeInterface:   return "invokeInterface";
-            default:                    return "REF_???";
-        }
+        return MethodHandleNatives.refKindName((byte) refKind);
     }
+    // END Android-added: refKind...() methods needed for API compatibility with 26.
 }

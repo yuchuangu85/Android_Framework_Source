@@ -16,6 +16,11 @@
 
 package android.media;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
+
 /**
  * The AudioGain describes a gain controller. Gain controllers are exposed by
  * audio ports when the gain is configurable at this port's input or output.
@@ -38,6 +43,7 @@ package android.media;
  * valid gain configuration from AudioGain.buildConfig()
  * @hide
  */
+@RavenwoodKeepWholeClass
 public class AudioGain {
 
     /**
@@ -59,7 +65,7 @@ public class AudioGain {
 
     private final int mIndex;
     private final int mMode;
-    private final int mChannelMask;
+    @NonNull private final AudioFormat.ChannelMasks mChannelMasks;
     private final int mMinValue;
     private final int mMaxValue;
     private final int mDefaultValue;
@@ -69,12 +75,22 @@ public class AudioGain {
 
     // The channel mask passed to the constructor is as specified in AudioFormat
     // (e.g. AudioFormat.CHANNEL_OUT_STEREO)
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     AudioGain(int index, int mode, int channelMask,
                         int minValue, int maxValue, int defaultValue, int stepValue,
                         int rampDurationMinMs, int rampDurationMaxMs) {
+        this(index, mode,
+                new AudioFormat.ChannelMasks(channelMask),
+                minValue, maxValue, defaultValue, stepValue, rampDurationMinMs,
+                rampDurationMaxMs);
+    }
+
+    AudioGain(int index, int mode, @NonNull AudioFormat.ChannelMasks channelMasks,
+            int minValue, int maxValue, int defaultValue, int stepValue,
+            int rampDurationMinMs, int rampDurationMaxMs) {
         mIndex = index;
         mMode = mode;
-        mChannelMask = channelMask;
+        mChannelMasks = channelMasks;
         mMinValue = minValue;
         mMaxValue = maxValue;
         mDefaultValue = defaultValue;
@@ -95,7 +111,14 @@ public class AudioGain {
      * (e.g. AudioFormat.CHANNEL_OUT_STEREO)
      */
     public int channelMask() {
-        return mChannelMask;
+        return mChannelMasks.getPositionMask();
+    }
+
+    /**
+     * Channel mask configuration.
+     */
+    public @NonNull AudioFormat.ChannelMasks channelMasks() {
+        return mChannelMasks;
     }
 
     /**
@@ -154,6 +177,20 @@ public class AudioGain {
     public AudioGainConfig buildConfig(int mode, int channelMask,
                                        int[] values, int rampDurationMs) {
         //TODO: check params here
-        return new AudioGainConfig(mIndex, this, mode, channelMask, values, rampDurationMs);
+        return new AudioGainConfig(mIndex, this, mode, new AudioFormat.ChannelMasks(channelMask),
+                values, rampDurationMs);
+    }
+
+    /**
+     * Build a valid gain configuration for this gain controller for use by
+     * AudioPortDescriptor.setGain()
+     * @param mode desired mode of operation
+     * @param channelMasks channel mask of channels for which the gain should be modified.
+     * @param values gain values for each channels.
+     * @param rampDurationMs ramp duration if mode MODE_RAMP is set, ignored if MODE_JOINT.
+     */
+    public AudioGainConfig buildConfig(int mode, @NonNull AudioFormat.ChannelMasks channelMasks,
+                                       int[] values, int rampDurationMs) {
+        return new AudioGainConfig(mIndex, this, mode, channelMasks, values, rampDurationMs);
     }
 }

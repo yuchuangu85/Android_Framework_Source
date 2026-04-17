@@ -18,7 +18,7 @@ package com.android.internal.telephony.uicc;
 
 
 /**
- * {@hide}
+ * @hide
  */
 public class IccFileNotFound extends IccException {
     IccFileNotFound() {

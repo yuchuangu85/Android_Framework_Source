@@ -17,8 +17,11 @@
 package com.android.server;
 
 import android.os.Handler;
+import android.os.HandlerExecutor;
 import android.os.Looper;
 import android.os.Trace;
+
+import java.util.concurrent.Executor;
 
 /**
  * Shared singleton foreground thread for the system.  This is a thread for regular
@@ -27,41 +30,40 @@ import android.os.Trace;
  * relatively long-running operations like saving state to disk (in addition to
  * simply being a background priority), which can cause operations scheduled on it
  * to be delayed for a user-noticeable amount of time.
+ *
+ * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public final class FgThread extends ServiceThread {
     private static final long SLOW_DISPATCH_THRESHOLD_MS = 100;
     private static final long SLOW_DELIVERY_THRESHOLD_MS = 200;
 
-    private static FgThread sInstance;
-    private static Handler sHandler;
+    private static final class NoPreloadHolder {
+        private static final FgThread sInstance = new FgThread();
+    }
+
+    private final Handler mHandler;
+    private final HandlerExecutor mHandlerExecutor;
 
     private FgThread() {
         super("android.fg", android.os.Process.THREAD_PRIORITY_DEFAULT, true /*allowIo*/);
-    }
-
-    private static void ensureThreadLocked() {
-        if (sInstance == null) {
-            sInstance = new FgThread();
-            sInstance.start();
-            final Looper looper = sInstance.getLooper();
-            looper.setTraceTag(Trace.TRACE_TAG_SYSTEM_SERVER);
-            looper.setSlowLogThresholdMs(
-                    SLOW_DISPATCH_THRESHOLD_MS, SLOW_DELIVERY_THRESHOLD_MS);
-            sHandler = new Handler(sInstance.getLooper());
-        }
+        start();
+        final Looper looper = getLooper();
+        looper.setTraceTag(Trace.TRACE_TAG_SYSTEM_SERVER);
+        looper.setSlowLogThresholdMs(SLOW_DISPATCH_THRESHOLD_MS, SLOW_DELIVERY_THRESHOLD_MS);
+        mHandler = makeSharedHandler(looper);
+        mHandlerExecutor = new HandlerExecutor(mHandler);
     }
 
     public static FgThread get() {
-        synchronized (FgThread.class) {
-            ensureThreadLocked();
-            return sInstance;
-        }
+        return NoPreloadHolder.sInstance;
     }
 
     public static Handler getHandler() {
-        synchronized (FgThread.class) {
-            ensureThreadLocked();
-            return sHandler;
-        }
+        return NoPreloadHolder.sInstance.mHandler;
+    }
+
+    public static Executor getExecutor() {
+        return NoPreloadHolder.sInstance.mHandlerExecutor;
     }
 }

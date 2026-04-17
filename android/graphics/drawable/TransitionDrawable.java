@@ -16,6 +16,7 @@
 
 package android.graphics.drawable;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo.Config;
 import android.content.res.Resources;
 import android.graphics.Canvas;
@@ -39,6 +40,7 @@ import android.os.SystemClock;
  * @attr ref android.R.styleable#LayerDrawableItem_id
  *
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class TransitionDrawable extends LayerDrawable implements Drawable.Callback {
 
     /**
@@ -65,10 +67,13 @@ public class TransitionDrawable extends LayerDrawable implements Drawable.Callba
     private boolean mReverse;
     private long mStartTimeMillis;
     private int mFrom;
+    @UnsupportedAppUsage
     private int mTo;
     private int mDuration;
     private int mOriginalDuration;
+    @UnsupportedAppUsage
     private int mAlpha = 0;
+    @UnsupportedAppUsage
     private boolean mCrossFade;
 
     /**

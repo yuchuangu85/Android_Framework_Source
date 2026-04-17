@@ -16,11 +16,16 @@
 
 package android.inputmethodservice;
 
+import static android.view.inputmethod.Flags.verifyKeyEvent;
+
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.graphics.Rect;
+import android.hardware.input.InputManager;
 import android.os.Bundle;
 import android.os.Looper;
 import android.os.Message;
+import android.os.SystemClock;
 import android.util.Log;
 import android.util.SparseArray;
 import android.view.InputChannel;
@@ -31,28 +36,36 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.inputmethod.CompletionInfo;
 import android.view.inputmethod.CursorAnchorInfo;
+import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.ExtractedText;
 import android.view.inputmethod.InputMethodSession;
 
+import com.android.internal.inputmethod.IInputMethodSession;
+import com.android.internal.inputmethod.IRemoteInputConnection;
 import com.android.internal.os.HandlerCaller;
 import com.android.internal.os.SomeArgs;
-import com.android.internal.view.IInputMethodSession;
+
+import java.util.Objects;
 
 class IInputMethodSessionWrapper extends IInputMethodSession.Stub
         implements HandlerCaller.Callback {
     private static final String TAG = "InputMethodWrapper";
-    
-    private static final int DO_FINISH_INPUT = 60;
+
     private static final int DO_DISPLAY_COMPLETIONS = 65;
     private static final int DO_UPDATE_EXTRACTED_TEXT = 67;
     private static final int DO_UPDATE_SELECTION = 90;
     private static final int DO_UPDATE_CURSOR = 95;
     private static final int DO_UPDATE_CURSOR_ANCHOR_INFO = 99;
     private static final int DO_APP_PRIVATE_COMMAND = 100;
-    private static final int DO_TOGGLE_SOFT_INPUT = 105;
     private static final int DO_FINISH_SESSION = 110;
     private static final int DO_VIEW_CLICKED = 115;
+    private static final int DO_REMOVE_IME_SURFACE = 130;
+    private static final int DO_FINISH_INPUT = 140;
+    private static final int DO_INVALIDATE_INPUT = 150;
+    private final Context mContext;
 
+
+    @UnsupportedAppUsage
     HandlerCaller mCaller;
     InputMethodSession mInputMethodSession;
     InputChannel mChannel;
@@ -60,6 +73,7 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
 
     public IInputMethodSessionWrapper(Context context,
             InputMethodSession inputMethodSession, InputChannel channel) {
+        mContext = context;
         mCaller = new HandlerCaller(context, null,
                 this, true /*asyncHandler*/);
         mInputMethodSession = inputMethodSession;
@@ -89,9 +103,6 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
         }
 
         switch (msg.what) {
-            case DO_FINISH_INPUT:
-                mInputMethodSession.finishInput();
-                return;
             case DO_DISPLAY_COMPLETIONS:
                 mInputMethodSession.displayCompletions((CompletionInfo[])msg.obj);
                 return;
@@ -121,16 +132,30 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
                 args.recycle();
                 return;
             }
-            case DO_TOGGLE_SOFT_INPUT: {
-                mInputMethodSession.toggleSoftInput(msg.arg1, msg.arg2);
-                return;
-            }
             case DO_FINISH_SESSION: {
                 doFinishSession();
                 return;
             }
             case DO_VIEW_CLICKED: {
                 mInputMethodSession.viewClicked(msg.arg1 == 1);
+                return;
+            }
+            case DO_REMOVE_IME_SURFACE: {
+                mInputMethodSession.removeImeSurface();
+                return;
+            }
+            case DO_FINISH_INPUT: {
+                mInputMethodSession.finishInput();
+                return;
+            }
+            case DO_INVALIDATE_INPUT: {
+                final SomeArgs args = (SomeArgs) msg.obj;
+                try {
+                    mInputMethodSession.invalidateInputInternal((EditorInfo) args.arg1,
+                            (IRemoteInputConnection) args.arg2, msg.arg1);
+                } finally {
+                    args.recycle();
+                }
                 return;
             }
         }
@@ -147,11 +172,6 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
             mChannel.dispose();
             mChannel = null;
         }
-    }
-
-    @Override
-    public void finishInput() {
-        mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_FINISH_INPUT));
     }
 
     @Override
@@ -181,6 +201,11 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
     }
 
     @Override
+    public void removeImeSurface() {
+        mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_REMOVE_IME_SURFACE));
+    }
+
+    @Override
     public void updateCursor(Rect newCursor) {
         mCaller.executeOrSendMessage(
                 mCaller.obtainMessageO(DO_UPDATE_CURSOR, newCursor));
@@ -199,18 +224,25 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
     }
 
     @Override
-    public void toggleSoftInput(int showFlags, int hideFlags) {
-        mCaller.executeOrSendMessage(
-                mCaller.obtainMessageII(DO_TOGGLE_SOFT_INPUT, showFlags, hideFlags));
-    }
-
-    @Override
     public void finishSession() {
         mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_FINISH_SESSION));
     }
 
+    @Override
+    public void invalidateInput(EditorInfo editorInfo, IRemoteInputConnection inputConnection,
+            int sessionId) {
+        mCaller.executeOrSendMessage(mCaller.obtainMessageIOO(
+                DO_INVALIDATE_INPUT, sessionId, editorInfo, inputConnection));
+    }
+
+    @Override
+    public void finishInput() {
+        mCaller.executeOrSendMessage(mCaller.obtainMessage(DO_FINISH_INPUT));
+    }
     private final class ImeInputEventReceiver extends InputEventReceiver
             implements InputMethodSession.EventCallback {
+        // Time after which a KeyEvent is invalid
+        private static final long KEY_EVENT_ALLOW_PERIOD_MS = 100L;
         private final SparseArray<InputEvent> mPendingEvents = new SparseArray<InputEvent>();
 
         public ImeInputEventReceiver(InputChannel inputChannel, Looper looper) {
@@ -218,17 +250,30 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
         }
 
         @Override
-        public void onInputEvent(InputEvent event, int displayId) {
+        public void onInputEvent(InputEvent event) {
             if (mInputMethodSession == null) {
                 // The session has been finished.
                 finishInputEvent(event, false);
                 return;
             }
 
+            if (event instanceof KeyEvent keyEvent && needsVerification(keyEvent)) {
+                // any KeyEvent with modifiers (e.g. Ctrl/Alt/Fn) must be verified that
+                // they originated from system.
+                InputManager im = mContext.getSystemService(InputManager.class);
+                Objects.requireNonNull(im);
+                final long age = SystemClock.uptimeMillis() - keyEvent.getEventTime();
+                if (age >= KEY_EVENT_ALLOW_PERIOD_MS && im.verifyInputEvent(keyEvent) == null) {
+                    Log.w(TAG, "Unverified or Invalid KeyEvent injected into IME. Dropping "
+                            + keyEvent);
+                    finishInputEvent(event, false /* handled */);
+                    return;
+                }
+            }
+
             final int seq = event.getSequenceNumber();
             mPendingEvents.put(seq, event);
-            if (event instanceof KeyEvent) {
-                KeyEvent keyEvent = (KeyEvent)event;
+            if (event instanceof KeyEvent keyEvent) {
                 mInputMethodSession.dispatchKeyEvent(seq, keyEvent, this);
             } else {
                 MotionEvent motionEvent = (MotionEvent)event;
@@ -248,6 +293,23 @@ class IInputMethodSessionWrapper extends IInputMethodSession.Stub
                 mPendingEvents.removeAt(index);
                 finishInputEvent(event, handled);
             }
+        }
+
+        private boolean hasKeyModifiers(KeyEvent event) {
+            if (event.hasNoModifiers()) {
+                return false;
+            }
+            return event.isCtrlPressed()
+                    || event.isAltPressed()
+                    || event.isFunctionPressed()
+                    || event.isMetaPressed();
+        }
+
+        private boolean needsVerification(KeyEvent event) {
+            //TODO(b/331730488): Handle a11y events as well.
+            return verifyKeyEvent()
+                    && (hasKeyModifiers(event)
+                            || mInputMethodSession.onShouldVerifyKeyEvent(event));
         }
     }
 }

@@ -16,42 +16,42 @@
 
 package android.app.servertransaction;
 
+import android.annotation.NonNull;
 import android.app.ClientTransactionHandler;
-import android.os.IBinder;
 
 /**
  * Base interface for individual requests from server to client.
  * Each of them can be prepared before scheduling and, eventually, executed.
+ *
  * @hide
  */
-public interface BaseClientRequest extends ObjectPoolItem {
+public interface BaseClientRequest {
 
     /**
-     * Prepare the client request before scheduling.
+     * Prepares the client request before scheduling.
      * An example of this might be informing about pending updates for some values.
      *
-     * @param client Target client handler.
-     * @param token  Target activity token.
+     * @param client target client handler.
      */
-    default void preExecute(ClientTransactionHandler client, IBinder token) {
+    default void preExecute(@NonNull ClientTransactionHandler client) {
     }
 
     /**
-     * Execute the request.
-     * @param client Target client handler.
-     * @param token Target activity token.
-     * @param pendingActions Container that may have data pending to be used.
+     * Executes the request.
+     *
+     * @param client         target client handler.
+     * @param pendingActions container that may have data pending to be used.
      */
-    void execute(ClientTransactionHandler client, IBinder token,
-            PendingTransactionActions pendingActions);
+    void execute(@NonNull ClientTransactionHandler client,
+            @NonNull PendingTransactionActions pendingActions);
 
     /**
-     * Perform all actions that need to happen after execution, e.g. report the result to server.
-     * @param client Target client handler.
-     * @param token Target activity token.
-     * @param pendingActions Container that may have data pending to be used.
+     * Performs all actions that need to happen after execution, e.g. report the result to server.
+     *
+     * @param client         target client handler.
+     * @param pendingActions container that may have data pending to be used.
      */
-    default void postExecute(ClientTransactionHandler client, IBinder token,
-            PendingTransactionActions pendingActions) {
+    default void postExecute(@NonNull ClientTransactionHandler client,
+            @NonNull PendingTransactionActions pendingActions) {
     }
 }

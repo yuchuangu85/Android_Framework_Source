@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,8 +57,8 @@
  * by the {@code throw} statement. Subclasses of {@code Throwable}
  * represent errors and exceptions.
  *
- * <a name="charenc"></a>
- * <h3>Character Encodings</h3>
+ * <a id="charenc"></a>
+ * <h2>Character Encodings</h2>
  *
  * The specification of the {@link java.nio.charset.Charset
  * java.nio.charset.Charset} class describes the naming conventions
@@ -66,6 +66,6 @@
  * that must be supported by every implementation of the Java
  * platform.
  *
- * @since JDK1.0
+ * @since 1.0
  */
 package java.lang;

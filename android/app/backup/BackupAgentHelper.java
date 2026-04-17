@@ -17,6 +17,10 @@
 package android.app.backup;
 
 import android.os.ParcelFileDescriptor;
+import com.android.server.backup.Flags;
+import android.annotation.FlaggedApi;
+import android.annotation.NonNull;
+import android.annotation.SystemApi;
 
 import java.io.IOException;
 
@@ -75,6 +79,23 @@ public class BackupAgentHelper extends BackupAgent {
         mDispatcher.performRestore(data, appVersionCode, newState);
     }
 
+    /**
+     * Run the delayed restore process on each of the configured handlers.
+     *
+     * @hide
+     */
+    @Override
+    @FlaggedApi(Flags.FLAG_ENABLE_DELAYED_RESTORE_API)
+    @SystemApi
+    public void onDelayedRestore(
+            @NonNull DelayedRestoreRequest request,
+            @NonNull BackupDataInput data,
+            long appVersionCode,
+            @NonNull ParcelFileDescriptor newState)
+            throws IOException {
+        mDispatcher.performDelayedRestore(data, (int) appVersionCode, newState, request);
+    }
+
     /** @hide */
     public BackupHelperDispatcher getDispatcher() {
         return mDispatcher;
@@ -84,6 +105,8 @@ public class BackupAgentHelper extends BackupAgent {
      * Add a helper for a given data subset to the agent's configuration.  Each helper
      * must have a prefix string that is unique within this backup agent's set of
      * helpers.
+     *
+     * <p class="note">If the key prefix already exists, the new helper will replace the old one.
      *
      * @param keyPrefix A string used to disambiguate the various helpers within this agent
      * @param helper A backup/restore helper object to be invoked during backup and restore

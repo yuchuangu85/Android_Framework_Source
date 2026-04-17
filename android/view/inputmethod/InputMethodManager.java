@@ -16,65 +16,139 @@
 
 package android.view.inputmethod;
 
-import static android.Manifest.permission.WRITE_SECURE_SETTINGS;
+import static android.os.Trace.TRACE_TAG_WINDOW_MANAGER;
+import static android.view.ViewProtoLogGroups.INPUT_METHOD_MANAGER_DEBUG;
+import static android.view.inputmethod.Flags.FLAG_HOME_SCREEN_HANDWRITING_DELEGATOR;
+import static android.view.ViewProtoLogGroups.INPUT_METHOD_MANAGER_WITH_LOGCAT;
+import static android.view.inputmethod.Flags.initiationWithoutInputConnection;
+import static android.view.inputmethod.InputConnection.CURSOR_UPDATE_IMMEDIATE;
+import static android.view.inputmethod.InputConnection.CURSOR_UPDATE_MONITOR;
+import static android.internal.perfetto.protos.Inputmethodeditor.InputMethodClientsTraceProto.ClientSideProto.DISPLAY_ID;
+import static android.internal.perfetto.protos.Inputmethodeditor.InputMethodClientsTraceProto.ClientSideProto.EDITOR_INFO;
+import static android.internal.perfetto.protos.Inputmethodeditor.InputMethodClientsTraceProto.ClientSideProto.INPUT_CONNECTION;
+import static android.internal.perfetto.protos.Inputmethodeditor.InputMethodClientsTraceProto.ClientSideProto.INPUT_CONNECTION_CALL;
+import static android.internal.perfetto.protos.Inputmethodeditor.InputMethodClientsTraceProto.ClientSideProto.INPUT_METHOD_MANAGER;
+import static android.internal.perfetto.protos.Inputmethodeditor.InputMethodClientsTraceProto.ClientSideProto.VIEW_ROOT_IMPL;
+import static android.internal.perfetto.protos.Inputmethodmanager.InputMethodManagerProto.ACTIVE;
+import static android.internal.perfetto.protos.Inputmethodmanager.InputMethodManagerProto.CUR_ID;
+import static android.internal.perfetto.protos.Inputmethodmanager.InputMethodManagerProto.FULLSCREEN_MODE;
+import static android.internal.perfetto.protos.Inputmethodmanager.InputMethodManagerProto.NEXT_SERVED_VIEW;
+import static android.internal.perfetto.protos.Inputmethodmanager.InputMethodManagerProto.SERVED_CONNECTING;
+import static android.internal.perfetto.protos.Inputmethodmanager.InputMethodManagerProto.SERVED_VIEW;
 
+import static com.android.internal.inputmethod.StartInputReason.BOUND_TO_IMMS;
+
+import android.Manifest;
+import android.annotation.CallbackExecutor;
+import android.annotation.DisplayContext;
+import android.annotation.DrawableRes;
+import android.annotation.DurationMillisLong;
+import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresFeature;
 import android.annotation.RequiresPermission;
+import android.annotation.SpecialUsers.CanBeALL;
+import android.annotation.SpecialUsers.CanBeCURRENT;
+import android.annotation.SuppressLint;
+import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.annotation.TestApi;
+import android.annotation.UiThread;
+import android.annotation.UserIdInt;
+import android.app.ActivityThread;
+import android.app.PropertyInvalidatedCache;
+import android.app.compat.CompatChanges;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.ComponentName;
+import android.content.ContentResolver;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Rect;
+import android.hardware.display.DisplayManager;
 import android.inputmethodservice.InputMethodService;
-import android.net.Uri;
+import android.os.Binder;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
-import android.os.RemoteException;
+import android.os.Process;
 import android.os.ResultReceiver;
-import android.os.ServiceManager;
-import android.os.ServiceManager.ServiceNotFoundException;
+import android.os.SystemProperties;
 import android.os.Trace;
+import android.os.UserHandle;
+import android.provider.Settings;
+import android.text.TextUtils;
 import android.text.style.SuggestionSpan;
 import android.util.Log;
+import android.util.Pair;
 import android.util.Pools.Pool;
 import android.util.Pools.SimplePool;
 import android.util.PrintWriterPrinter;
 import android.util.Printer;
 import android.util.SparseArray;
+import android.util.proto.ProtoOutputStream;
+import android.view.Display;
+import android.view.ImeFocusController;
 import android.view.InputChannel;
 import android.view.InputEvent;
 import android.view.InputEventSender;
+import android.view.InsetsAnimationControlCallbacks;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewRootImpl;
+import android.view.WindowInsets;
+import android.view.WindowManager;
 import android.view.WindowManager.LayoutParams.SoftInputModeFlags;
+import android.view.autofill.AutofillId;
 import android.view.autofill.AutofillManager;
+import android.window.ImeBackCallbackProxy;
+import android.window.WindowOnBackInvokedDispatcher;
 
-import com.android.internal.inputmethod.IInputContentUriToken;
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.inputmethod.DirectBootAwareness;
+import com.android.internal.inputmethod.IBooleanListener;
+import com.android.internal.inputmethod.IConnectionlessHandwritingCallback;
+import com.android.internal.inputmethod.IImeSwitcherMenu;
+import com.android.internal.inputmethod.IInputMethodClient;
+import com.android.internal.inputmethod.IInputMethodSession;
+import com.android.internal.inputmethod.IRemoteAccessibilityInputConnection;
+import com.android.internal.inputmethod.IRemoteComputerControlInputConnection;
+import com.android.internal.inputmethod.ImeTracing;
+import com.android.internal.inputmethod.InputBindResult;
+import com.android.internal.inputmethod.InputMethodDebug;
+import com.android.internal.inputmethod.InputMethodPrivilegedOperationsRegistry;
+import com.android.internal.inputmethod.SoftInputShowHideReason;
+import com.android.internal.inputmethod.StartInputFlags;
+import com.android.internal.inputmethod.StartInputReason;
+import com.android.internal.inputmethod.UnbindReason;
 import com.android.internal.os.SomeArgs;
-import com.android.internal.view.IInputConnectionWrapper;
-import com.android.internal.view.IInputContext;
-import com.android.internal.view.IInputMethodClient;
+import com.android.internal.protolog.ProtoLog;
+import com.android.internal.protolog.common.LogLevel;
 import com.android.internal.view.IInputMethodManager;
-import com.android.internal.view.IInputMethodSession;
-import com.android.internal.view.InputBindResult;
-import com.android.internal.view.InputMethodClient;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
-import java.util.ArrayList;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.ref.WeakReference;
+import java.lang.reflect.Proxy;
 import java.util.Arrays;
-import java.util.HashMap;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * Central system API to the overall input method framework (IMF) architecture,
@@ -214,45 +288,131 @@ import java.util.concurrent.TimeUnit;
  * they can switch to it, to confirm with the system that they know about it
  * and want to make it available for use.</p>
  * </ul>
+ *
+ * <p>If your app targets Android 11 (API level 30) or higher, the methods in
+ * this class each return a filtered result by the rules of
+ * <a href="/training/basics/intents/package-visibility">package visibility</a>,
+ * except for the currently connected IME. Apps having a query for the
+ * {@link InputMethod#SERVICE_INTERFACE} see all IMEs.</p>
  */
 @SystemService(Context.INPUT_METHOD_SERVICE)
 @RequiresFeature(PackageManager.FEATURE_INPUT_METHODS)
 public final class InputMethodManager {
-    static final boolean DEBUG = false;
-    static final String TAG = "InputMethodManager";
+    private static final boolean DEBUG = false;
+    private static final String TAG = "InputMethodManager";
 
-    static final String PENDING_EVENT_COUNTER = "aq:imm";
+    private static final String PENDING_EVENT_COUNTER = "aq:imm";
 
+    private static final int NOT_A_SUBTYPE_ID = -1;
+
+    /**
+     * A constant that represents Voice IME.
+     *
+     * @see InputMethodSubtype#getMode()
+     */
+    private static final String SUBTYPE_MODE_VOICE = "voice";
+
+    /**
+     * Provide this to {@link IInputMethodManagerGlobalInvoker#startInputOrWindowGainedFocus}
+     * to receive {@link android.window.OnBackInvokedCallback} registrations from IME.
+     */
+    private final ImeBackCallbackProxy mImeBackCallbackProxy =
+            new ImeBackCallbackProxy(Handler.getMain()) {
+        @Override
+        public WindowOnBackInvokedDispatcher getReceivingDispatcher() {
+            synchronized (mH) {
+                return mCurRootView != null ? mCurRootView.getOnBackInvokedDispatcher() : null;
+            }
+        }
+    };
+
+    /**
+     * A runnable that reports {@link InputConnection} opened event for calls to
+     * {@link IInputMethodManagerGlobalInvoker#startInputOrWindowGainedFocus}.
+     */
+    private abstract static class ReportInputConnectionOpenedRunner implements Runnable {
+        /**
+         * Sequence number to track startInput requests to
+         * {@link IInputMethodManagerGlobalInvoker#startInputOrWindowGainedFocus}
+         */
+        int mSequenceNum;
+        ReportInputConnectionOpenedRunner(int sequenceNum) {
+            this.mSequenceNum = sequenceNum;
+        }
+    }
+    private ReportInputConnectionOpenedRunner mReportInputConnectionOpenedRunner;
+
+    /**
+     * Ensures that {@link #sInstance} becomes non-{@code null} for application that have directly
+     * or indirectly relied on {@link #sInstance} via reflection or something like that.
+     *
+     * <p>Here are scenarios we know and there could be more scenarios we are not
+     * aware of right know.</p>
+     *
+     * <ul>
+     *     <li>Apps that directly access {@link #sInstance} via reflection, which is currently
+     *     allowed because of {@link UnsupportedAppUsage} annotation.  Currently
+     *     {@link android.view.WindowManagerGlobal#getWindowSession()} is likely to guarantee that
+     *     {@link #sInstance} is not {@code null} when such an app is accessing it, but removing
+     *     that code from {@link android.view.WindowManagerGlobal#getWindowSession()} can reveal
+     *     untested code paths in their apps, which probably happen in an early startup time of that
+     *     app.</li>
+     *     <li>Apps that directly access {@link #peekInstance()} via reflection, which is currently
+     *     allowed because of {@link UnsupportedAppUsage} annotation.  Currently
+     *     {@link android.view.WindowManagerGlobal#getWindowSession()} is likely to guarantee that
+     *     {@link #peekInstance()} returns non-{@code null} object when such an app is calling
+     *     {@link #peekInstance()}, but removing that code from
+     *     {@link android.view.WindowManagerGlobal#getWindowSession()} can reveal untested code
+     *     paths in their apps, which probably happen in an early startup time of that app. The good
+     *     news is that unlike {@link #sInstance}'s case we can at least work around this scenario
+     *     by changing the semantics of {@link #peekInstance()}, which is currently defined as
+     *     "retrieve the global {@link InputMethodManager} instance, if it exists" to something that
+     *     always returns non-{@code null} {@link InputMethodManager}.  However, introducing such an
+     *     workaround can also trigger different compatibility issues if {@link #peekInstance()} was
+     *     called before {@link android.view.WindowManagerGlobal#getWindowSession()} and it expected
+     *     {@link #peekInstance()} to return {@code null} as written in the JavaDoc.</li>
+     * </ul>
+     *
+     * <p>Since this is purely a compatibility hack, this method must be used only from
+     * {@link android.view.WindowManagerGlobal#getWindowSession()} and {@link #getInstance()}.</p>
+     *
+     * <p>TODO(Bug 116157766): Remove this method once we clean up {@link UnsupportedAppUsage}.</p>
+     * @hide
+     */
+    public static void ensureDefaultInstanceForDefaultDisplayIfNecessary() {
+        // Skip this call if we are in system_server, as the system code should not use this
+        // deprecated instance.
+        if (!ActivityThread.isSystem()) {
+            forContextInternal(Display.DEFAULT_DISPLAY, Looper.getMainLooper());
+        }
+    }
+
+    private static final Object sLock = new Object();
+
+    /**
+     * @deprecated This cannot be compatible with multi-display. Please do not use this.
+     */
+    @Deprecated
+    @GuardedBy("sLock")
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.VANILLA_ICE_CREAM,
+            publicAlternatives = "Use {@code Context#getSystemService(InputMethodManager.class)}.")
     static InputMethodManager sInstance;
 
     /**
-     * @hide Flag for IInputMethodManager.windowGainedFocus: a view in
-     * the window has input focus.
+     * Global map between display to {@link InputMethodManager}.
+     *
+     * <p>Currently this map works like a so-called leaky singleton.  Once an instance is registered
+     * for the associated display ID, that instance will never be garbage collected.</p>
+     *
+     * <p>TODO(Bug 116699479): Implement instance clean up mechanism.</p>
      */
-    public static final int CONTROL_WINDOW_VIEW_HAS_FOCUS = 1<<0;
-
-    /**
-     * @hide Flag for IInputMethodManager.windowGainedFocus: the focus
-     * is a text editor.
-     */
-    public static final int CONTROL_WINDOW_IS_TEXT_EDITOR = 1<<1;
-
-    /**
-     * @hide Flag for IInputMethodManager.windowGainedFocus: this is the first
-     * time the window has gotten focus.
-     */
-    public static final int CONTROL_WINDOW_FIRST = 1<<2;
-
-    /**
-     * @hide Flag for IInputMethodManager.startInput: this is the first
-     * time the window has gotten focus.
-     */
-    public static final int CONTROL_START_INITIAL = 1<<8;
+    @GuardedBy("sLock")
+    private static final SparseArray<InputMethodManager> sInstanceMap = new SparseArray<>();
 
     /**
      * Timeout in milliseconds for delivering a key to an IME.
      */
-    static final long INPUT_METHOD_NOT_RESPONDING_TIMEOUT = 2500;
+    private static final long INPUT_METHOD_NOT_RESPONDING_TIMEOUT = 2500;
 
     /** @hide */
     public static final int DISPATCH_IN_PROGRESS = -1;
@@ -270,152 +430,733 @@ public final class InputMethodManager {
     /** @hide */
     public static final int SHOW_IM_PICKER_MODE_EXCLUDE_AUXILIARY_SUBTYPES = 2;
 
+    /**
+     * The entry point where the IME Switcher Menu was requested from.
+     * @hide
+     */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef({
+        IM_PICKER_ENTRY_POINT_DEFAULT,
+        IM_PICKER_ENTRY_POINT_STATUS_BAR_CHIP,
+    })
+    public @interface IMPickerEntryPoint {}
+
+    /**
+     * The default entry point value, currently used to group most entry points for the IME
+     * Switcher Menu (e.g. IME navigation bar, taskbar, public API).
+     * @hide
+     */
+    public static final int IM_PICKER_ENTRY_POINT_DEFAULT = 0;
+
+    /**
+     * The entry point where the IME Switcher Menu was requested from the IME chip on the desktop
+     * status bar.
+     * @hide
+     */
+    public static final int IM_PICKER_ENTRY_POINT_STATUS_BAR_CHIP = 1;
+
+    /**
+     * Always return {@code true} when {@link #hideSoftInputFromWindow(IBinder, int)} and
+     * {@link #hideSoftInputFromWindow(IBinder, int, ResultReceiver, int, ImeTracker.Token)} is
+     * called.
+     * <p>
+     * Apps can incorrectly rely on the return value of
+     * {@link #hideSoftInputFromWindow(IBinder, int)} to guess whether the IME was hidden.
+     * However, it was never a guarantee that the IME will actually hide.
+     * Therefore, it was recommended using the {@link View.OnApplyWindowInsetsListener}.
+     * <p>
+     * Starting Android {@link Build.VERSION_CODES.BAKLAVA}, the return value will always be
+     * true, independent from whether the request was eventually sent to system server or not.
+     * Apps that need to know when the IME visibility changes should use
+     * {@link View.OnApplyWindowInsetsListener}. For apps that target earlier releases, it
+     * returns an estimate ({@code true} if the IME was showing before).
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = Build.VERSION_CODES.BAKLAVA)
+    private static final long ALWAYS_RETURN_TRUE_HIDE_SOFT_INPUT_FROM_WINDOW = 395521150L; // bug id
+
+    /**
+     * If {@code true}, avoid calling the
+     * {@link com.android.server.inputmethod.InputMethodManagerService InputMethodManagerService}
+     * by skipping the call to {@link IInputMethodManager#startInputOrWindowGainedFocus}
+     * when we are switching focus between two non-editable views. This saves the cost of a binder
+     * call into the system server.
+     * <p><b>Note:</b>
+     * The default value is {@code true}.
+     */
+    private static final boolean OPTIMIZE_NONEDITABLE_VIEWS =
+            SystemProperties.getBoolean("debug.imm.optimize_noneditable_views", true);
+
+    /** @hide */
+    @IntDef(flag = true, prefix = { "HANDWRITING_DELEGATE_FLAG_" }, value = {
+            HANDWRITING_DELEGATE_FLAG_HOME_DELEGATOR_ALLOWED,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface HandwritingDelegateFlags {}
+
+    /**
+     * Flag indicating that views from the default home screen ({@link Intent#CATEGORY_HOME}) may
+     * act as a handwriting delegator for the delegate editor view. If set, views from the home
+     * screen package will be trusted for handwriting delegation, in addition to views in the {@code
+     * delegatorPackageName} passed to
+     * {@link #acceptStylusHandwritingDelegation(View, String, int, Executor, Consumer)} .
+     */
+    @FlaggedApi(FLAG_HOME_SCREEN_HANDWRITING_DELEGATOR)
+    public static final int HANDWRITING_DELEGATE_FLAG_HOME_DELEGATOR_ALLOWED = 0x0001;
+
+    /**
+     * @deprecated Use {@link IInputMethodManagerGlobalInvoker} instead.
+     */
+    @Deprecated
+    @UnsupportedAppUsage
     final IInputMethodManager mService;
-    final Looper mMainLooper;
+    private final Looper mMainLooper;
 
     // For scheduling work on the main thread.  This also serves as our
     // global lock.
+    // Remark on @UnsupportedAppUsage: there were context leaks on old versions
+    // of android (b/37043700), so developers used this field to perform manual clean up.
+    // Leaks were fixed, hacks were backported to AppCompatActivity,
+    // so an access to the field is closed.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     final H mH;
 
     // Our generic input connection if the current target does not have its own.
-    final IInputContext mIInputContext;
+    @NonNull
+    private final RemoteInputConnectionImpl mFallbackInputConnection;
+
+    private final int mDisplayId;
 
     /**
      * True if this input method client is active, initially false.
      */
-    boolean mActive = false;
+    @GuardedBy("mH")
+    private boolean mActive = false;
 
     /**
-     * {@code true} if next {@link #onPostWindowFocus(View, View, int, boolean, int)} needs to
+     * {@code true} if next {@link ImeFocusController#onPostWindowFocus} needs to
      * restart input.
      */
-    boolean mRestartOnNextWindowFocus = true;
+    @GuardedBy("mH")
+    private boolean mRestartOnNextWindowFocus = true;
 
     /**
      * As reported by IME through InputConnection.
      */
-    boolean mFullscreenMode;
+    @GuardedBy("mH")
+    private boolean mFullscreenMode;
 
     // -----------------------------------------------------------
 
     /**
-     * This is the root view of the overall window that currently has input
-     * method focus.
-     */
-    View mCurRootView;
-    /**
      * This is the view that should currently be served by an input method,
      * regardless of the state of setting that up.
      */
-    View mServedView;
+    @Nullable
+    @GuardedBy("mH")
+    private View mServedView;
+
     /**
-     * This is then next view that will be served by the input method, when
+     * This is the next view that will be served by the input method, when
      * we get around to updating things.
      */
-    View mNextServedView;
+    @Nullable
+    @GuardedBy("mH")
+    private View mNextServedView;
+
+    /**
+     * The latest {@link ViewRootImpl} that has, or most recently had, input method focus.
+     *
+     * <p>This value will be cleared when it becomes inactive and no longer has window focus.
+     */
+    @Nullable
+    @GuardedBy("mH")
+    ViewRootImpl mCurRootView;
+
+    /**
+     * Whether the {@link #mCurRootView} currently has window focus.
+     */
+    @GuardedBy("mH")
+    boolean mCurRootViewWindowFocused;
+
     /**
      * This is set when we are in the process of connecting, to determine
      * when we have actually finished.
      */
-    boolean mServedConnecting;
+    @GuardedBy("mH")
+    private boolean mServedConnecting;
+
     /**
      * This is non-null when we have connected the served view; it holds
      * the attributes that were last retrieved from the served view and given
      * to the input connection.
      */
-    EditorInfo mCurrentTextBoxAttribute;
+    @GuardedBy("mH")
+    private EditorInfo mCurrentEditorInfo;
+
+    @GuardedBy("mH")
+    @Nullable
+    private ViewFocusParameterInfo mPreviousViewFocusParameters;
+
     /**
      * The InputConnection that was last retrieved from the served view.
      */
-    ControlledInputConnectionWrapper mServedInputConnectionWrapper;
+    @GuardedBy("mH")
+    private RemoteInputConnectionImpl mServedInputConnection;
+
     /**
      * The completions that were last provided by the served view.
      */
-    CompletionInfo[] mCompletions;
+    @GuardedBy("mH")
+    private CompletionInfo[] mCompletions;
+
+    /**
+     * Tracks last pending {@link #startInputInner(int, IBinder, int, int, int)} sequenceId.
+     */
+    @GuardedBy("mH")
+    private int mLastPendingStartSeqId = INVALID_SEQ_ID;
 
     // Cursor position on the screen.
+    @GuardedBy("mH")
+    @UnsupportedAppUsage
     Rect mTmpCursorRect = new Rect();
+
+    @GuardedBy("mH")
+    @UnsupportedAppUsage
     Rect mCursorRect = new Rect();
-    int mCursorSelStart;
-    int mCursorSelEnd;
-    int mCursorCandStart;
-    int mCursorCandEnd;
+
+    /** Cached value for {@link #isStylusHandwritingAvailable} for userId. */
+    @GuardedBy("mH")
+    private PropertyInvalidatedCache<Integer, Boolean> mStylusHandwritingAvailableCache;
+
+    /** Cached value for {@link #isConnectionlessStylusHandwritingAvailable} for userId. */
+    @GuardedBy("mH")
+    private PropertyInvalidatedCache<Integer, Boolean>
+            mConnectionlessStylusHandwritingAvailableCache;
+
+    private static final String CACHE_KEY_STYLUS_HANDWRITING_PROPERTY =
+            "cache_key.system_server.stylus_handwriting";
+    private static final String CACHE_KEY_CONNECTIONLESS_STYLUS_HANDWRITING_PROPERTY =
+            "cache_key.system_server.connectionless_stylus_handwriting";
+
+    static final int INVALID_SEQ_ID = -1;
+
+    @GuardedBy("mH")
+    private int mCursorSelStart;
+    @GuardedBy("mH")
+    private int mCursorSelEnd;
+    @GuardedBy("mH")
+    private int mCursorCandStart;
+    @GuardedBy("mH")
+    private int mCursorCandEnd;
+    @GuardedBy("mH")
+    private int mInitialSelStart;
+    @GuardedBy("mH")
+    private int mInitialSelEnd;
 
     /**
-     * Represents an invalid action notification sequence number.
-     * {@link com.android.server.InputMethodManagerService} always issues a positive integer for
-     * action notification sequence numbers. Thus {@code -1} is guaranteed to be different from any
-     * valid sequence number.
+     * Handler for {@link RemoteInputConnectionImpl#getInputConnection()}.
      */
-    private static final int NOT_AN_ACTION_NOTIFICATION_SEQUENCE_NUMBER = -1;
-    /**
-     * The next sequence number that is to be sent to
-     * {@link com.android.server.InputMethodManagerService} via
-     * {@link IInputMethodManager#notifyUserAction(int)} at once when a user action is observed.
-     */
-    private int mNextUserActionNotificationSequenceNumber =
-            NOT_AN_ACTION_NOTIFICATION_SEQUENCE_NUMBER;
-
-    /**
-     * The last sequence number that is already sent to
-     * {@link com.android.server.InputMethodManagerService}.
-     */
-    private int mLastSentUserActionNotificationSequenceNumber =
-            NOT_AN_ACTION_NOTIFICATION_SEQUENCE_NUMBER;
+    @GuardedBy("mH")
+    private Handler mServedInputConnectionHandler;
 
     /**
      * The instance that has previously been sent to the input method.
      */
+    @GuardedBy("mH")
     private CursorAnchorInfo mCursorAnchorInfo = null;
 
     // -----------------------------------------------------------
 
     /**
-     * Sequence number of this binding, as returned by the server.
-     */
-    int mBindSequence = -1;
-    /**
      * ID of the method we are bound to.
+     *
+     * @deprecated New code should use {@code mCurBindState.mImeId}.
      */
+    @Deprecated
+    @GuardedBy("mH")
+    @UnsupportedAppUsage(trackingBug = 236937383,
+            maxTargetSdk = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+            publicAlternatives = "Apps should not change behavior based on the currently connected"
+                    + " IME. If absolutely needed, use {@link InputMethodInfo#getId()} instead.")
     String mCurId;
+
     /**
-     * The actual instance of the method to make calls on it.
+     * Kept for {@link UnsupportedAppUsage}.  Not officially maintained.
+     *
+     * @deprecated New code should use {@code mCurBindState.mImeSession}.
      */
+    @Deprecated
+    @GuardedBy("mH")
+    @Nullable
+    @UnsupportedAppUsage(trackingBug = 236937383,
+            maxTargetSdk = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
+            publicAlternatives = "Use methods on {@link InputMethodManager} instead.")
     IInputMethodSession mCurMethod;
-    InputChannel mCurChannel;
-    ImeInputEventSender mCurSender;
+
+    /**
+     * Encapsulates per-binding state from {@link InputBindResult}.
+     */
+    @GuardedBy("mH")
+    @Nullable
+    private BindState mCurBindState;
+
+    /**
+     * Encapsulates IPCs to the currently connected AccessibilityServices.
+     */
+    @Nullable
+    @GuardedBy("mH")
+    private final SparseArray<IAccessibilityInputMethodSessionInvoker>
+            mAccessibilityInputMethodSession = new SparseArray<>();
+
+    @GuardedBy("mH")
+    private ImeInputEventSender mCurSender;
 
     private static final int REQUEST_UPDATE_CURSOR_ANCHOR_INFO_NONE = 0x0;
 
     /**
      * The monitor mode for {@link #updateCursorAnchorInfo(View, CursorAnchorInfo)}.
+     * @deprecated This is kept for {@link UnsupportedAppUsage}.  Must not be used.
      */
+    @Deprecated
+    @GuardedBy("mH")
     private int mRequestUpdateCursorAnchorInfoMonitorMode = REQUEST_UPDATE_CURSOR_ANCHOR_INFO_NONE;
 
-    final Pool<PendingEvent> mPendingEventPool = new SimplePool<>(20);
-    final SparseArray<PendingEvent> mPendingEvents = new SparseArray<>(20);
+    @GuardedBy("mH")
+    private final Pool<PendingEvent> mPendingEventPool = new SimplePool<>(20);
+    @GuardedBy("mH")
+    private final SparseArray<PendingEvent> mPendingEvents = new SparseArray<>(20);
+
+    private final DelegateImpl mDelegate = new DelegateImpl();
+
+    /**
+     * State that stores whether we have already tried to request focus again, after the IME
+     * session has been reset. This will lead to show the IME after tapping on a text field, even
+     * if the {@link android.view.InsetsController#mRequestedVisibleTypes} have not changed.
+     * This forces a call to the system server to re-establish the IME session when it would
+     * otherwise not occur.
+     */
+    @GuardedBy("mH")
+    private boolean mFocusRequestedAfterImeSessionReset = false;
+
+    private static boolean sPreventImeStartupUnlessTextEditor;
 
     // -----------------------------------------------------------
 
-    static final int MSG_DUMP = 1;
-    static final int MSG_BIND = 2;
-    static final int MSG_UNBIND = 3;
-    static final int MSG_SET_ACTIVE = 4;
-    static final int MSG_SEND_INPUT_EVENT = 5;
-    static final int MSG_TIMEOUT_INPUT_EVENT = 6;
-    static final int MSG_FLUSH_INPUT_EVENT = 7;
-    static final int MSG_SET_USER_ACTION_NOTIFICATION_SEQUENCE_NUMBER = 9;
-    static final int MSG_REPORT_FULLSCREEN_MODE = 10;
+    private static final int MSG_DUMP = 1;
+    private static final int MSG_BIND = 2;
+    private static final int MSG_UNBIND = 3;
+    private static final int MSG_SET_ACTIVE = 4;
+    private static final int MSG_SEND_INPUT_EVENT = 5;
+    private static final int MSG_TIMEOUT_INPUT_EVENT = 6;
+    private static final int MSG_FLUSH_INPUT_EVENT = 7;
+    private static final int MSG_REPORT_FULLSCREEN_MODE = 10;
+    private static final int MSG_BIND_ACCESSIBILITY_SERVICE = 11;
+    private static final int MSG_UNBIND_ACCESSIBILITY_SERVICE = 12;
+    private static final int MSG_SET_INTERACTIVE = 13;
+    private static final int MSG_SET_VISIBILITY = 14;
+    private static final int MSG_START_INPUT_RESULT = 40;
+
+    /**
+     * Calling this will invalidate Local stylus handwriting availability Cache which
+     * forces the next query in any process to recompute the cache.
+     * @hide
+     */
+    public static void invalidateLocalStylusHandwritingAvailabilityCaches() {
+        PropertyInvalidatedCache.invalidateCache(CACHE_KEY_STYLUS_HANDWRITING_PROPERTY);
+    }
+
+    /**
+     * Calling this will invalidate the local connectionless stylus handwriting availability cache,
+     * which forces the next query in any process to recompute the cache.
+     *
+     * @hide
+     */
+    public static void invalidateLocalConnectionlessStylusHandwritingAvailabilityCaches() {
+        PropertyInvalidatedCache.invalidateCache(
+                CACHE_KEY_CONNECTIONLESS_STYLUS_HANDWRITING_PROPERTY);
+    }
 
     private static boolean isAutofillUIShowing(View servedView) {
         AutofillManager afm = servedView.getContext().getSystemService(AutofillManager.class);
         return afm != null && afm.isAutofillUiShowing();
     }
 
+    /**
+     * Returns fallback {@link InputMethodManager} if the called one is not likely to be compatible
+     * with the given {@code view}.
+     *
+     * @param view {@link View} to be checked.
+     * @return {@code null} when it is unnecessary (or impossible) to use fallback
+     *         {@link InputMethodManager} to which IME API calls need to be re-dispatched.
+     *          Non-{@code null} {@link InputMethodManager} if this method believes it'd be safer to
+     *          re-dispatch IME APIs calls on it.
+     */
+    @Nullable
+    private InputMethodManager getFallbackInputMethodManagerIfNecessary(@Nullable View view) {
+        if (view == null) {
+            return null;
+        }
+        // As evidenced in Bug 118341760, view.getViewRootImpl().getDisplayId() is supposed to be
+        // more reliable to determine with which display the given view is interacting than
+        // view.getContext().getDisplayId() / view.getContext().getSystemService(), which can be
+        // easily messed up by app developers (or library authors) by creating inconsistent
+        // ContextWrapper objects that re-dispatch those methods to other Context such as
+        // ApplicationContext.
+        final ViewRootImpl viewRootImpl = view.getViewRootImpl();
+        if (viewRootImpl == null) {
+            return null;
+        }
+        final int viewRootDisplayId = viewRootImpl.getDisplayId();
+        if (viewRootDisplayId == mDisplayId) {
+            // Expected case.  Good to go.
+            return null;
+        }
+        final InputMethodManager fallbackImm =
+                viewRootImpl.mContext.getSystemService(InputMethodManager.class);
+        if (fallbackImm == null) {
+            if (android.tracing.Flags.imetrackerProtolog()) {
+                ProtoLog.v(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                        "b/117267690: Failed to get non-null fallback IMM. view=%s", view);
+            } else {
+                Log.v(TAG, "b/117267690: Failed to get non-null fallback IMM. view=" + view);
+            }
+            return null;
+
+        }
+        if (fallbackImm.mDisplayId != viewRootDisplayId) {
+            if (android.tracing.Flags.imetrackerProtolog()) {
+                ProtoLog.v(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                        "b/117267690: Failed to get fallback IMM with expected displayId=%d actual "
+                                + "IMM#displayId=%d view=%s", viewRootDisplayId,
+                        fallbackImm.mDisplayId, view);
+            } else {
+                Log.v(TAG, "b/117267690: Failed to get fallback IMM with expected displayId="
+                        + viewRootDisplayId + " actual IMM#displayId=" + fallbackImm.mDisplayId
+                        + " view=" + view);
+            }
+            return null;
+        }
+        Log.v(TAG, "b/117267690: Display ID mismatch found. ViewRootImpl displayId="
+                        + viewRootDisplayId + " InputMethodManager displayId=" + mDisplayId + ". "
+                        + "Use the right InputMethodManager instance to avoid performance "
+                        + "overhead.",
+                new Throwable());
+        return fallbackImm;
+    }
+
+    /**
+     * An internal API that returns the {@link Context} of the current served view connected to
+     * an input method.
+     * @hide
+     */
+    Context getFallbackContextFromServedView() {
+        synchronized (mH) {
+            if (mCurRootView == null) {
+                return null;
+            }
+            return mServedView != null ? mServedView.getContext() : null;
+        }
+    }
+
     private static boolean canStartInput(View servedView) {
         // We can start input ether the servedView has window focus
         // or the activity is showing autofill ui.
         return servedView.hasWindowFocus() || isAutofillUIShowing(servedView);
+    }
+
+    /**
+     * Reports whether the IME is currently perceptible or not.
+     *
+     * @param windowToken the IME client window.
+     * @param perceptible whether the source is perceptible or not.
+     *
+     * @see InsetsAnimationControlCallbacks#reportPerceptible
+     * @hide
+     */
+    public void reportPerceptible(@NonNull IBinder windowToken, boolean perceptible) {
+        IInputMethodManagerGlobalInvoker.reportPerceptible(windowToken, perceptible);
+    }
+
+    private static boolean hasViewImeRequestedVisible(View view) {
+        // before the refactor, the requestedVisibleTypes for the IME were not in sync with
+        // the state that was actually requested.
+        if (view != null) {
+            final var controller = view.getWindowInsetsController();
+            if (controller != null) {
+                return (view.getWindowInsetsController()
+                        .getRequestedVisibleTypes() & WindowInsets.Type.ime()) != 0;
+            }
+        }
+        return false;
+    }
+
+    private final class DelegateImpl implements
+            ImeFocusController.InputMethodManagerDelegate {
+
+        @Override
+        public void onPreWindowGainedFocus(ViewRootImpl viewRootImpl) {
+            synchronized (mH) {
+                setCurrentRootViewLocked(viewRootImpl);
+                mCurRootViewWindowFocused = true;
+            }
+        }
+
+        @Override
+        public void onPostWindowGainedFocus(View viewForWindowFocus,
+                @NonNull WindowManager.LayoutParams windowAttribute) {
+            boolean forceFocus = false;
+            synchronized (mH) {
+                // Update mNextServedView when focusedView changed.
+                onViewFocusChangedInternal(viewForWindowFocus, true);
+
+                // Starting new input when the next focused view is same as served view but the
+                // currently active connection (if any) is not associated with it.
+                final boolean nextFocusIsServedView = mServedView == viewForWindowFocus;
+
+                if (nextFocusIsServedView
+                        && !hasActiveInputConnectionInternal(viewForWindowFocus)) {
+                    forceFocus = true;
+                }
+            }
+
+            final int softInputMode = windowAttribute.softInputMode;
+            final int windowFlags = windowAttribute.flags;
+
+            int startInputFlags = getStartInputFlags(viewForWindowFocus, 0);
+            startInputFlags |= StartInputFlags.WINDOW_GAINED_FOCUS;
+
+            ImeTracing.getInstance().triggerClientDump(
+                    "InputMethodManager.DelegateImpl#startInputAsyncOnWindowFocusGain",
+                    InputMethodManager.this, null /* icProto */);
+
+            boolean checkFocusResult;
+            synchronized (mH) {
+                if (mCurRootView == null) {
+                    return;
+                }
+                if (mRestartOnNextWindowFocus) {
+                    if (android.tracing.Flags.imetrackerProtolog()) {
+                        ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG,
+                                "Restarting due to mRestartOnNextWindowFocus as true");
+                    } else if (DEBUG) {
+                        Log.v(TAG, "Restarting due to mRestartOnNextWindowFocus as true");
+                    }
+                    mRestartOnNextWindowFocus = false;
+                    forceFocus = true;
+                }
+                checkFocusResult = checkFocusInternalLocked(forceFocus, mCurRootView);
+            }
+
+            if (checkFocusResult) {
+                // We need to restart input on the current focus view.  This
+                // should be done in conjunction with telling the system service
+                // about the window gaining focus, to help make the transition
+                // smooth.
+                if (startInputOnWindowFocusGainInternal(StartInputReason.WINDOW_FOCUS_GAIN,
+                        viewForWindowFocus, startInputFlags, softInputMode, windowFlags)) {
+                    return;
+                }
+            }
+
+            synchronized (mH) {
+                // For some reason we didn't do a startInput + windowFocusGain, so
+                // we'll just do a window focus gain and call it a day.
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG,
+                            "Reporting focus gain, without startInput");
+                } else if (DEBUG) {
+                    Log.v(TAG, "Reporting focus gain, without startInput");
+                }
+
+                final boolean imeRequestedVisible = hasViewImeRequestedVisible(
+                        mCurRootView.getView());
+
+                // ignore the result
+                Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMM.startInputOrWindowGainedFocus");
+                IInputMethodManagerGlobalInvoker.startInputOrWindowGainedFocus(
+                        StartInputReason.WINDOW_FOCUS_GAIN_REPORT_ONLY, mClient,
+                        viewForWindowFocus.getWindowToken(), startInputFlags, softInputMode,
+                        windowFlags,
+                        null, null, null, null,
+                        mCurRootView.mContext.getApplicationInfo().targetSdkVersion,
+                        UserHandle.myUserId(), mImeBackCallbackProxy.getResultReceiver(),
+                        imeRequestedVisible);
+                Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
+            }
+        }
+
+        @Override
+        public void onWindowLostFocus(@NonNull ViewRootImpl viewRootImpl) {
+            synchronized (mH) {
+                if (mCurRootView == viewRootImpl) {
+                    mCurRootViewWindowFocused = false;
+                    clearCurRootViewIfNeeded();
+                }
+            }
+        }
+
+        @Override
+        public void onViewFocusChanged(@Nullable View view, boolean hasFocus) {
+            onViewFocusChangedInternal(view, hasFocus);
+        }
+
+        @Override
+        public void onScheduledCheckFocus(ViewRootImpl viewRootImpl) {
+            synchronized (mH) {
+                if (!checkFocusInternalLocked(false, viewRootImpl)) {
+                    return;
+                }
+            }
+            startInputOnWindowFocusGainInternal(StartInputReason.SCHEDULED_CHECK_FOCUS,
+                    null /* focusedView */, 0 /* startInputFlags */, 0 /* softInputMode */,
+                    0 /* windowFlags */);
+        }
+
+        @Override
+        public void onViewDetachedFromWindow(View view, ViewRootImpl viewRootImpl) {
+            synchronized (mH) {
+                if (mCurRootView != view.getViewRootImpl()) {
+                    return;
+                }
+                if (mNextServedView == view) {
+                    mNextServedView = null;
+                }
+                if (mServedView == view) {
+                    viewRootImpl.dispatchCheckFocus();
+                }
+            }
+        }
+
+        @Override
+        public void onWindowDismissed(ViewRootImpl viewRootImpl) {
+            synchronized (mH) {
+                if (mCurRootView != viewRootImpl) {
+                    return;
+                }
+                if (mServedView != null) {
+                    finishInputLocked();
+                }
+                setCurrentRootViewLocked(null);
+            }
+        }
+
+        @GuardedBy("mH")
+        private void setCurrentRootViewLocked(ViewRootImpl rootView) {
+            final boolean wasEmpty = mCurRootView == null;
+            if (!wasEmpty && mCurRootView != rootView) {
+                onImeFocusLost(mCurRootView);
+            }
+
+            mImeBackCallbackProxy.switchRootView(mCurRootView, rootView);
+            mCurRootView = rootView;
+            if (wasEmpty && mCurRootView != null) {
+                mImeBackCallbackProxy
+                        .updateReceivingDispatcher(mCurRootView.getOnBackInvokedDispatcher());
+            }
+        }
+    }
+
+    private void onImeFocusLost(@NonNull ViewRootImpl previousRootView) {
+        final int softInputMode = previousRootView.mWindowAttributes.softInputMode;
+        final int state =
+                softInputMode & WindowManager.LayoutParams.SOFT_INPUT_MASK_STATE;
+        if (state == WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN) {
+            // when losing input focus (e.g., by going to another window), we reset the
+            // requestedVisibleTypes of WindowInsetsController by hiding the IME
+            final var statsToken = ImeTracker.forLogging().onStart(
+                    ImeTracker.TYPE_HIDE, ImeTracker.ORIGIN_CLIENT,
+                    SoftInputShowHideReason.HIDE_WINDOW_LOST_FOCUS,
+                    false /* fromUser */, UserHandle.myUserId(), mDisplayId);
+            if (android.tracing.Flags.imetrackerProtolog()) {
+                ProtoLog.d(INPUT_METHOD_MANAGER_DEBUG,
+                        "onImeFocusLost, hiding IME because of STATE_ALWAYS_HIDDEN");
+            } else if (DEBUG) {
+                Log.d(TAG, "onImeFocusLost, hiding IME because of STATE_ALWAYS_HIDDEN");
+
+            }
+            previousRootView.getInsetsController().hide(WindowInsets.Type.ime(), statsToken);
+        }
+    }
+
+    /** @hide */
+    public DelegateImpl getDelegate() {
+        return mDelegate;
+    }
+
+    /**
+     * Checks whether the active input connection (if any) is for the given view.
+     *
+     * <p>Note that {@code view} parameter does not take
+     * {@link View#checkInputConnectionProxy(View)} into account. This method returns {@code true}
+     * when and only when the specified {@code view} is the actual {@link View} instance that is
+     * connected to the IME.</p>
+     *
+     * @param view {@link View} to be checked.
+     * @return {@code true} if {@code view} is currently interacting with IME.
+     * @hide
+     */
+    @TestApi
+    public boolean hasActiveInputConnection(@Nullable View view) {
+        synchronized (mH) {
+            return mCurRootView != null
+                    && view != null
+                    && mServedView == view
+                    && mServedInputConnection != null
+                    && mServedInputConnection.isAssociatedWith(view)
+                    && isImeSessionAvailableLocked();
+        }
+    }
+
+    /**
+     * Checks whether the active input connection (if any) is for the given view.
+     *
+     * Note that this method is only intended for restarting input after focus gain
+     * (e.g. b/160391516), DO NOT leverage this method to do another check.
+     */
+    private boolean hasActiveInputConnectionInternal(@Nullable View view) {
+        synchronized (mH) {
+            if (!hasServedByInputMethodLocked(view) || !isImeSessionAvailableLocked()) {
+                return false;
+            }
+
+            return mServedInputConnection != null
+                    && mServedInputConnection.isAssociatedWith(view);
+        }
+    }
+
+    private boolean startInputOnWindowFocusGainInternal(@StartInputReason int startInputReason,
+            View focusedView, @StartInputFlags int startInputFlags,
+            @SoftInputModeFlags int softInputMode,
+            @WindowManager.LayoutParams.Flags int windowFlags) {
+        synchronized (mH) {
+            mCurrentEditorInfo = null;
+            mCompletions = null;
+            mServedConnecting = true;
+        }
+        return startInputInner(startInputReason,
+                focusedView != null ? focusedView.getWindowToken() : null, startInputFlags,
+                softInputMode, windowFlags);
+    }
+
+    @GuardedBy("mH")
+    private View getServedViewLocked() {
+        return mCurRootView != null ? mServedView : null;
+    }
+
+    @GuardedBy("mH")
+    private View getNextServedViewLocked() {
+        return mCurRootView != null ? mNextServedView : null;
+    }
+
+    /**
+     * Returns {@code true} when the given view has been served by Input Method.
+     */
+    @GuardedBy("mH")
+    private boolean hasServedByInputMethodLocked(View view) {
+        final View servedView = getServedViewLocked();
+        return (servedView == view
+                || (servedView != null && servedView.checkInputConnectionProxy(view)));
     }
 
     class H extends Handler {
@@ -441,15 +1182,22 @@ public final class InputMethodManager {
                     return;
                 }
                 case MSG_BIND: {
-                    final InputBindResult res = (InputBindResult)msg.obj;
+                    final InputBindResult res = (InputBindResult) msg.obj;
                     if (DEBUG) {
                         Log.i(TAG, "handleMessage: MSG_BIND " + res.sequence + "," + res.id);
                     }
                     synchronized (mH) {
-                        if (mBindSequence < 0 || mBindSequence != res.sequence) {
-                            Log.w(TAG, "Ignoring onBind: cur seq=" + mBindSequence
-                                    + ", given seq=" + res.sequence);
-                            if (res.channel != null && res.channel != mCurChannel) {
+                        final int curBindSequence = getBindSequenceLocked();
+                        if (curBindSequence < 0 || curBindSequence != res.sequence) {
+                            if (android.tracing.Flags.imetrackerProtolog()) {
+                                ProtoLog.w(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                                        "Ignoring onBind: cur seq=%d, given seq=%d",
+                                        curBindSequence, res.sequence);
+                            } else {
+                                Log.w(TAG, "Ignoring onBind: cur seq=" + curBindSequence
+                                        + ", given seq=" + res.sequence);
+                            }
+                            if (res.channel != null) {
                                 res.channel.dispose();
                             }
                             return;
@@ -458,40 +1206,183 @@ public final class InputMethodManager {
                         mRequestUpdateCursorAnchorInfoMonitorMode =
                                 REQUEST_UPDATE_CURSOR_ANCHOR_INFO_NONE;
 
-                        setInputChannelLocked(res.channel);
-                        mCurMethod = res.method;
-                        mCurId = res.id;
-                        mBindSequence = res.sequence;
+                        updateInputChannelLocked(res.channel);
+                        mCurMethod = res.method; // for @UnsupportedAppUsage
+                        mCurBindState = new BindState(res);
+                        mCurId = res.id; // for @UnsupportedAppUsage
                     }
-                    startInputInner(InputMethodClient.START_INPUT_REASON_BOUND_TO_IMMS,
-                            null, 0, 0, 0);
+                    startInputInner(StartInputReason.BOUND_TO_IMMS, null, 0, 0, 0);
+                    return;
+                }
+
+                case MSG_START_INPUT_RESULT: {
+                    final InputBindResult res = (InputBindResult) msg.obj;
+                    final int startInputSeq = msg.arg1;
+                    synchronized (mH) {
+                        if (mLastPendingStartSeqId == startInputSeq) {
+                            // last pending startInput has been completed. reset.
+                            mLastPendingStartSeqId = INVALID_SEQ_ID;
+                        }
+
+                        if (res == null) {
+                            // IMMS logs .wtf already.
+                            return;
+                        }
+
+                        if (android.tracing.Flags.imetrackerProtolog()) {
+                            ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG, "Starting input: Bind result=%s",
+                                    res);
+                        } else if (DEBUG) {
+                            Log.v(TAG, "Starting input: Bind result=" + res);
+                        }
+                        if (res.id != null) {
+                            updateInputChannelLocked(res.channel);
+                            mCurMethod = res.method; // for @UnsupportedAppUsage
+                            mCurBindState = new BindState(res);
+                            mAccessibilityInputMethodSession.clear();
+                            if (res.accessibilitySessions != null) {
+                                for (int i = 0; i < res.accessibilitySessions.size(); i++) {
+                                    IAccessibilityInputMethodSessionInvoker wrapper =
+                                            IAccessibilityInputMethodSessionInvoker.createOrNull(
+                                                    res.accessibilitySessions.valueAt(i));
+                                    if (wrapper != null) {
+                                        mAccessibilityInputMethodSession.append(
+                                                res.accessibilitySessions.keyAt(i), wrapper);
+                                    }
+                                }
+                            }
+                            mCurId = res.id; // for @UnsupportedAppUsage
+                        } else if (res.channel != null) {
+                            res.channel.dispose();
+                        }
+                        switch (res.result) {
+                            case InputBindResult.ResultCode.ERROR_NOT_IME_TARGET_WINDOW:
+                                mRestartOnNextWindowFocus = true;
+                                mServedView = null;
+                                break;
+                        }
+                        if (mCompletions != null) {
+                            if (isImeSessionAvailableLocked()) {
+                                mCurBindState.mImeSession.displayCompletions(mCompletions);
+                            }
+                        }
+
+                        if (res != null
+                                && res.method != null
+                                && mServedView != null
+                                && mReportInputConnectionOpenedRunner != null
+                                && mReportInputConnectionOpenedRunner.mSequenceNum
+                                        == startInputSeq) {
+                            mReportInputConnectionOpenedRunner.run();
+                        }
+                        mReportInputConnectionOpenedRunner = null;
+                    }
                     return;
                 }
                 case MSG_UNBIND: {
                     final int sequence = msg.arg1;
-                    @InputMethodClient.UnbindReason
+                    @UnbindReason
                     final int reason = msg.arg2;
                     if (DEBUG) {
                         Log.i(TAG, "handleMessage: MSG_UNBIND " + sequence +
-                                " reason=" + InputMethodClient.getUnbindReason(reason));
+                                " reason=" + InputMethodDebug.unbindReasonToString(reason));
                     }
                     final boolean startInput;
                     synchronized (mH) {
-                        if (mBindSequence != sequence) {
+                        if (reason == UnbindReason.DISCONNECT_IME) {
+                            mImeBackCallbackProxy.clear();
+                        }
+                        if (getBindSequenceLocked() != sequence) {
                             return;
                         }
+                        clearAllAccessibilityBindingLocked();
                         clearBindingLocked();
                         // If we were actively using the last input method, then
                         // we would like to re-connect to the next input method.
-                        if (mServedView != null && mServedView.isFocused()) {
+                        final View servedView = getServedViewLocked();
+                        if (servedView != null && servedView.isFocused()) {
                             mServedConnecting = true;
                         }
                         startInput = mActive;
                     }
                     if (startInput) {
                         startInputInner(
-                                InputMethodClient.START_INPUT_REASON_UNBOUND_FROM_IMMS, null, 0, 0,
-                                0);
+                                StartInputReason.UNBOUND_FROM_IMMS, null, 0, 0, 0);
+                    }
+                    return;
+                }
+                case MSG_BIND_ACCESSIBILITY_SERVICE: {
+                    final int id = msg.arg1;
+                    final InputBindResult res = (InputBindResult) msg.obj;
+                    if (DEBUG) {
+                        Log.i(TAG, "handleMessage: MSG_BIND_ACCESSIBILITY " + res.sequence
+                                + "," + res.id);
+                    }
+                    synchronized (mH) {
+                        final int curBindSequence = getBindSequenceLocked();
+                        if (curBindSequence < 0 || curBindSequence != res.sequence) {
+                            if (android.tracing.Flags.imetrackerProtolog()) {
+                                ProtoLog.w(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                                        "Ignoring onBind: cur seq=%d, given seq=%d",
+                                        curBindSequence, res.sequence);
+                            } else {
+                                Log.w(TAG, "Ignoring onBind: cur seq=" + curBindSequence
+                                        + ", given seq=" + res.sequence);
+                            }
+                            if (res.channel != null) {
+                                res.channel.dispose();
+                            }
+                            return;
+                        }
+
+                        // Since IMM can start inputting text before a11y sessions are back,
+                        // we send a notification so that the a11y service knows the session is
+                        // registered and update the a11y service with the current cursor positions.
+                        if (res.accessibilitySessions != null) {
+                            IAccessibilityInputMethodSessionInvoker invoker =
+                                    IAccessibilityInputMethodSessionInvoker.createOrNull(
+                                            res.accessibilitySessions.get(id));
+                            if (invoker != null) {
+                                mAccessibilityInputMethodSession.put(id, invoker);
+                                if (mServedInputConnection != null) {
+                                    invoker.updateSelection(mInitialSelStart, mInitialSelEnd,
+                                            mCursorSelStart, mCursorSelEnd, mCursorCandStart,
+                                            mCursorCandEnd);
+                                } else {
+                                    // If an a11y service binds before input starts, we should still
+                                    // send a notification because the a11y service doesn't know it
+                                    // binds before or after input starts, it may wonder if it binds
+                                    // after input starts, why it doesn't receive a notification of
+                                    // the current cursor positions.
+                                    invoker.updateSelection(-1, -1, -1, -1, -1, -1);
+                                }
+                            }
+                        }
+                    }
+                    startInputInner(StartInputReason.BOUND_ACCESSIBILITY_SESSION_TO_IMMS, null,
+                            0, 0, 0);
+                    return;
+                }
+                case MSG_UNBIND_ACCESSIBILITY_SERVICE: {
+                    final int sequence = msg.arg1;
+                    final int id = msg.arg2;
+                    if (DEBUG) {
+                        Log.i(TAG, "handleMessage: MSG_UNBIND_ACCESSIBILITY_SERVICE "
+                                + sequence + " id=" + id);
+                    }
+                    synchronized (mH) {
+                        if (getBindSequenceLocked() != sequence) {
+                            if (android.tracing.Flags.imetrackerProtolog()) {
+                                ProtoLog.i(INPUT_METHOD_MANAGER_DEBUG,
+                                        "current BindSequence=%d sequence=%d id=%d",
+                                        getBindSequenceLocked(), sequence, id);
+                            } else if (DEBUG) {
+                                Log.i(TAG, "current BindSequence =" + getBindSequenceLocked()
+                                        + " sequence =" + sequence + " id=" + id);
+                            }
+                            return;
+                        }
+                        clearAccessibilityBindingLocked(id);
                     }
                     return;
                 }
@@ -504,31 +1395,104 @@ public final class InputMethodManager {
                     synchronized (mH) {
                         mActive = active;
                         mFullscreenMode = fullscreen;
+
                         if (!active) {
                             // Some other client has starting using the IME, so note
                             // that this happened and make sure our own editor's
                             // state is reset.
                             mRestartOnNextWindowFocus = true;
-                            try {
-                                // Note that finishComposingText() is allowed to run
-                                // even when we are not active.
-                                mIInputContext.finishComposingText();
-                            } catch (RemoteException e) {
+                            // Note that finishComposingText() is allowed to run
+                            // even when we are not active.
+                            mFallbackInputConnection.finishComposingTextFromImm();
+
+                            if (clearCurRootViewIfNeeded()) {
+                                return;
                             }
                         }
                         // Check focus again in case that "onWindowFocus" is called before
                         // handling this message.
-                        if (mServedView != null && canStartInput(mServedView)) {
-                            if (checkFocusNoStartInput(mRestartOnNextWindowFocus)) {
-                                final int reason = active ?
-                                        InputMethodClient.START_INPUT_REASON_ACTIVATED_BY_IMMS :
-                                        InputMethodClient.START_INPUT_REASON_DEACTIVATED_BY_IMMS;
-                                startInputInner(reason, null, 0, 0, 0);
+                        final View servedView = getServedViewLocked();
+                        if (servedView == null || !canStartInput(servedView)) {
+                            return;
+                        }
+                        if (mCurRootView == null) {
+                            return;
+                        }
+                        if (!checkFocusInternalLocked(mRestartOnNextWindowFocus, mCurRootView)) {
+                            return;
+                        }
+                        mCurrentEditorInfo = null;
+                        mCompletions = null;
+                        mServedConnecting = true;
+                    }
+                    final int reason = active ? StartInputReason.ACTIVATED_BY_IMMS
+                            : StartInputReason.DEACTIVATED_BY_IMMS;
+                    startInputInner(reason, null, 0, 0, 0);
+                    return;
+                }
+                case MSG_SET_INTERACTIVE: {
+                    final boolean interactive = msg.arg1 != 0;
+                    final boolean fullscreen = msg.arg2 != 0;
+                    if (DEBUG) {
+                        Log.i(TAG, "handleMessage: MSG_SET_INTERACTIVE " + interactive
+                                + ", was " + mActive);
+                    }
+                    synchronized (mH) {
+                        mActive = interactive;
+                        mFullscreenMode = fullscreen;
+                        if (interactive) {
+                            // Find the next view focus to start the input connection when the
+                            // device was interactive.
+                            final View rootView =
+                                    mCurRootView != null ? mCurRootView.getView() : null;
+                            if (rootView == null) {
+                                // No window focused or view was removed, ignore request.
+                                return;
                             }
+                            final ViewRootImpl currentViewRootImpl = mCurRootView;
+                            // Post this on UI thread as required for view focus code.
+                            rootView.post(() -> {
+                                synchronized (mH) {
+                                    if (mCurRootView != currentViewRootImpl) {
+                                        // Focused window changed since posting, ignore request.
+                                        return;
+                                    }
+                                }
+                                final View curRootView = currentViewRootImpl.getView();
+                                if (curRootView == null) {
+                                    // View was removed, ignore request.
+                                    return;
+                                }
+                                final View focusedView = curRootView.findFocus();
+                                onViewFocusChangedInternal(focusedView, focusedView != null);
+                            });
+                        } else {
+                            // Finish input connection when device becomes non-interactive.
+                            finishInputLocked();
+                            if (isImeSessionAvailableLocked()) {
+                                mCurBindState.mImeSession.finishInput();
+                            }
+                            forAccessibilitySessionsLocked(
+                                    IAccessibilityInputMethodSessionInvoker::finishInput);
                         }
                     }
                     return;
                 }
+                case MSG_SET_VISIBILITY:
+                    final SomeArgs args = (SomeArgs) msg.obj;
+                    final boolean visible = (boolean) args.arg1;
+                    final ImeTracker.Token statsToken = (ImeTracker.Token) args.arg2;
+                    synchronized (mH) {
+                        if (mCurRootView != null) {
+                            ImeTracker.forLogging().onProgress(statsToken,
+                                    ImeTracker.PHASE_CLIENT_HANDLE_SET_IME_VISIBILITY);
+                            setImeVisibilityOnInsetsController(mCurRootView, visible, statsToken);
+                        } else {
+                            ImeTracker.forLogging().onFailed(statsToken,
+                                    ImeTracker.PHASE_CLIENT_HANDLE_SET_IME_VISIBILITY);
+                        }
+                    }
+                    break;
                 case MSG_SEND_INPUT_EVENT: {
                     sendInputEventAndReportResultOnMainLooper((PendingEvent)msg.obj);
                     return;
@@ -541,23 +1505,17 @@ public final class InputMethodManager {
                     finishedInputEvent(msg.arg1, false, false);
                     return;
                 }
-                case MSG_SET_USER_ACTION_NOTIFICATION_SEQUENCE_NUMBER: {
-                    synchronized (mH) {
-                        mNextUserActionNotificationSequenceNumber = msg.arg1;
-                    }
-                    return;
-                }
                 case MSG_REPORT_FULLSCREEN_MODE: {
                     final boolean fullscreen = msg.arg1 != 0;
-                    InputConnection ic = null;
+                    RemoteInputConnectionImpl ic = null;
                     synchronized (mH) {
-                        mFullscreenMode = fullscreen;
-                        if (mServedInputConnectionWrapper != null) {
-                            ic = mServedInputConnectionWrapper.getInputConnection();
+                        if (mFullscreenMode != fullscreen && mServedInputConnection != null) {
+                            ic = mServedInputConnection;
+                            mFullscreenMode = fullscreen;
                         }
                     }
                     if (ic != null) {
-                        ic.reportFullscreenMode(fullscreen);
+                        ic.dispatchReportFullscreenMode(fullscreen);
                     }
                     return;
                 }
@@ -565,45 +1523,7 @@ public final class InputMethodManager {
         }
     }
 
-    private static class ControlledInputConnectionWrapper extends IInputConnectionWrapper {
-        private final InputMethodManager mParentInputMethodManager;
-
-        public ControlledInputConnectionWrapper(final Looper mainLooper, final InputConnection conn,
-                final InputMethodManager inputMethodManager) {
-            super(mainLooper, conn);
-            mParentInputMethodManager = inputMethodManager;
-        }
-
-        @Override
-        public boolean isActive() {
-            return mParentInputMethodManager.mActive && !isFinished();
-        }
-
-        void deactivate() {
-            if (isFinished()) {
-                // This is a small performance optimization.  Still only the 1st call of
-                // reportFinish() will take effect.
-                return;
-            }
-            closeConnection();
-        }
-
-        @Override
-        protected void onUserAction() {
-            mParentInputMethodManager.notifyUserAction();
-        }
-
-        @Override
-        public String toString() {
-            return "ControlledInputConnectionWrapper{"
-                    + "connection=" + getInputConnection()
-                    + " finished=" + isFinished()
-                    + " mParentInputMethodManager.mActive=" + mParentInputMethodManager.mActive
-                    + "}";
-        }
-    }
-
-    final IInputMethodClient.Stub mClient = new IInputMethodClient.Stub() {
+    private final IInputMethodClient.Stub mClient = new IInputMethodClient.Stub() {
         @Override
         protected void dump(FileDescriptor fd, PrintWriter fout, String[] args) {
             // No need to check for dump permission, since we only give this
@@ -625,17 +1545,29 @@ public final class InputMethodManager {
         }
 
         @Override
-        public void setUsingInputMethod(boolean state) {
-        }
-
-        @Override
         public void onBindMethod(InputBindResult res) {
             mH.obtainMessage(MSG_BIND, res).sendToTarget();
         }
 
         @Override
-        public void onUnbindMethod(int sequence, @InputMethodClient.UnbindReason int unbindReason) {
+        public void onStartInputResult(InputBindResult res, int startInputSeq) {
+            mH.obtainMessage(MSG_START_INPUT_RESULT, startInputSeq, -1 /* unused */, res)
+                    .sendToTarget();
+        }
+
+        @Override
+        public void onBindAccessibilityService(InputBindResult res, int id) {
+            mH.obtainMessage(MSG_BIND_ACCESSIBILITY_SERVICE, id, 0, res).sendToTarget();
+        }
+
+        @Override
+        public void onUnbindMethod(int sequence, @UnbindReason int unbindReason) {
             mH.obtainMessage(MSG_UNBIND, sequence, unbindReason).sendToTarget();
+        }
+
+        @Override
+        public void onUnbindAccessibilityService(int sequence, int id) {
+            mH.obtainMessage(MSG_UNBIND_ACCESSIBILITY_SERVICE, sequence, id).sendToTarget();
         }
 
         @Override
@@ -644,9 +1576,26 @@ public final class InputMethodManager {
         }
 
         @Override
-        public void setUserActionNotificationSequenceNumber(int sequenceNumber) {
-            mH.obtainMessage(MSG_SET_USER_ACTION_NOTIFICATION_SEQUENCE_NUMBER, sequenceNumber, 0)
+        public void setInteractive(boolean interactive, boolean fullscreen) {
+            mH.obtainMessage(MSG_SET_INTERACTIVE, interactive ? 1 : 0, fullscreen ? 1 : 0)
                     .sendToTarget();
+        }
+
+        @Override
+        public void setImeVisibility(boolean visible, @Nullable ImeTracker.Token statsToken) {
+            final SomeArgs args = SomeArgs.obtain();
+            args.arg1 = visible;
+            args.arg2 = statsToken;
+            ImeTracker.forLogging().onProgress(statsToken,
+                    ImeTracker.PHASE_CLIENT_SET_IME_VISIBILITY);
+            mH.obtainMessage(MSG_SET_VISIBILITY, args).sendToTarget();
+        }
+
+        @Override
+        public void scheduleStartInputIfNecessary(boolean fullscreen) {
+            // TODO(b/149859205): See if we can optimize this by having a fused dedicated operation.
+            mH.obtainMessage(MSG_SET_ACTIVE, 0 /* active */, fullscreen ? 1 : 0).sendToTarget();
+            mH.obtainMessage(MSG_SET_ACTIVE, 1 /* active */, fullscreen ? 1 : 0).sendToTarget();
         }
 
         @Override
@@ -655,105 +1604,516 @@ public final class InputMethodManager {
                     .sendToTarget();
         }
 
+        @Override
+        public void setImeTraceEnabled(boolean enabled) {
+            ImeTracing.getInstance().setEnabled(enabled);
+        }
+
+        @Override
+        public void throwExceptionFromSystem(String message) {
+            throw new RuntimeException(message);
+        }
     };
 
-    final InputConnection mDummyInputConnection = new BaseInputConnection(this, false);
-
-    InputMethodManager(Looper looper) throws ServiceNotFoundException {
-        this(IInputMethodManager.Stub.asInterface(
-                ServiceManager.getServiceOrThrow(Context.INPUT_METHOD_SERVICE)), looper);
-    }
-
-    InputMethodManager(IInputMethodManager service, Looper looper) {
-        mService = service;
-        mMainLooper = looper;
-        mH = new H(looper);
-        mIInputContext = new ControlledInputConnectionWrapper(looper,
-                mDummyInputConnection, this);
+    /**
+     * For layoutlib to clean up static objects inside {@link InputMethodManager}.
+     */
+    static void tearDownEditMode() {
+        if (!isInEditMode()) {
+            throw new UnsupportedOperationException(
+                    "This method must be called only from layoutlib");
+        }
+        synchronized (sLock) {
+            sInstance = null;
+        }
     }
 
     /**
-     * Retrieve the global InputMethodManager instance, creating it if it
-     * doesn't already exist.
+     * For layoutlib to override this method to return {@code true}.
+     *
+     * @return {@code true} if the process is running for developer tools
+     * @see View#isInEditMode()
+     */
+    private static boolean isInEditMode() {
+        return false;
+    }
+
+    static boolean isInEditModeInternal() {
+        return isInEditMode();
+    }
+
+    @NonNull
+    private static InputMethodManager createInstance(int displayId, Looper looper) {
+        return isInEditMode() ? createStubInstance(displayId, looper)
+                : createRealInstance(displayId, looper);
+    }
+
+    @NonNull
+    private static InputMethodManager createRealInstance(int displayId, Looper looper) {
+        final IInputMethodManager service = IInputMethodManagerGlobalInvoker.getService();
+        if (service == null) {
+            throw new IllegalStateException("IInputMethodManager is not available");
+        }
+        final InputMethodManager imm = new InputMethodManager(service, displayId, looper);
+        // InputMethodManagerService#addClient() relies on Binder.getCalling{Pid, Uid}() to
+        // associate PID/UID with each IME client. This means:
+        //  A. if this method call will be handled as an IPC, there is no problem.
+        //  B. if this method call will be handled as an in-proc method call, we need to
+        //     ensure that Binder.getCalling{Pid, Uid}() return Process.my{Pid, Uid}()
+        // Either ways we can always call Binder.{clear, restore}CallingIdentity() because
+        // 1) doing so has no effect for A and 2) doing so is sufficient for B.
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            IInputMethodManagerGlobalInvoker.addClient(imm.mClient, imm.mFallbackInputConnection,
+                    displayId);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+        return imm;
+    }
+
+    @NonNull
+    private static InputMethodManager createStubInstance(int displayId, Looper looper) {
+        // If InputMethodManager is running for layoutlib, stub out IPCs into IMMS.
+        final Class<IInputMethodManager> c = IInputMethodManager.class;
+        final IInputMethodManager stubInterface =
+                (IInputMethodManager) Proxy.newProxyInstance(c.getClassLoader(),
+                        new Class[]{c}, (proxy, method, args) -> {
+                            final Class<?> returnType = method.getReturnType();
+                            if (returnType == boolean.class) {
+                                return false;
+                            } else if (returnType == int.class) {
+                                return 0;
+                            } else if (returnType == long.class) {
+                                return 0L;
+                            } else if (returnType == short.class) {
+                                return 0;
+                            } else if (returnType == char.class) {
+                                return 0;
+                            } else if (returnType == byte.class) {
+                                return 0;
+                            } else if (returnType == float.class) {
+                                return 0f;
+                            } else if (returnType == double.class) {
+                                return 0.0;
+                            } else {
+                                return null;
+                            }
+                        });
+        return new InputMethodManager(stubInterface, displayId, looper);
+    }
+
+    private InputMethodManager(@NonNull IInputMethodManager service, int displayId, Looper looper) {
+        mService = service;  // For @UnsupportedAppUsage
+        mMainLooper = looper;
+        mH = new H(looper);
+        mDisplayId = displayId;
+        mFallbackInputConnection = new RemoteInputConnectionImpl(looper,
+                new BaseInputConnection(this, false), this, null);
+    }
+
+    /**
+     * Retrieve an instance for the given {@link Context}, creating it if it doesn't already exist.
+     *
+     * @param context {@link Context} for which IME APIs need to work
+     * @return {@link InputMethodManager} instance
      * @hide
      */
-    public static InputMethodManager getInstance() {
-        synchronized (InputMethodManager.class) {
-            if (sInstance == null) {
-                try {
-                    sInstance = new InputMethodManager(Looper.getMainLooper());
-                } catch (ServiceNotFoundException e) {
-                    throw new IllegalStateException(e);
-                }
+    @NonNull
+    public static InputMethodManager forContext(@DisplayContext Context context) {
+        final int displayId = context.getDisplayId();
+        // For better backward compatibility, we always use Looper.getMainLooper() for the default
+        // display case.
+        final Looper looper = displayId == Display.DEFAULT_DISPLAY
+                ? Looper.getMainLooper() : context.getMainLooper();
+        // Keep track of whether to expect the IME to be unavailable so as to avoid log spam in
+        // sendInputEventOnMainLooperLocked() by not logging a verbose message on every DPAD event
+        sPreventImeStartupUnlessTextEditor = context.getResources().getBoolean(
+                com.android.internal.R.bool.config_preventImeStartupUnlessTextEditor);
+        return forContextInternal(displayId, looper);
+    }
+
+    @NonNull
+    private static InputMethodManager forContextInternal(int displayId, Looper looper) {
+        final boolean isDefaultDisplay = displayId == Display.DEFAULT_DISPLAY;
+        synchronized (sLock) {
+            InputMethodManager instance = sInstanceMap.get(displayId);
+            if (instance != null) {
+                return instance;
             }
+            instance = createInstance(displayId, looper);
+            // For backward compatibility, store the instance also to sInstance for default display.
+            if (sInstance == null && isDefaultDisplay) {
+                sInstance = instance;
+            }
+            sInstanceMap.put(displayId, instance);
+            return instance;
+        }
+    }
+
+    /**
+     * Deprecated. Do not use.
+     *
+     * @return global {@link InputMethodManager} instance
+     * @deprecated Use {@link Context#getSystemService(Class)} instead. This method cannot fully
+     *             support multi-display scenario.
+     * @hide
+     */
+    @Deprecated
+    @UnsupportedAppUsage
+    public static InputMethodManager getInstance() {
+        Log.w(TAG, "InputMethodManager.getInstance() is deprecated because it cannot be"
+                        + " compatible with multi-display."
+                        + " Use context.getSystemService(InputMethodManager.class) instead.",
+                new Throwable());
+        ensureDefaultInstanceForDefaultDisplayIfNecessary();
+        return peekInstance();
+    }
+
+    /**
+     * Deprecated. Do not use.
+     *
+     * @return {@link #sInstance}
+     * @deprecated Use {@link Context#getSystemService(Class)} instead. This method cannot fully
+     *             support multi-display scenario.
+     * @hide
+     */
+    @Deprecated
+    @UnsupportedAppUsage
+    public static InputMethodManager peekInstance() {
+        Log.w(TAG, "InputMethodManager.peekInstance() is deprecated because it cannot be"
+                        + " compatible with multi-display."
+                        + " Use context.getSystemService(InputMethodManager.class) instead.",
+                new Throwable());
+        synchronized (sLock) {
             return sInstance;
         }
     }
 
     /**
-     * Private optimization: retrieve the global InputMethodManager instance,
-     * if it exists.
+     * Returns the list of installed input methods.
+     *
+     * <p>On multi user environment, this API returns a result for the calling process user.</p>
+     *
+     * @return {@link List} of {@link InputMethodInfo}.
+     */
+    @NonNull
+    public List<InputMethodInfo> getInputMethodList() {
+        // We intentionally do not use UserHandle.getCallingUserId() here because for system
+        // services InputMethodManagerInternal.getInputMethodListAsUser() should be used
+        // instead.
+        return IInputMethodManagerGlobalInvoker.getInputMethodList(UserHandle.myUserId(),
+                DirectBootAwareness.AUTO);
+    }
+
+    /**
+     * Returns {@code true} if currently selected IME supports Stylus handwriting & is enabled.
+     * If the method returns {@code false}, {@link #startStylusHandwriting(View)} shouldn't be
+     * called and Stylus touch should continue as normal touch input.
+     *
+     * @see #startStylusHandwriting(View)
+     */
+    public boolean isStylusHandwritingAvailable() {
+        return isStylusHandwritingAvailableAsUser(UserHandle.of(UserHandle.myUserId()));
+    }
+
+    /**
+     * Returns {@code true} if currently selected IME supports Stylus handwriting & is enabled for
+     * the given userId.
+     *
+     * <p>If the method returns {@code false}, {@link #startStylusHandwriting(View)} shouldn't be
+     * called and Stylus touch should continue as normal touch input.</p>
+     *
+     * <p>{@link Manifest.permission#INTERACT_ACROSS_USERS_FULL} is required when and only when
+     * {@code user} is different from the user of the current process.</p>
+     *
+     * @see #startStylusHandwriting(View)
+     * @param user UserHandle to query.
      * @hide
      */
-    public static InputMethodManager peekInstance() {
-        return sInstance;
+    @NonNull
+    @RequiresPermission(value = Manifest.permission.INTERACT_ACROSS_USERS_FULL, conditional = true)
+    @TestApi
+    @SuppressLint("UserHandle")
+    public boolean isStylusHandwritingAvailableAsUser(@NonNull UserHandle user) {
+        final Context fallbackContext = ActivityThread.currentApplication();
+        if (fallbackContext == null) {
+            return false;
+        }
+        boolean isAvailable;
+        synchronized (mH) {
+            if (mStylusHandwritingAvailableCache == null) {
+                mStylusHandwritingAvailableCache = new PropertyInvalidatedCache<>(
+                        4 /* maxEntries */, CACHE_KEY_STYLUS_HANDWRITING_PROPERTY) {
+                    @Override
+                    public Boolean recompute(Integer userId) {
+                        return IInputMethodManagerGlobalInvoker.isStylusHandwritingAvailableAsUser(
+                                userId, /* connectionless= */ false);
+                    }
+                };
+            }
+            isAvailable = mStylusHandwritingAvailableCache.query(user.getIdentifier());
+        }
+        return isAvailable;
     }
 
-    /** @hide */
-    public IInputMethodClient getClient() {
-        return mClient;
-    }
-
-    /** @hide */
-    public IInputContext getInputContext() {
-        return mIInputContext;
-    }
-
-    public List<InputMethodInfo> getInputMethodList() {
-        try {
-            return mService.getInputMethodList();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+    /**
+     * Returns {@code true} if the currently selected IME supports connectionless stylus handwriting
+     * sessions and is enabled.
+     */
+    @FlaggedApi(Flags.FLAG_CONNECTIONLESS_HANDWRITING)
+    public boolean isConnectionlessStylusHandwritingAvailable() {
+        if (ActivityThread.currentApplication() == null) {
+            return false;
+        }
+        synchronized (mH) {
+            if (mConnectionlessStylusHandwritingAvailableCache == null) {
+                mConnectionlessStylusHandwritingAvailableCache = new PropertyInvalidatedCache<>(
+                        /* maxEntries= */ 4, CACHE_KEY_CONNECTIONLESS_STYLUS_HANDWRITING_PROPERTY) {
+                    @Override
+                    public Boolean recompute(@NonNull Integer userId) {
+                        return IInputMethodManagerGlobalInvoker.isStylusHandwritingAvailableAsUser(
+                                userId, /* connectionless= */ true);
+                    }
+                };
+            }
+            return mConnectionlessStylusHandwritingAvailableCache.query(UserHandle.myUserId());
         }
     }
 
     /**
-     * Returns a list of VR InputMethod currently installed.
+     * Returns the list of installed input methods for the specified user.
+     *
+     * <p>{@link Manifest.permission#INTERACT_ACROSS_USERS_FULL} is required when and only when
+     * {@code userId} is different from the user id of the current process.</p>
+     *
+     * @param userId user ID to query
+     * @return {@link List} of {@link InputMethodInfo}.
      * @hide
      */
-    @RequiresPermission(android.Manifest.permission.RESTRICTED_VR_ACCESS)
-    public List<InputMethodInfo> getVrInputMethodList() {
-        try {
-            return mService.getVrInputMethodList();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+    @TestApi
+    @NonNull
+    @RequiresPermission(value = Manifest.permission.INTERACT_ACROSS_USERS_FULL, conditional = true)
+    public List<InputMethodInfo> getInputMethodListAsUser(@UserIdInt int userId) {
+        return IInputMethodManagerGlobalInvoker.getInputMethodList(userId,
+                DirectBootAwareness.AUTO);
     }
 
+    /**
+     * Returns the list of installed input methods for the specified user.
+     *
+     * <p>{@link Manifest.permission#INTERACT_ACROSS_USERS_FULL} is required when and only when
+     * {@code userId} is different from the user id of the current process.</p>
+     *
+     * @param userId user ID to query
+     * @param directBootAwareness {@code true} if caller want to query installed input methods list
+     * on user locked state.
+     * @return {@link List} of {@link InputMethodInfo}.
+     * @hide
+     */
+    @NonNull
+    @RequiresPermission(value = Manifest.permission.INTERACT_ACROSS_USERS_FULL, conditional = true)
+    public List<InputMethodInfo> getInputMethodListAsUser(@UserIdInt int userId,
+            @DirectBootAwareness int directBootAwareness) {
+        return IInputMethodManagerGlobalInvoker.getInputMethodList(userId, directBootAwareness);
+    }
+
+    /**
+     * Returns the {@link InputMethodInfo} of the currently selected input method (for the process's
+     * user).
+     *
+     * <p>On multi user environment, this API returns a result for the calling process user.</p>
+     */
+    @Nullable
+    public InputMethodInfo getCurrentInputMethodInfo() {
+        // We intentionally do not use UserHandle.getCallingUserId() here because for system
+        // services InputMethodManagerInternal.getCurrentInputMethodInfoForUser() should be used
+        // instead.
+        return IInputMethodManagerGlobalInvoker.getCurrentInputMethodInfoAsUser(
+                UserHandle.myUserId());
+    }
+
+    /**
+     * Returns the {@link InputMethodInfo} for currently selected input method for the given user.
+     *
+     * @param user user to query.
+     * @hide
+     */
+    @RequiresPermission(value = Manifest.permission.INTERACT_ACROSS_USERS_FULL)
+    @Nullable
+    @SystemApi
+    @SuppressLint("UserHandle")
+    public InputMethodInfo getCurrentInputMethodInfoAsUser(@NonNull UserHandle user) {
+        Objects.requireNonNull(user);
+        return IInputMethodManagerGlobalInvoker.getCurrentInputMethodInfoAsUser(
+                user.getIdentifier());
+    }
+
+    /**
+     * Returns the list of enabled input methods.
+     *
+     * <p>On multi user environment, this API returns a result for the calling process user.</p>
+     *
+     * @return {@link List} of {@link InputMethodInfo}.
+     */
+    @NonNull
     public List<InputMethodInfo> getEnabledInputMethodList() {
-        try {
-            return mService.getEnabledInputMethodList();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        // We intentionally do not use UserHandle.getCallingUserId() here because for system
+        // services InputMethodManagerInternal.getEnabledInputMethodListAsUser() should be used
+        // instead.
+        return IInputMethodManagerGlobalInvoker.getEnabledInputMethodList(UserHandle.myUserId());
+    }
+
+    /**
+     * Returns the list of enabled input methods for the specified user.
+     *
+     * <p>{@link Manifest.permission#INTERACT_ACROSS_USERS_FULL} is required when and only when
+     * {@code user} is different from the user of the current process.</p>
+     *
+     * @param user UserHandle to query
+     * @return {@link List} of {@link InputMethodInfo}.
+     * @see #getEnabledInputMethodSubtypeListAsUser(String, boolean, UserHandle)
+     * @hide
+     */
+    @NonNull
+    @RequiresPermission(value = Manifest.permission.INTERACT_ACROSS_USERS_FULL, conditional = true)
+    @TestApi
+    @SuppressLint("UserHandle")
+    public List<InputMethodInfo> getEnabledInputMethodListAsUser(@NonNull UserHandle user) {
+        return IInputMethodManagerGlobalInvoker.getEnabledInputMethodList(user.getIdentifier());
     }
 
     /**
      * Returns a list of enabled input method subtypes for the specified input method info.
-     * @param imi An input method info whose subtypes list will be returned.
-     * @param allowsImplicitlySelectedSubtypes A boolean flag to allow to return the implicitly
-     * selected subtypes. If an input method info doesn't have enabled subtypes, the framework
+     *
+     * <p>On multi user environment, this API returns a result for the calling process user.</p>
+     *
+     * @param imi The {@link InputMethodInfo} whose subtypes list will be returned. If {@code null},
+     * returns enabled subtypes for the currently selected {@link InputMethodInfo}.
+     * @param allowsImplicitlyEnabledSubtypes A boolean flag to allow to return the implicitly
+     * enabled subtypes. If an input method info doesn't have enabled subtypes, the framework
      * will implicitly enable subtypes according to the current system language.
      */
-    public List<InputMethodSubtype> getEnabledInputMethodSubtypeList(InputMethodInfo imi,
-            boolean allowsImplicitlySelectedSubtypes) {
-        try {
-            return mService.getEnabledInputMethodSubtypeList(
-                    imi == null ? null : imi.getId(), allowsImplicitlySelectedSubtypes);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+    @NonNull
+    public List<InputMethodSubtype> getEnabledInputMethodSubtypeList(@Nullable InputMethodInfo imi,
+            boolean allowsImplicitlyEnabledSubtypes) {
+        return IInputMethodManagerGlobalInvoker.getEnabledInputMethodSubtypeList(
+                imi == null ? null : imi.getId(),
+                allowsImplicitlyEnabledSubtypes,
+                UserHandle.myUserId());
     }
+
+    /**
+     * Returns a list of enabled input method subtypes for the specified input method info for the
+     * specified user.
+     *
+     * @param imeId IME ID to be queried about.
+     * @param allowsImplicitlyEnabledSubtypes {@code true} to include implicitly enabled subtypes.
+     * @param user UserHandle to be queried about.
+     *               {@link Manifest.permission#INTERACT_ACROSS_USERS_FULL} is required if this is
+     *               different from the calling process user ID.
+     * @return {@link List} of {@link InputMethodSubtype}.
+     * @see #getEnabledInputMethodListAsUser(UserHandle)
+     * @hide
+     */
+    @NonNull
+    @RequiresPermission(value = Manifest.permission.INTERACT_ACROSS_USERS_FULL, conditional = true)
+    @TestApi
+    @SuppressLint("UserHandle")
+    public List<InputMethodSubtype> getEnabledInputMethodSubtypeListAsUser(
+            @NonNull String imeId, boolean allowsImplicitlyEnabledSubtypes,
+            @NonNull UserHandle user) {
+        return IInputMethodManagerGlobalInvoker.getEnabledInputMethodSubtypeList(
+                Objects.requireNonNull(imeId), allowsImplicitlyEnabledSubtypes,
+                user.getIdentifier());
+    }
+
+    /**
+     * A test API for CTS to enable the given IME for the given user.
+     *
+     * <p>This is the same as "adb shell ime enable --user <userId> <imeId>" command.</p>
+     *
+     * @param imeId the IME that should be enabled.
+     * @param userId the user that imeId should be enabled for.
+     *
+     * @hide
+     */
+    @TestApi
+    @RequiresPermission(allOf = {Manifest.permission.WRITE_SECURE_SETTINGS,
+            Manifest.permission.TEST_INPUT_METHOD,
+            Manifest.permission.INTERACT_ACROSS_USERS_FULL},
+            conditional = true)
+    @SuppressWarnings("UnflaggedApi")
+    public boolean enableInputMethodForTesting(@NonNull String imeId,
+            @CanBeALL @CanBeCURRENT @UserIdInt int userId) {
+        return IInputMethodManagerGlobalInvoker.enableInputMethodForTesting(imeId, userId);
+    }
+
+    /**
+     * A test API for CTS to disable the given IME for the given user.
+     *
+     * <p>This is the same as "adb shell ime disable --user <userId> <imeId>" command.</p>
+     *
+     * @param imeId the IME that should be disabled.
+     * @param userId the user that imeId should be disabled for.
+     *
+     * @hide
+     */
+    @TestApi
+    @RequiresPermission(allOf = {Manifest.permission.WRITE_SECURE_SETTINGS,
+            Manifest.permission.TEST_INPUT_METHOD,
+            Manifest.permission.INTERACT_ACROSS_USERS_FULL},
+            conditional = true)
+    @SuppressWarnings("UnflaggedApi")
+    public boolean disableInputMethodForTesting(@NonNull String imeId,
+            @CanBeALL @CanBeCURRENT @UserIdInt int userId) {
+        return IInputMethodManagerGlobalInvoker.disableInputMethodForTesting(imeId, userId);
+    }
+
+    /**
+     * A test API for CTS to set the currently selected and enabled IMEs to the default ones for
+     * a given user.
+     *
+     * <p>This is the same as "adb shell ime set --user <userId> <imeId>" command.</p>
+     *
+     * @param imeId the IME that should be disabled.
+     * @param userId the user that imeId should be disabled for.
+     *
+     * @hide
+     */
+    @TestApi
+    @RequiresPermission(allOf = {Manifest.permission.WRITE_SECURE_SETTINGS,
+            Manifest.permission.TEST_INPUT_METHOD,
+            Manifest.permission.INTERACT_ACROSS_USERS_FULL},
+            conditional = true)
+    @SuppressWarnings("UnflaggedApi")
+    public boolean setInputMethodForTesting(@NonNull String imeId,
+            @CanBeALL @CanBeCURRENT @UserIdInt int userId) {
+        return IInputMethodManagerGlobalInvoker.setInputMethodForTesting(imeId, userId);
+    }
+
+    /**
+     * A test API for CTS to reset the currently selected and enabled IMEs to the default ones for
+     * a given user.
+     *
+     * <p>This is the same as "adb shell ime reset --user <userId>" command.</p>
+     *
+     * This behavior can be triggered for all users using the UserHandle.USER_ALL constant.
+     *
+     * @param userId the user that IMEs should be reset for
+     *
+     * @hide
+     */
+    @TestApi
+    @RequiresPermission(allOf = {Manifest.permission.WRITE_SECURE_SETTINGS,
+            Manifest.permission.TEST_INPUT_METHOD,
+            Manifest.permission.INTERACT_ACROSS_USERS_FULL},
+            conditional = true)
+    @SuppressWarnings("UnflaggedApi")
+    public void resetInputMethodsForTesting(@CanBeALL @CanBeCURRENT @UserIdInt int userId) {
+        IInputMethodManagerGlobalInvoker.resetInputMethodsForTesting(userId);
+    }
+
 
     /**
      * @deprecated Use {@link InputMethodService#showStatusIcon(int)} instead. This method was
@@ -761,19 +2121,9 @@ public final class InputMethodManager {
      * class are intended for app developers interacting with the IME.
      */
     @Deprecated
-    public void showStatusIcon(IBinder imeToken, String packageName, int iconId) {
-        showStatusIconInternal(imeToken, packageName, iconId);
-    }
-
-    /**
-     * @hide
-     */
-    public void showStatusIconInternal(IBinder imeToken, String packageName, int iconId) {
-        try {
-            mService.updateStatusIcon(imeToken, packageName, iconId);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+    public void showStatusIcon(IBinder imeToken, String packageName, @DrawableRes int iconId) {
+        InputMethodPrivilegedOperationsRegistry.get(
+                imeToken).updateStatusIconAsync(packageName, iconId);
     }
 
     /**
@@ -783,46 +2133,33 @@ public final class InputMethodManager {
      */
     @Deprecated
     public void hideStatusIcon(IBinder imeToken) {
-        hideStatusIconInternal(imeToken);
+        InputMethodPrivilegedOperationsRegistry.get(imeToken).updateStatusIconAsync(null, 0);
     }
 
     /**
+     * This hidden API is deprecated in {@link android.os.Build.VERSION_CODES#Q}. Does nothing.
+     *
+     * @param spans will be ignored.
+     *
+     * @deprecated Do not use.
      * @hide
      */
-    public void hideStatusIconInternal(IBinder imeToken) {
-        try {
-            mService.updateStatusIcon(imeToken, null, 0);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /** @hide */
-    public void setImeWindowStatus(IBinder imeToken, IBinder startInputToken, int vis,
-            int backDisposition) {
-        try {
-            mService.setImeWindowStatus(imeToken, startInputToken, vis, backDisposition);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /** @hide */
+    @Deprecated
+    @UnsupportedAppUsage
     public void registerSuggestionSpansForNotification(SuggestionSpan[] spans) {
-        try {
-            mService.registerSuggestionSpansForNotification(spans);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        Log.w(TAG, "registerSuggestionSpansForNotification() is deprecated.  Does nothing.");
     }
 
-    /** @hide */
+    /**
+     * This hidden API is deprecated in {@link android.os.Build.VERSION_CODES#Q}. Does nothing.
+     *
+     * @deprecated Do not use.
+     * @hide
+     */
+    @Deprecated
+    @UnsupportedAppUsage
     public void notifySuggestionPicked(SuggestionSpan span, String originalString, int index) {
-        try {
-            mService.notifySuggestionPicked(span, originalString, index);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        Log.w(TAG, "notifySuggestionPicked() is deprecated.  Does nothing.");
     }
 
     /**
@@ -837,73 +2174,131 @@ public final class InputMethodManager {
     }
 
     /**
-     * @hide
-     */
-    public void reportFullscreenMode(IBinder token, boolean fullscreen) {
-        try {
-            mService.reportFullscreenMode(token, fullscreen);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Return true if the given view is the currently active view for the
-     * input method.
+     * Return {@code true} if the given view is the currently active view for the input method.
      */
     public boolean isActive(View view) {
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(view);
+        if (fallbackImm != null) {
+            return fallbackImm.isActive(view);
+        }
+
         checkFocus();
         synchronized (mH) {
-            return (mServedView == view
-                    || (mServedView != null
-                            && mServedView.checkInputConnectionProxy(view)))
-                    && mCurrentTextBoxAttribute != null;
+            return hasServedByInputMethodLocked(view) && mCurrentEditorInfo != null;
         }
     }
 
     /**
-     * Return true if any view is currently active in the input method.
+     * Return {@code true} if any view is currently active for the input method.
      */
     public boolean isActive() {
         checkFocus();
         synchronized (mH) {
-            return mServedView != null && mCurrentTextBoxAttribute != null;
+            return getServedViewLocked() != null && mCurrentEditorInfo != null;
         }
     }
 
     /**
-     * Return true if the currently served view is accepting full text edits.
-     * If false, it has no input connection, so can only handle raw key events.
+     * Returns {@code true} if the given view's {@link ViewRootImpl} is the currently active one
+     * for the {@code InputMethodManager}.
+     *
+     * @hide
+     */
+    @TestApi
+    @RequiresPermission(Manifest.permission.TEST_INPUT_METHOD)
+    public boolean isCurrentRootView(@NonNull View attachedView) {
+        synchronized (mH) {
+            return mCurRootView == attachedView.getViewRootImpl();
+        }
+    }
+
+    /**
+     * Return {@code true} if the currently served view is accepting full text edits.
+     * If {@code false}, it has no input connection, so it can only handle raw key events.
      */
     public boolean isAcceptingText() {
         checkFocus();
-        return mServedInputConnectionWrapper != null &&
-                mServedInputConnectionWrapper.getInputConnection() != null;
+        synchronized (mH) {
+            return mServedInputConnection != null;
+        }
+    }
+
+    /**
+     * Return {@code true} if the input method is suppressing system spell checker.
+     */
+    public boolean isInputMethodSuppressingSpellChecker() {
+        synchronized (mH) {
+            return mCurBindState != null
+                    && mCurBindState.mIsInputMethodSuppressingSpellChecker;
+        }
     }
 
     /**
      * Reset all of the state associated with being bound to an input method.
      */
-    void clearBindingLocked() {
-        if (DEBUG) Log.v(TAG, "Clearing binding!");
+    @GuardedBy("mH")
+    private void clearBindingLocked() {
+        if (android.tracing.Flags.imetrackerProtolog()) {
+            ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG, "Clearing binding!");
+        } else if (DEBUG) {
+            Log.v(TAG, "Clearing binding!");
+        }
         clearConnectionLocked();
-        setInputChannelLocked(null);
-        mBindSequence = -1;
-        mCurId = null;
-        mCurMethod = null;
+        updateInputChannelLocked(null);
+        mCurId = null; // for @UnsupportedAppUsage
+        mCurMethod = null; // for @UnsupportedAppUsage
+        // We only reset sequence number for input method, but not accessibility.
+        mCurBindState = null;
+        mFocusRequestedAfterImeSessionReset = false;
     }
 
-    void setInputChannelLocked(InputChannel channel) {
-        if (mCurChannel != channel) {
-            if (mCurSender != null) {
-                flushPendingEventsLocked();
-                mCurSender.dispose();
-                mCurSender = null;
-            }
-            if (mCurChannel != null) {
-                mCurChannel.dispose();
-            }
-            mCurChannel = channel;
+    /**
+     * Reset all of the state associated with being bound to an accessibility service.
+     */
+    @GuardedBy("mH")
+    private void clearAccessibilityBindingLocked(int id) {
+        if (android.tracing.Flags.imetrackerProtolog()) {
+            ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG, "Clearing accessibility binding %d", id);
+        } else if (DEBUG) {
+            Log.v(TAG, "Clearing accessibility binding " + id);
+        }
+        mAccessibilityInputMethodSession.remove(id);
+    }
+
+    /**
+     * Reset all of the state associated with being bound to all accessibility services.
+     */
+    @GuardedBy("mH")
+    private void clearAllAccessibilityBindingLocked() {
+        if (android.tracing.Flags.imetrackerProtolog()) {
+            ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG, "Clearing all accessibility bindings");
+        } else if (DEBUG) {
+            Log.v(TAG, "Clearing all accessibility bindings");
+        }
+        mAccessibilityInputMethodSession.clear();
+    }
+
+    @GuardedBy("mH")
+    private void updateInputChannelLocked(InputChannel channel) {
+        if (mCurSender != null && channel != null && mCurSender.getToken() == channel.getToken()) {
+            // Keep the existing sender, and avoid recreating it. The provided input channel is a
+            // dup, so we still need to dispose it before returning.
+            channel.dispose();
+            return;
+        }
+        // TODO(b/238720598) : Requirements when design a new protocol for InputChannel
+        // channel is a dupe of 'mCurChannel', because they have the same token, and represent
+        // the same connection. Ignore the incoming channel and keep using 'mCurChannel' to
+        // avoid confusing the InputEventReceiver.
+        if (mCurSender != null) {
+            flushPendingEventsLocked();
+            mCurSender.dispose();
+            mCurSender = null;
+        }
+
+        if (channel != null) {
+            mCurSender = new ImeInputEventSender(channel, mH.getLooper());
         }
     }
 
@@ -911,95 +2306,171 @@ public final class InputMethodManager {
      * Reset all of the state associated with a served view being connected
      * to an input method
      */
-    void clearConnectionLocked() {
-        mCurrentTextBoxAttribute = null;
-        if (mServedInputConnectionWrapper != null) {
-            mServedInputConnectionWrapper.deactivate();
-            mServedInputConnectionWrapper = null;
+    @GuardedBy("mH")
+    private void clearConnectionLocked() {
+        mCurrentEditorInfo = null;
+        mPreviousViewFocusParameters = null;
+        if (mServedInputConnection != null) {
+            mServedInputConnection.deactivate();
+            mServedInputConnection = null;
+            mServedInputConnectionHandler = null;
         }
     }
 
     /**
      * Disconnect any existing input connection, clearing the served view.
      */
+    @UnsupportedAppUsage
+    @GuardedBy("mH")
     void finishInputLocked() {
+        View clearedView = null;
         mNextServedView = null;
         if (mServedView != null) {
-            if (DEBUG) Log.v(TAG, "FINISH INPUT: mServedView=" + dumpViewInfo(mServedView));
-            if (mCurrentTextBoxAttribute != null) {
-                try {
-                    mService.finishInput(mClient);
-                } catch (RemoteException e) {
-                    throw e.rethrowFromSystemServer();
-                }
-            }
+            clearedView = mServedView;
             mServedView = null;
+            if (initiationWithoutInputConnection() && clearedView.getViewRootImpl() != null) {
+                clearedView.getViewRootImpl().getHandwritingInitiator()
+                        .clearFocusedView(clearedView);
+            }
+        }
+        if (clearedView != null) {
+            if (android.tracing.Flags.imetrackerProtolog()
+                        && ProtoLog.isEnabled(INPUT_METHOD_MANAGER_DEBUG, LogLevel.VERBOSE)) {
+                ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG, "FINISH INPUT: mServedView=%s",
+                        InputMethodDebug.dumpViewInfo(clearedView));
+            } else if (DEBUG) {
+                Log.v(TAG, "FINISH INPUT: mServedView="
+                        + InputMethodDebug.dumpViewInfo(clearedView));
+            }
+
             mCompletions = null;
             mServedConnecting = false;
+            mLastPendingStartSeqId = INVALID_SEQ_ID;
             clearConnectionLocked();
         }
+        mReportInputConnectionOpenedRunner = null;
+        // Clear the back callbacks held by the ime dispatcher to avoid memory leaks.
+        mImeBackCallbackProxy.clear();
+    }
+
+    /**
+     * Clears the {@link #mCurRootView} if it's no longer window focused and the connection is
+     * no longer active.
+     *
+     * @return {@code} true iff it was cleared.
+     */
+    @GuardedBy("mH")
+    private boolean clearCurRootViewIfNeeded() {
+        if (!mActive && !mCurRootViewWindowFocused) {
+            finishInputLocked();
+            mDelegate.setCurrentRootViewLocked(null);
+
+            return true;
+        }
+
+        return false;
     }
 
     public void displayCompletions(View view, CompletionInfo[] completions) {
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(view);
+        if (fallbackImm != null) {
+            fallbackImm.displayCompletions(view, completions);
+            return;
+        }
+
         checkFocus();
         synchronized (mH) {
-            if (mServedView != view && (mServedView == null
-                            || !mServedView.checkInputConnectionProxy(view))) {
+            if (!hasServedByInputMethodLocked(view)) {
                 return;
             }
 
             mCompletions = completions;
-            if (mCurMethod != null) {
-                try {
-                    mCurMethod.displayCompletions(mCompletions);
-                } catch (RemoteException e) {
-                }
+            if (isImeSessionAvailableLocked()) {
+                mCurBindState.mImeSession.displayCompletions(mCompletions);
             }
         }
     }
 
     public void updateExtractedText(View view, int token, ExtractedText text) {
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(view);
+        if (fallbackImm != null) {
+            fallbackImm.updateExtractedText(view, token, text);
+            return;
+        }
+
         checkFocus();
         synchronized (mH) {
-            if (mServedView != view && (mServedView == null
-                    || !mServedView.checkInputConnectionProxy(view))) {
+            if (!hasServedByInputMethodLocked(view)) {
                 return;
             }
 
-            if (mCurMethod != null) {
-                try {
-                    mCurMethod.updateExtractedText(token, text);
-                } catch (RemoteException e) {
-                }
+            if (isImeSessionAvailableLocked()) {
+                mCurBindState.mImeSession.updateExtractedText(token, text);
             }
         }
     }
+
+    /** @hide */
+    @IntDef(flag = true, prefix = { "SHOW_" }, value = {
+            SHOW_IMPLICIT,
+            SHOW_FORCED,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface ShowFlags {}
 
     /**
      * Flag for {@link #showSoftInput} to indicate that this is an implicit
      * request to show the input window, not as the result of a direct request
      * by the user.  The window may not be shown in this case.
+     *
+     * @deprecated Use {@link #showSoftInput} without this flag instead. Starting in
+     * {@link Build.VERSION_CODES#BAKLAVA Android B}, this flag has no effect anymore.
      */
+    @FlaggedApi(Flags.FLAG_DEPRECATE_INPUT_METHOD_SHOW_HIDE_FLAGS)
+    @Deprecated
     public static final int SHOW_IMPLICIT = 0x0001;
 
     /**
      * Flag for {@link #showSoftInput} to indicate that the user has forced
      * the input method open (such as by long-pressing menu) so it should
      * not be closed until they explicitly do so.
+     *
+     * @deprecated Use {@link #showSoftInput} without this flag instead. Using this flag can lead
+     * to the soft input remaining visible even when the calling application is closed. The
+     * use of this flag can make the soft input remain visible globally. Starting in
+     * {@link Build.VERSION_CODES#TIRAMISU Android T}, this flag only has an effect while the
+     * caller is currently focused. Starting in {@link Build.VERSION_CODES#BAKLAVA Android B},
+     * this flag has no effect anymore.
      */
+    @Deprecated
     public static final int SHOW_FORCED = 0x0002;
 
     /**
-     * Synonym for {@link #showSoftInput(View, int, ResultReceiver)} without
-     * a result receiver: explicitly request that the current input method's
-     * soft input area be shown to the user, if needed.
+     * Explicitly request that the current input method's soft input area be
+     * shown to the user, if needed.  Call this if the user interacts with
+     * your view in such a way that they have expressed they would like to
+     * start performing input into it.
      *
-     * @param view The currently focused view, which would like to receive
-     * soft keyboard input.
-     * @param flags Provides additional operating flags.  Currently may be
-     * 0 or have the {@link #SHOW_IMPLICIT} bit set.
+     * @param view The currently focused view, which would like to receive soft keyboard input.
+     *             Note that this view is only considered focused here if both it itself has
+     *             {@link View#isFocused view focus}, and its containing window has
+     *             {@link View#hasWindowFocus window focus}. Otherwise the call fails and
+     *             returns {@code false}.
+     * @return {@code true} if a request was sent to system_server, {@code false} otherwise. Note:
+     * this does not return result of the request. If result is needed, use
+     * {@link android.view.WindowInsetsController#show} instead and set a
+     * {@link View.OnApplyWindowInsetsListener} and verify the provided {@link WindowInsets} for
+     * the visibility of IME.
      */
-    public boolean showSoftInput(View view, int flags) {
+    public boolean showSoftInput(View view, @ShowFlags int flags) {
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(view);
+        if (fallbackImm != null) {
+            return fallbackImm.showSoftInput(view, flags);
+        }
+
         return showSoftInput(view, flags, null);
     }
 
@@ -1051,34 +2522,99 @@ public final class InputMethodManager {
      * can be garbage collected regardless of the lifetime of
      * {@link ResultReceiver}.
      *
-     * @param view The currently focused view, which would like to receive
-     * soft keyboard input.
-     * @param flags Provides additional operating flags.  Currently may be
-     * 0 or have the {@link #SHOW_IMPLICIT} bit set.
+     * @param view The currently focused view, which would like to receive soft keyboard input.
+     *             Note that this view is only considered focused here if both it itself has
+     *             {@link View#isFocused view focus}, and its containing window has
+     *             {@link View#hasWindowFocus window focus}. Otherwise the call fails and
+     *             returns {@code false}.
      * @param resultReceiver If non-null, this will be called by the IME when
      * it has processed your request to tell you what it has done.  The result
      * code you receive may be either {@link #RESULT_UNCHANGED_SHOWN},
      * {@link #RESULT_UNCHANGED_HIDDEN}, {@link #RESULT_SHOWN}, or
      * {@link #RESULT_HIDDEN}.
+     * @return {@code true} if a request was sent to system_server, {@code false} otherwise. Note:
+     * this does not return result of the request. For result use {@code resultReceiver} instead.
+     *
+     * @deprecated The {@link ResultReceiver} is not a reliable way of determining whether the
+     * Input Method is actually shown or hidden. If result is needed, use
+     * {@link android.view.WindowInsetsController#show} instead and set a
+     * {@link View.OnApplyWindowInsetsListener} and verify the provided {@link WindowInsets} for
+     * the visibility of IME. If result is not needed, use {@link #showSoftInput(View, int)}
+     * instead.
      */
-    public boolean showSoftInput(View view, int flags, ResultReceiver resultReceiver) {
+    public boolean showSoftInput(View view, @ShowFlags int flags, ResultReceiver resultReceiver) {
+        return showSoftInput(view, flags, resultReceiver, SoftInputShowHideReason.SHOW_SOFT_INPUT);
+    }
+
+    private boolean showSoftInput(View view, @ShowFlags int flags,
+            @Nullable ResultReceiver resultReceiver, @SoftInputShowHideReason int reason) {
+        // TODO(b/303041796): handle tracking physical keyboard and DPAD as user interactions
+        final var statsToken = ImeTracker.forLogging().onStart(ImeTracker.TYPE_SHOW,
+                ImeTracker.ORIGIN_CLIENT, reason, ImeTracker.isFromUser(view),
+                UserHandle.myUserId(), mDisplayId);
+        return showSoftInput(view, statsToken, flags, resultReceiver, reason);
+    }
+
+    private boolean showSoftInput(View view, @NonNull ImeTracker.Token statsToken,
+            @ShowFlags int flags, @Nullable ResultReceiver resultReceiver,
+            @SoftInputShowHideReason int reason) {
+        ImeTracker.forLatency().onRequestShow(statsToken,
+                ImeTracker.ORIGIN_CLIENT, reason, ActivityThread::currentApplication);
+        ImeTracing.getInstance().triggerClientDump("InputMethodManager#showSoftInput", this,
+                null /* icProto */);
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(view);
+        if (fallbackImm != null) {
+            return fallbackImm.showSoftInput(view, statsToken, flags, resultReceiver, reason);
+        }
+
         checkFocus();
         synchronized (mH) {
-            if (mServedView != view && (mServedView == null
-                    || !mServedView.checkInputConnectionProxy(view))) {
+            if (!hasServedByInputMethodLocked(view)) {
+                ImeTracker.forLogging().onFailed(statsToken, ImeTracker.PHASE_CLIENT_VIEW_SERVED);
+                ImeTracker.forLatency().onShowFailed(statsToken,
+                        ImeTracker.PHASE_CLIENT_VIEW_SERVED, ActivityThread::currentApplication);
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.w(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                            "Ignoring showSoftInput() as view=%s is not served.", view);
+                } else {
+                    Log.w(TAG, "Ignoring showSoftInput() as view=" + view + " is not served.");
+                }
                 return false;
             }
 
-            try {
-                return mService.showSoftInput(mClient, flags, resultReceiver);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+            ImeTracker.forLogging().onProgress(statsToken, ImeTracker.PHASE_CLIENT_VIEW_SERVED);
+
+            final var viewRootImpl = view.getViewRootImpl();
+            // In case of a running show IME animation, it should not be requested visible,
+            // otherwise the animation would jump and not be controlled by the user anymore.
+            // If predictive back is in progress, and a editText is focussed, we should
+            // show the IME.
+            if (viewRootImpl != null && (
+                    (viewRootImpl.getInsetsController().computeUserAnimatingTypes()
+                            & WindowInsets.Type.ime()) == 0
+                    || viewRootImpl.getInsetsController()
+                            .isPredictiveBackImeHideAnimInProgress())) {
+                ImeTracker.forLogging().onProgress(statsToken,
+                        ImeTracker.PHASE_CLIENT_NO_ONGOING_USER_ANIMATION);
+                if (resultReceiver != null) {
+                    final boolean imeReqVisible = hasViewImeRequestedVisible(
+                            viewRootImpl.getView());
+                    resultReceiver.send(
+                            imeReqVisible ? InputMethodManager.RESULT_UNCHANGED_SHOWN
+                                    : InputMethodManager.RESULT_SHOWN, null);
+                }
+                setImeVisibilityOnInsetsController(viewRootImpl, true /* visible */, statsToken);
+                return true;
             }
+            ImeTracker.forLogging().onCancelled(statsToken,
+                    ImeTracker.PHASE_CLIENT_NO_ONGOING_USER_ANIMATION);
+            return false;
         }
     }
 
     /**
-     * This method is still kept for a while until android.support.v7.widget.SearchView ver. 26.0
+     * This method is still kept for a while until androidx.appcompat.widget.SearchView ver. 26.0
      * is publicly released because previous implementations of that class had relied on this method
      * via reflection.
      *
@@ -1086,42 +2622,86 @@ public final class InputMethodManager {
      * @hide
      */
     @Deprecated
-    public void showSoftInputUnchecked(int flags, ResultReceiver resultReceiver) {
-        try {
-            Log.w(TAG, "showSoftInputUnchecked() is a hidden method, which will be removed "
-                    + "soon. If you are using android.support.v7.widget.SearchView, please update "
-                    + "to version 26.0 or newer version.");
-            mService.showSoftInput(mClient, flags, resultReceiver);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 123768499)
+    public void showSoftInputUnchecked(@ShowFlags int flags, ResultReceiver resultReceiver) {
+        synchronized (mH) {
+            final int reason = SoftInputShowHideReason.SHOW_SOFT_INPUT;
+            final var statsToken = ImeTracker.forLogging().onStart(ImeTracker.TYPE_SHOW,
+                    ImeTracker.ORIGIN_CLIENT, reason, false /* fromUser */,
+                    UserHandle.myUserId(), mDisplayId);
+
+            Log.w(TAG, "showSoftInputUnchecked() is a hidden method, which will be"
+                    + " removed soon. If you are using androidx.appcompat.widget.SearchView,"
+                    + " please update to version 26.0 or newer version.");
+            final View rootView = mCurRootView != null ? mCurRootView.getView() : null;
+            if (rootView == null) {
+                ImeTracker.forLogging().onFailed(statsToken, ImeTracker.PHASE_CLIENT_VIEW_SERVED);
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.w(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                            "No current root view, ignoring showSoftInputUnchecked()");
+                } else {
+                    Log.w(TAG, "No current root view, ignoring showSoftInputUnchecked()");
+                }
+                return;
+            }
+
+            showSoftInput(rootView, statsToken, flags, resultReceiver, reason);
         }
     }
+
+    /** @hide */
+    @IntDef(flag = true, prefix = { "HIDE_" }, value = {
+            HIDE_IMPLICIT_ONLY,
+            HIDE_NOT_ALWAYS,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface HideFlags {}
 
     /**
      * Flag for {@link #hideSoftInputFromWindow} and {@link InputMethodService#requestHideSelf(int)}
      * to indicate that the soft input window should only be hidden if it was not explicitly shown
      * by the user.
+     *
+     * @deprecated Starting in {@link Build.VERSION_CODES#BAKLAVA Android B}, this flag has no
+     * effect anymore.
      */
+    @Deprecated
+    @FlaggedApi(Flags.FLAG_DEPRECATE_INPUT_METHOD_SHOW_HIDE_FLAGS)
     public static final int HIDE_IMPLICIT_ONLY = 0x0001;
 
     /**
      * Flag for {@link #hideSoftInputFromWindow} and {@link InputMethodService#requestShowSelf(int)}
      * to indicate that the soft input window should normally be hidden, unless it was originally
      * shown with {@link #SHOW_FORCED}.
+     *
+     * @deprecated Starting in {@link Build.VERSION_CODES#BAKLAVA Android B}, this flag has no
+     * effect anymore.
      */
+    @Deprecated
+    @FlaggedApi(Flags.FLAG_DEPRECATE_INPUT_METHOD_SHOW_HIDE_FLAGS)
     public static final int HIDE_NOT_ALWAYS = 0x0002;
 
     /**
-     * Synonym for {@link #hideSoftInputFromWindow(IBinder, int, ResultReceiver)}
-     * without a result: request to hide the soft input window from the
-     * context of the window that is currently accepting input.
+     * Request to hide the soft input window from the context of the window
+     * that is currently accepting input.  This should be called as a result
+     * of the user doing some actually than fairly explicitly requests to
+     * have the input window hidden.
      *
      * @param windowToken The token of the window that is making the request,
      * as returned by {@link View#getWindowToken() View.getWindowToken()}.
-     * @param flags Provides additional operating flags.  Currently may be
-     * 0 or have the {@link #HIDE_IMPLICIT_ONLY} bit set.
+     * @return <p>For apps targeting Android {@link Build.VERSION_CODES#BAKLAVA}, onwards, it
+     * will always return {@code true}. To see when the IME is hidden, use
+     * {@link View.OnApplyWindowInsetsListener} and verify the provided {@link WindowInsets} for
+     * the visibility of IME.
+     *
+     * <p>For apps targeting releases before Android Baklava: returns {@code true} if a request
+     * was sent to system_server, {@code false} otherwise. Note: This does not return the result
+     * of that request (i.e. whether the IME was actually hidden). If result is needed, use
+     * {@link android.view.WindowInsetsController#hide} instead and set a
+     * {@link View.OnApplyWindowInsetsListener} and verify the provided {@link WindowInsets} for
+     * the visibility of IME.
      */
-    public boolean hideSoftInputFromWindow(IBinder windowToken, int flags) {
+    public boolean hideSoftInputFromWindow(IBinder windowToken, @HideFlags int flags) {
         return hideSoftInputFromWindow(windowToken, flags, null);
     }
 
@@ -1143,28 +2723,662 @@ public final class InputMethodManager {
      *
      * @param windowToken The token of the window that is making the request,
      * as returned by {@link View#getWindowToken() View.getWindowToken()}.
-     * @param flags Provides additional operating flags.  Currently may be
-     * 0 or have the {@link #HIDE_IMPLICIT_ONLY} bit set.
      * @param resultReceiver If non-null, this will be called by the IME when
      * it has processed your request to tell you what it has done.  The result
      * code you receive may be either {@link #RESULT_UNCHANGED_SHOWN},
      * {@link #RESULT_UNCHANGED_HIDDEN}, {@link #RESULT_SHOWN}, or
      * {@link #RESULT_HIDDEN}.
+     * @return {@code true} if a request was sent to system_server, {@code false} otherwise. Note:
+     * This does not return the result of that request (i.e. whether the IME was actually hidden).
+     * For result use {@code resultReceiver} instead.
+     *
+     * @deprecated The {@link ResultReceiver} is not a reliable way of determining whether the
+     * Input Method is actually shown or hidden. If result is needed, use
+     * {@link android.view.WindowInsetsController#hide} instead and set a
+     * {@link View.OnApplyWindowInsetsListener} and verify the provided {@link WindowInsets} for
+     * the visibility of IME. If result is not needed, use
+     * {@link #hideSoftInputFromView(View, int)} instead.
      */
-    public boolean hideSoftInputFromWindow(IBinder windowToken, int flags,
+    public boolean hideSoftInputFromWindow(IBinder windowToken, @HideFlags int flags,
             ResultReceiver resultReceiver) {
+        return hideSoftInputFromWindow(windowToken, flags, resultReceiver,
+                SoftInputShowHideReason.HIDE_SOFT_INPUT, null);
+    }
+
+    private boolean hideSoftInputFromWindow(IBinder windowToken, @HideFlags int flags,
+            ResultReceiver resultReceiver, @SoftInputShowHideReason int reason,
+            @Nullable ImeTracker.Token statsToken) {
+        // Get served view initially for statsToken creation.
+        final View initialServedView;
+        synchronized (mH) {
+            initialServedView = getServedViewLocked();
+        }
+
+        if (statsToken == null) {
+            statsToken = ImeTracker.forLogging().onStart(ImeTracker.TYPE_HIDE,
+                    ImeTracker.ORIGIN_CLIENT, reason, ImeTracker.isFromUser(initialServedView),
+                    UserHandle.myUserId(), mDisplayId);
+            ImeTracker.forLatency().onRequestHide(statsToken, ImeTracker.ORIGIN_CLIENT, reason,
+                    ActivityThread::currentApplication);
+        }
+        ImeTracing.getInstance().triggerClientDump("InputMethodManager#hideSoftInputFromWindow",
+                this, null /* icProto */);
         checkFocus();
         synchronized (mH) {
-            if (mServedView == null || mServedView.getWindowToken() != windowToken) {
+            // Get served view again in case it changed between the synchronized blocks.
+            final View servedView = getServedViewLocked();
+            if (servedView == null || servedView.getWindowToken() != windowToken) {
+                ImeTracker.forLogging().onFailed(statsToken, ImeTracker.PHASE_CLIENT_VIEW_SERVED);
+                ImeTracker.forLatency().onHideFailed(statsToken,
+                        ImeTracker.PHASE_CLIENT_VIEW_SERVED, ActivityThread::currentApplication);
+                // with the flag enabled and targeting Android Baklava onwards, the return value
+                // should be always true (was false before).
+                return CompatChanges.isChangeEnabled(
+                        ALWAYS_RETURN_TRUE_HIDE_SOFT_INPUT_FROM_WINDOW);
+            }
+
+            ImeTracker.forLogging().onProgress(statsToken, ImeTracker.PHASE_CLIENT_VIEW_SERVED);
+
+            final var viewRootImpl = servedView.getViewRootImpl();
+            if (viewRootImpl != null) {
+                if (servedView.getHandler() == null) {
+                    // If the view doesn't have a handler, something has changed out from
+                    // under us. The current input has been closed before (from checkFocus).
+                    ImeTracker.forLogging().onFailed(statsToken,
+                            ImeTracker.PHASE_CLIENT_VIEW_HANDLER_AVAILABLE);
+                    // with the flag enabled and targeting Android Baklava onwards, the
+                    // return value should be always true (was false before).
+                    return CompatChanges.isChangeEnabled(
+                            ALWAYS_RETURN_TRUE_HIDE_SOFT_INPUT_FROM_WINDOW);
+                }
+
+                final boolean imeReqVisible = hasViewImeRequestedVisible(
+                        viewRootImpl.getView());
+                if (resultReceiver != null) {
+                    resultReceiver.send(
+                            !imeReqVisible ? InputMethodManager.RESULT_UNCHANGED_HIDDEN
+                                    : InputMethodManager.RESULT_HIDDEN, null);
+                }
+                setImeVisibilityOnInsetsController(viewRootImpl, false /* visible */, statsToken);
+                if (!CompatChanges.isChangeEnabled(
+                        ALWAYS_RETURN_TRUE_HIDE_SOFT_INPUT_FROM_WINDOW)) {
+                    // if the IME was not visible before, the additional hide won't change
+                    // anything.
+                    return imeReqVisible;
+                }
+            }
+            // Targeting Android Baklava onwards, this method will always return true.
+            return CompatChanges.isChangeEnabled(
+                    ALWAYS_RETURN_TRUE_HIDE_SOFT_INPUT_FROM_WINDOW);
+        }
+    }
+
+    /**
+     * Synonym for {@link #hideSoftInputFromWindow(IBinder, int)} but takes a {@link View} as a
+     * parameter to be a counterpart of {@link #showSoftInput(View, int)}.
+     *
+     * @param view {@link View} to be used to conditionally issue hide request when and only when
+     *             this {@link View} is serving as an IME target.
+     * @hide
+     */
+    public boolean hideSoftInputFromView(@NonNull View view, @HideFlags int flags) {
+        checkFocus();
+        final boolean isFocusedAndWindowFocused = view.hasWindowFocus() && view.isFocused();
+        synchronized (mH) {
+            final boolean hasServedByInputMethod = hasServedByInputMethodLocked(view);
+            if (!isFocusedAndWindowFocused && !hasServedByInputMethod) {
+                // Fail early if the view is not focused and not served
+                // to avoid logging many erroneous calls.
                 return false;
             }
 
-            try {
-                return mService.hideSoftInput(mClient, flags, resultReceiver);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+            final int reason = SoftInputShowHideReason.HIDE_SOFT_INPUT_FROM_VIEW;
+            final var statsToken = ImeTracker.forLogging().onStart(ImeTracker.TYPE_HIDE,
+                    ImeTracker.ORIGIN_CLIENT, reason, ImeTracker.isFromUser(view),
+                    UserHandle.myUserId(), mDisplayId);
+            ImeTracker.forLatency().onRequestHide(statsToken,
+                    ImeTracker.ORIGIN_CLIENT, reason, ActivityThread::currentApplication);
+            ImeTracing.getInstance().triggerClientDump("InputMethodManager#hideSoftInputFromView",
+                    this, null /* icProto */);
+
+            if (!hasServedByInputMethod) {
+                ImeTracker.forLogging().onFailed(statsToken, ImeTracker.PHASE_CLIENT_VIEW_SERVED);
+                ImeTracker.forLatency().onShowFailed(statsToken,
+                        ImeTracker.PHASE_CLIENT_VIEW_SERVED, ActivityThread::currentApplication);
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.w(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                            "Ignoring hideSoftInputFromView() as view=%s is not served.", view);
+                } else {
+                    Log.w(TAG,
+                            "Ignoring hideSoftInputFromView() as view=" + view + " is not served.");
+                }
+                return false;
+            }
+
+            ImeTracker.forLogging().onProgress(statsToken, ImeTracker.PHASE_CLIENT_VIEW_SERVED);
+
+            return hideSoftInputFromWindow(view.getWindowToken(), flags,
+                    null /* resultReceiver */, reason, statsToken);
+        }
+    }
+
+    /**
+     * A test API for CTS to request hiding the current soft input window, with the request origin
+     * on the server side.
+     *
+     * @hide
+     */
+    @SuppressLint("UnflaggedApi") // @TestApi without associated feature.
+    @TestApi
+    @RequiresPermission(Manifest.permission.TEST_INPUT_METHOD)
+    public void hideSoftInputFromServerForTest() {
+        IInputMethodManagerGlobalInvoker.hideSoftInputFromServerForTest();
+    }
+
+    /**
+     * Start stylus handwriting session.
+     *
+     * If supported by the current input method, a stylus handwriting session is started on the
+     * given View, capturing all stylus input and converting it to InputConnection commands.
+     *
+     * If handwriting mode is started successfully by the IME, any currently dispatched stylus
+     * pointers will be {@code android.view.MotionEvent#FLAG_CANCELED} cancelled.
+     *
+     * If Stylus handwriting mode is not supported or cannot be fulfilled for any reason by IME,
+     * request will be ignored and Stylus touch will continue as normal touch input. Ideally,
+     * {@link #isStylusHandwritingAvailable()} should be called first to determine if stylus
+     * handwriting is supported by IME.
+     *
+     * @param view the View for which stylus handwriting is requested. It and
+     * {@link View#hasWindowFocus its window} must be {@link View#hasFocus focused}.
+     * @see #isStylusHandwritingAvailable()
+     */
+    public void startStylusHandwriting(@NonNull View view) {
+        startStylusHandwritingInternal(
+                view, /* delegatorPackageName= */ null, /* handwritingDelegateFlags= */ 0);
+    }
+
+    private static void setImeVisibilityOnInsetsController(@NonNull ViewRootImpl viewRootImpl,
+            boolean visible, @NonNull ImeTracker.Token statsToken) {
+        final View view = viewRootImpl.getView();
+        if (view == null) {
+            if (android.tracing.Flags.imetrackerProtolog()) {
+                ProtoLog.w(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                        "Cannot set IME visibility: no view available for %s",
+                        (visible ? "show" : "hide"));
+            } else {
+                Log.w(TAG, "Cannot set IME visibility: no view available for " + (visible ? "show"
+                        : "hide"));
+            }
+            ImeTracker.forLogging().onFailed(statsToken,
+                    ImeTracker.PHASE_CLIENT_VIEW_HANDLER_AVAILABLE);
+            return;
+        }
+
+        final Handler vh = view.getHandler();
+        if (vh == null) {
+            // If the view doesn't have a handler, something has changed out from under us.
+            ImeTracker.forLogging().onFailed(statsToken,
+                    ImeTracker.PHASE_CLIENT_VIEW_HANDLER_AVAILABLE);
+            return;
+        }
+        ImeTracker.forLogging().onProgress(statsToken,
+                ImeTracker.PHASE_CLIENT_VIEW_HANDLER_AVAILABLE);
+
+        final var insetsController = viewRootImpl.getInsetsController();
+        if (insetsController == null) {
+            ImeTracker.forLogging().onFailed(statsToken,
+                    ImeTracker.PHASE_CLIENT_INSETS_CONTROLLER_DISPATCH);
+            return;
+        }
+        ImeTracker.forLogging().onProgress(statsToken,
+                ImeTracker.PHASE_CLIENT_INSETS_CONTROLLER_DISPATCH);
+
+        if (vh.getLooper() != Looper.myLooper()) {
+            // The view is running on a different thread than our own, so we need to reschedule
+            // our work for over there.
+            if (android.tracing.Flags.imetrackerProtolog()) {
+                ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG,
+                        "Rescheduling %s IME visibility to view thread",
+                        (visible ? "show" : "hide"));
+            } else if (DEBUG) {
+                Log.v(TAG, "Rescheduling " + (visible ? "show" : "hide")
+                        + " IME visibility to view thread");
+            }
+            vh.post(() -> {
+                if (visible) {
+                    insetsController.show(WindowInsets.Type.ime(), statsToken);
+                } else {
+                    insetsController.hide(WindowInsets.Type.ime(), statsToken);
+                }
+            });
+        } else {
+            if (visible) {
+                insetsController.show(WindowInsets.Type.ime(), statsToken);
+            } else {
+                insetsController.hide(WindowInsets.Type.ime(), statsToken);
             }
         }
+    }
+
+    private void sendFailureCallback(@NonNull @CallbackExecutor Executor executor,
+            @NonNull Consumer<Boolean> callback) {
+        if (executor == null || callback == null) {
+            return;
+        }
+        executor.execute(() -> callback.accept(false));
+    }
+
+    private boolean startStylusHandwritingInternal(
+            @NonNull View view, @Nullable String delegatorPackageName,
+            @HandwritingDelegateFlags int handwritingDelegateFlags) {
+        return startStylusHandwritingInternal(
+                view, delegatorPackageName, handwritingDelegateFlags,
+                null /* executor */, null /* callback */);
+    }
+
+    private boolean startStylusHandwritingInternal(
+            @NonNull View view, @Nullable String delegatorPackageName,
+            @HandwritingDelegateFlags int handwritingDelegateFlags, Executor executor,
+            Consumer<Boolean> callback) {
+        Objects.requireNonNull(view);
+        boolean useCallback = callback != null;
+
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(view);
+        if (fallbackImm != null) {
+            fallbackImm.startStylusHandwritingInternal(
+                    view, delegatorPackageName, handwritingDelegateFlags, executor, callback);
+        }
+
+        boolean useDelegation = !TextUtils.isEmpty(delegatorPackageName);
+
+        checkFocus();
+        synchronized (mH) {
+            if (!hasServedByInputMethodLocked(view)) {
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.w(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                            "Ignoring startStylusHandwriting as view=%s is not served.", view);
+                } else {
+                    Log.w(TAG,
+                            "Ignoring startStylusHandwriting as view=" + view + " is not served.");
+                }
+                sendFailureCallback(executor, callback);
+                return false;
+            }
+            if (view.getViewRootImpl() != mCurRootView) {
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.w(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                            "Ignoring startStylusHandwriting: View's window does not have focus.");
+                } else {
+                    Log.w(TAG,
+                            "Ignoring startStylusHandwriting: View's window does not have focus.");
+                }
+                sendFailureCallback(executor, callback);
+                return false;
+            }
+            if (useDelegation) {
+                WeakReference<Executor> executorRef = new WeakReference<>(executor);
+                WeakReference<Consumer<Boolean>> callbackRef = new WeakReference<>(callback);
+                if (useCallback) {
+                    IBooleanListener listener = new IBooleanListener.Stub() {
+                        @Override
+                        public void onResult(boolean value) {
+                            Executor executor = executorRef.get();
+                            Consumer<Boolean> callback = callbackRef.get();
+                            if (executor != null && callback != null) {
+                                executor.execute(() -> callback.accept(value));
+                            }
+                        }
+                    };
+                    if (!IInputMethodManagerGlobalInvoker.acceptStylusHandwritingDelegationAsync(
+                            mClient, UserHandle.myUserId(), view.getContext().getOpPackageName(),
+                            delegatorPackageName, handwritingDelegateFlags, listener)) {
+                        sendFailureCallback(executor, callback);
+                    }
+                    return true;
+                } else {
+                    return IInputMethodManagerGlobalInvoker.acceptStylusHandwritingDelegation(
+                            mClient, UserHandle.myUserId(), view.getContext().getOpPackageName(),
+                            delegatorPackageName, handwritingDelegateFlags);
+                }
+            } else {
+                IInputMethodManagerGlobalInvoker.startStylusHandwriting(mClient);
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Starts a connectionless stylus handwriting session. A connectionless session differs from a
+     * regular stylus handwriting session in that the IME does not use an input connection to
+     * communicate with a text editor. Instead, the IME directly returns recognised handwritten text
+     * via a callback.
+     *
+     * <p>The {code cursorAnchorInfo} may be used by the IME to improve the handwriting recognition
+     * accuracy and user experience of the handwriting session. Usually connectionless handwriting
+     * is used for a view which appears like a text editor but does not really support text editing.
+     * For best results, the {code cursorAnchorInfo} should be populated as it would be for a real
+     * text editor (for example, the insertion marker location can be set to where the user would
+     * expect it to be, even if there is no visible cursor).
+     *
+     * @param view the view receiving stylus events
+     * @param cursorAnchorInfo positional information about the view receiving stylus events
+     * @param callbackExecutor the executor to run the callback on
+     * @param callback the callback to receive the result
+     */
+    @FlaggedApi(Flags.FLAG_CONNECTIONLESS_HANDWRITING)
+    public void startConnectionlessStylusHandwriting(@NonNull View view,
+            @Nullable CursorAnchorInfo cursorAnchorInfo,
+            @NonNull @CallbackExecutor Executor callbackExecutor,
+            @NonNull ConnectionlessHandwritingCallback callback) {
+        startConnectionlessStylusHandwritingInternal(
+                view, cursorAnchorInfo, null, null, callbackExecutor, callback);
+    }
+
+    /**
+     * Starts a connectionless stylus handwriting session (see {@link
+     * #startConnectionlessStylusHandwriting}) and additionally enables the recognised handwritten
+     * text to be later committed to a text editor using {@link
+     * #acceptStylusHandwritingDelegation(View)}.
+     *
+     * <p>After a connectionless session started using this method completes successfully, a text
+     * editor view, called the delegate view, may call {@link
+     * #acceptStylusHandwritingDelegation(View)} which will request the IME to commit the recognised
+     * handwritten text from the connectionless session to the delegate view.
+     *
+     * <p>The delegate view must belong to the same package as the delegator view for the delegation
+     * to succeed. If the delegate view belongs to a different package, use {@link
+     * #startConnectionlessStylusHandwritingForDelegation(View, CursorAnchorInfo, String, Executor,
+     * ConnectionlessHandwritingCallback)} instead.
+     *
+     * @param delegatorView the view receiving stylus events
+     * @param cursorAnchorInfo positional information about the view receiving stylus events
+     * @param callbackExecutor the executor to run the callback on
+     * @param callback the callback to receive the result
+     */
+    @FlaggedApi(Flags.FLAG_CONNECTIONLESS_HANDWRITING)
+    public void startConnectionlessStylusHandwritingForDelegation(@NonNull View delegatorView,
+            @Nullable CursorAnchorInfo cursorAnchorInfo,
+            @NonNull @CallbackExecutor Executor callbackExecutor,
+            @NonNull ConnectionlessHandwritingCallback callback) {
+        String delegatorPackageName = delegatorView.getContext().getOpPackageName();
+        startConnectionlessStylusHandwritingInternal(delegatorView, cursorAnchorInfo,
+                delegatorPackageName, delegatorPackageName, callbackExecutor, callback);
+    }
+
+    /**
+     * Starts a connectionless stylus handwriting session (see {@link
+     * #startConnectionlessStylusHandwriting}) and additionally enables the recognised handwritten
+     * text to be later committed to a text editor using {@link
+     * #acceptStylusHandwritingDelegation(View, String)}.
+     *
+     * <p>After a connectionless session started using this method completes successfully, a text
+     * editor view, called the delegate view, may call {@link
+     * #acceptStylusHandwritingDelegation(View, String)} which will request the IME to commit the
+     * recognised handwritten text from the connectionless session to the delegate view.
+     *
+     * <p>The delegate view must belong to {@code delegatePackageName} for the delegation to
+     * succeed.
+     *
+     * @param delegatorView the view receiving stylus events
+     * @param cursorAnchorInfo positional information about the view receiving stylus events
+     * @param delegatePackageName name of the package containing the delegate view which will accept
+     *     the delegation
+     * @param callbackExecutor the executor to run the callback on
+     * @param callback the callback to receive the result
+     */
+    @FlaggedApi(Flags.FLAG_CONNECTIONLESS_HANDWRITING)
+    public void startConnectionlessStylusHandwritingForDelegation(@NonNull View delegatorView,
+            @Nullable CursorAnchorInfo cursorAnchorInfo,
+            @NonNull String delegatePackageName,
+            @NonNull @CallbackExecutor Executor callbackExecutor,
+            @NonNull ConnectionlessHandwritingCallback callback) {
+        Objects.requireNonNull(delegatePackageName);
+        String delegatorPackageName = delegatorView.getContext().getOpPackageName();
+        startConnectionlessStylusHandwritingInternal(delegatorView, cursorAnchorInfo,
+                delegatorPackageName, delegatePackageName, callbackExecutor, callback);
+    }
+
+    private void startConnectionlessStylusHandwritingInternal(@NonNull View view,
+            @Nullable CursorAnchorInfo cursorAnchorInfo,
+            @Nullable String delegatorPackageName,
+            @Nullable String delegatePackageName,
+            @NonNull @CallbackExecutor Executor callbackExecutor,
+            @NonNull ConnectionlessHandwritingCallback callback) {
+        Objects.requireNonNull(view);
+        Objects.requireNonNull(callbackExecutor);
+        Objects.requireNonNull(callback);
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(view);
+        if (fallbackImm != null) {
+            fallbackImm.startConnectionlessStylusHandwritingInternal(view, cursorAnchorInfo,
+                    delegatorPackageName, delegatePackageName, callbackExecutor, callback);
+        }
+
+        checkFocus();
+        synchronized (mH) {
+            if (view.getViewRootImpl() != mCurRootView) {
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.w(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                            "Ignoring startConnectionlessStylusHandwriting: View's window does not "
+                                    + "have focus.");
+                } else {
+                    Log.w(TAG, "Ignoring startConnectionlessStylusHandwriting: "
+                            + "View's window does not have focus.");
+                }
+                return;
+            }
+            IInputMethodManagerGlobalInvoker.startConnectionlessStylusHandwriting(
+                    mClient, UserHandle.myUserId(), cursorAnchorInfo,
+                    delegatePackageName, delegatorPackageName,
+                    new ConnectionlessHandwritingCallbackProxy(callbackExecutor, callback));
+        }
+    }
+
+    /**
+     * Prepares delegation of starting stylus handwriting session to a different editor in same
+     * or different window than the view on which initial handwriting stroke was detected.
+     *
+     * Delegation can be used to start stylus handwriting session before the {@code Editor} view or
+     * its {@link InputConnection} is started. Calling this method starts buffering of stylus
+     * motion events until {@link #acceptStylusHandwritingDelegation(View)} is called, at which
+     * point the handwriting session can be started and the buffered stylus motion events will be
+     * delivered to the IME.
+     * e.g. Delegation can be used when initial handwriting stroke is
+     * on a pseudo {@code Editor} like widget (with no {@link InputConnection}) but actual
+     * {@code Editor} is on a different window.
+     *
+     * <p> Note: If an actual {@code Editor} capable of {@link InputConnection} is being scribbled
+     * upon using stylus, use {@link #startStylusHandwriting(View)} instead.</p>
+     *
+     * @param delegatorView the view that receives initial stylus stroke and delegates it to the
+     *  actual editor. Its window must {@link View#hasWindowFocus have focus}.
+     * @see #prepareStylusHandwritingDelegation(View, String)
+     * @see #acceptStylusHandwritingDelegation(View)
+     * @see #startStylusHandwriting(View)
+     */
+    public void prepareStylusHandwritingDelegation(@NonNull View delegatorView) {
+        prepareStylusHandwritingDelegation(
+                delegatorView, delegatorView.getContext().getOpPackageName());
+    }
+
+    /**
+     * Prepares delegation of starting stylus handwriting session to a different editor in same or a
+     * different window in a different package than the view on which initial handwriting stroke
+     * was detected.
+     *
+     * Delegation can be used to start stylus handwriting session before the {@code Editor} view or
+     * its {@link InputConnection} is started. Calling this method starts buffering of stylus
+     * motion events until {@link #acceptStylusHandwritingDelegation(View, String)} is called, at
+     * which point the handwriting session can be started and the buffered stylus motion events will
+     * be delivered to the IME.
+     * e.g. Delegation can be used when initial handwriting stroke is
+     * on a pseudo {@code Editor} like widget (with no {@link InputConnection}) but actual
+     * {@code Editor} is on a different window in the given package.
+     *
+     * <p>Note: If delegator and delegate are in same package use
+     * {@link #prepareStylusHandwritingDelegation(View)} instead.</p>
+     *
+     * @param delegatorView  the view that receives initial stylus stroke and delegates it to the
+     * actual editor. Its window must {@link View#hasWindowFocus have focus}.
+     * @param delegatePackageName package name that contains actual {@code Editor} which should
+     *  start stylus handwriting session by calling {@link #acceptStylusHandwritingDelegation}.
+     * @see #prepareStylusHandwritingDelegation(View)
+     * @see #acceptStylusHandwritingDelegation(View, String)
+     */
+    public void prepareStylusHandwritingDelegation(
+            @NonNull View delegatorView, @NonNull String delegatePackageName) {
+        Objects.requireNonNull(delegatorView);
+        Objects.requireNonNull(delegatePackageName);
+
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm =
+                getFallbackInputMethodManagerIfNecessary(delegatorView);
+        if (fallbackImm != null) {
+            fallbackImm.prepareStylusHandwritingDelegation(delegatorView, delegatePackageName);
+        }
+
+        IInputMethodManagerGlobalInvoker.prepareStylusHandwritingDelegation(
+                mClient,
+                UserHandle.myUserId(),
+                delegatePackageName,
+                delegatorView.getContext().getOpPackageName());
+    }
+
+    /**
+     * Accepts and starts a stylus handwriting session on the delegate view, if handwriting
+     * initiation delegation was previously requested using
+     * {@link #prepareStylusHandwritingDelegation(View)} from the delegator.
+     *
+     * <p>Otherwise, if the delegator view previously started delegation using {@link
+     * #startConnectionlessStylusHandwritingForDelegation(View, CursorAnchorInfo, Executor,
+     * ConnectionlessHandwritingCallback)}, requests the IME to commit the recognised handwritten
+     * text from the connectionless session to the delegate view.
+     *
+     * <p>Note: If delegator and delegate are in different application packages, use
+     * {@link #acceptStylusHandwritingDelegation(View, String)} instead.</p>
+     *
+     * @param delegateView delegate view capable of receiving input via {@link InputConnection}
+     * @return {@code true} if view belongs to same application package as used in
+     *  {@link #prepareStylusHandwritingDelegation(View)} and delegation is accepted
+     * @see #prepareStylusHandwritingDelegation(View)
+     * @see #acceptStylusHandwritingDelegation(View, String)
+     * @see #startConnectionlessStylusHandwritingForDelegation(View, CursorAnchorInfo, Executor,
+     *     ConnectionlessHandwritingCallback)
+     */
+    public boolean acceptStylusHandwritingDelegation(@NonNull View delegateView) {
+        return startStylusHandwritingInternal(
+                delegateView, delegateView.getContext().getOpPackageName(),
+                delegateView.getHandwritingDelegateFlags());
+    }
+
+    // TODO (b/418839728): deprecate this method since zeroJankProxy is enabled by default.
+    /**
+     * Accepts and starts a stylus handwriting session on the delegate view, if handwriting
+     * initiation delegation was previously requested using
+     * {@link #prepareStylusHandwritingDelegation(View, String)} from the delegator and the view
+     * belongs to a specified delegate package.
+     *
+     * <p>Otherwise, if the delegator view previously started delegation using {@link
+     * #startConnectionlessStylusHandwritingForDelegation(View, CursorAnchorInfo, String, Executor,
+     * ConnectionlessHandwritingCallback)}, requests the IME to commit the recognised handwritten
+     * text from the connectionless session to the delegate view.
+     *
+     * <p>Note: If delegator and delegate are in the same application package, use
+     * {@link #acceptStylusHandwritingDelegation(View)} instead.</p>
+     *
+     * @param delegateView delegate view capable of receiving input via {@link InputConnection}
+     * @param delegatorPackageName package name of the delegator that handled initial stylus stroke.
+     * @return {@code true} if view belongs to allowed delegate package declared in {@link
+     *     #prepareStylusHandwritingDelegation(View, String)} and delegation is accepted
+     * @see #prepareStylusHandwritingDelegation(View, String)
+     * @see #acceptStylusHandwritingDelegation(View)
+     * @see #startConnectionlessStylusHandwritingForDelegation(View, CursorAnchorInfo, String,
+     *     Executor, ConnectionlessHandwritingCallback)
+     */
+    public boolean acceptStylusHandwritingDelegation(
+            @NonNull View delegateView, @NonNull String delegatorPackageName) {
+        Objects.requireNonNull(delegatorPackageName);
+        return startStylusHandwritingInternal(
+                delegateView, delegatorPackageName, delegateView.getHandwritingDelegateFlags());
+    }
+
+    /**
+     * Accepts and starts a stylus handwriting session on the delegate view, if handwriting
+     * initiation delegation was previously requested using
+     * {@link #prepareStylusHandwritingDelegation(View, String)} from the delegator and the view
+     * belongs to a specified delegate package.
+     *
+     * <p>Otherwise, if the delegator view previously started delegation using {@link
+     * #startConnectionlessStylusHandwritingForDelegation(View, CursorAnchorInfo, String, Executor,
+     * ConnectionlessHandwritingCallback)}, requests the IME to commit the recognised handwritten
+     * text from the connectionless session to the delegate view.
+     *
+     * @param delegateView delegate view capable of receiving input via {@link InputConnection}
+     *  on which {@link #startStylusHandwriting(View)} will be called.
+     * @param delegatorPackageName package name of the delegator that handled initial stylus stroke.
+     * @param executor The executor to run the callback on.
+     * @param callback Consumer callback that provides {@code true} if view belongs to allowed
+     *                delegate package declared in
+     *                {@link #prepareStylusHandwritingDelegation(View, String)} and handwriting
+     *                session can start. Note: The caller should hold a reference to the callback.
+     *                The framework only holds a weak reference.
+     * @see #prepareStylusHandwritingDelegation(View, String)
+     * @see #acceptStylusHandwritingDelegation(View)
+     * @see #startConnectionlessStylusHandwritingForDelegation(View, CursorAnchorInfo, String,
+     *     Executor, ConnectionlessHandwritingCallback)
+     */
+    @FlaggedApi(Flags.FLAG_USE_ZERO_JANK_PROXY)
+    public void acceptStylusHandwritingDelegation(
+            @NonNull View delegateView, @NonNull String delegatorPackageName,
+            @NonNull @CallbackExecutor Executor executor, @NonNull Consumer<Boolean> callback) {
+        Objects.requireNonNull(delegatorPackageName);
+        int flags = 0;
+        if (Flags.homeScreenHandwritingDelegator()) {
+            flags = delegateView.getHandwritingDelegateFlags();
+        }
+        acceptStylusHandwritingDelegation(
+                delegateView, delegatorPackageName, flags, executor, callback);
+    }
+
+    /**
+     * Accepts and starts a stylus handwriting session on the delegate view, if handwriting
+     * initiation delegation was previously requested using {@link
+     * #prepareStylusHandwritingDelegation(View, String)} from the delegator and the view belongs to
+     * a specified delegate package.
+     *
+     * <p>Otherwise, if the delegator view previously started delegation using {@link
+     * #startConnectionlessStylusHandwritingForDelegation(View, CursorAnchorInfo, String, Executor,
+     * ConnectionlessHandwritingCallback)}, requests the IME to commit the recognised handwritten
+     * text from the connectionless session to the delegate view.
+     *
+     * <p>Note: If delegator and delegate are in the same application package, use {@link
+     * #acceptStylusHandwritingDelegation(View)} instead.
+     *
+     * @param delegateView delegate view capable of receiving input via {@link InputConnection}
+     * @param delegatorPackageName package name of the delegator that handled initial stylus stroke.
+     * @param flags {@link #HANDWRITING_DELEGATE_FLAG_HOME_DELEGATOR_ALLOWED} or {@code 0}
+     * @param executor The executor to run the callback on.
+     * @param callback {@code true} would be received if delegation was accepted. The caller should
+     *                 hold a reference to the callback. The framework only holds a weak reference.
+     * @see #prepareStylusHandwritingDelegation(View, String)
+     * @see #acceptStylusHandwritingDelegation(View)
+     * @see #startConnectionlessStylusHandwritingForDelegation(View, CursorAnchorInfo, String,
+     *     Executor, ConnectionlessHandwritingCallback)
+     */
+    @FlaggedApi(FLAG_HOME_SCREEN_HANDWRITING_DELEGATOR)
+    public void acceptStylusHandwritingDelegation(
+            @NonNull View delegateView, @NonNull String delegatorPackageName,
+            @HandwritingDelegateFlags int flags, @NonNull @CallbackExecutor Executor executor,
+            @NonNull Consumer<Boolean> callback) {
+        Objects.requireNonNull(delegatorPackageName);
+        Objects.requireNonNull(delegateView);
+        Objects.requireNonNull(executor);
+        Objects.requireNonNull(callback);
+
+        startStylusHandwritingInternal(
+                delegateView, delegatorPackageName, flags, executor, callback);
     }
 
     /**
@@ -1173,24 +3387,25 @@ public final class InputMethodManager {
      * If not the input window will be displayed.
      * @param windowToken The token of the window that is making the request,
      * as returned by {@link View#getWindowToken() View.getWindowToken()}.
-     * @param showFlags Provides additional operating flags.  May be
-     * 0 or have the {@link #SHOW_IMPLICIT},
-     * {@link #SHOW_FORCED} bit set.
-     * @param hideFlags Provides additional operating flags.  May be
-     * 0 or have the {@link #HIDE_IMPLICIT_ONLY},
-     * {@link #HIDE_NOT_ALWAYS} bit set.
-     **/
-    public void toggleSoftInputFromWindow(IBinder windowToken, int showFlags, int hideFlags) {
+     *
+     * @deprecated Use {@link #showSoftInput(View, int)} or
+     * {@link #hideSoftInputFromWindow(IBinder, int)} explicitly instead.
+     * In particular during focus changes, the current visibility of the IME is not
+     * well defined. Starting in {@link Build.VERSION_CODES#S Android S}, this only
+     * has an effect if the calling app is the current IME focus.
+     */
+    @Deprecated
+    public void toggleSoftInputFromWindow(IBinder windowToken, @ShowFlags int showFlags,
+            @HideFlags int hideFlags) {
+        ImeTracing.getInstance().triggerClientDump(
+                "InputMethodManager#toggleSoftInputFromWindow", InputMethodManager.this,
+                null /* icProto */);
         synchronized (mH) {
-            if (mServedView == null || mServedView.getWindowToken() != windowToken) {
+            final View servedView = getServedViewLocked();
+            if (servedView == null || servedView.getWindowToken() != windowToken) {
                 return;
             }
-            if (mCurMethod != null) {
-                try {
-                    mCurMethod.toggleSoftInput(showFlags, hideFlags);
-                } catch (RemoteException e) {
-                }
-            }
+            toggleSoftInput(showFlags, hideFlags);
         }
     }
 
@@ -1199,18 +3414,30 @@ public final class InputMethodManager {
      *
      * If the input window is already displayed, it gets hidden.
      * If not the input window will be displayed.
-     * @param showFlags Provides additional operating flags.  May be
-     * 0 or have the {@link #SHOW_IMPLICIT},
-     * {@link #SHOW_FORCED} bit set.
-     * @param hideFlags Provides additional operating flags.  May be
-     * 0 or have the {@link #HIDE_IMPLICIT_ONLY},
-     * {@link #HIDE_NOT_ALWAYS} bit set.
+     *
+     * @deprecated Use {@link #showSoftInput(View, int)} or
+     * {@link #hideSoftInputFromWindow(IBinder, int)} explicitly instead.
+     * In particular during focus changes, the current visibility of the IME is not
+     * well defined. Starting in {@link Build.VERSION_CODES#S Android S}, this only
+     * has an effect if the calling app is the current IME focus.
      */
-    public void toggleSoftInput(int showFlags, int hideFlags) {
-        if (mCurMethod != null) {
-            try {
-                mCurMethod.toggleSoftInput(showFlags, hideFlags);
-            } catch (RemoteException e) {
+    @Deprecated
+    public void toggleSoftInput(@ShowFlags int showFlags, @HideFlags int hideFlags) {
+        ImeTracing.getInstance().triggerClientDump(
+                "InputMethodManager#toggleSoftInput", InputMethodManager.this,
+                null /* icProto */);
+        synchronized (mH) {
+            final View view = getServedViewLocked();
+            if (view != null) {
+                final WindowInsets rootInsets = view.getRootWindowInsets();
+                if (rootInsets != null && rootInsets.isVisible(WindowInsets.Type.ime())) {
+                    hideSoftInputFromWindow(view.getWindowToken(), hideFlags,
+                            null /* resultReceiver */,
+                            SoftInputShowHideReason.HIDE_TOGGLE_SOFT_INPUT, null);
+                } else {
+                    showSoftInput(view, showFlags, null /* resultReceiver */,
+                            SoftInputShowHideReason.SHOW_TOGGLE_SOFT_INPUT);
+                }
             }
         }
     }
@@ -1224,34 +3451,140 @@ public final class InputMethodManager {
      * @param view The view whose text has changed.
      */
     public void restartInput(View view) {
+        if (DEBUG) {
+            Log.d(TAG, "restartInput()");
+        }
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(view);
+        if (fallbackImm != null) {
+            fallbackImm.restartInput(view);
+            return;
+        }
+
         checkFocus();
         synchronized (mH) {
-            if (mServedView != view && (mServedView == null
-                    || !mServedView.checkInputConnectionProxy(view))) {
+            if (!hasServedByInputMethodLocked(view)) {
                 return;
             }
 
             mServedConnecting = true;
         }
 
-        startInputInner(InputMethodClient.START_INPUT_REASON_APP_CALLED_RESTART_INPUT_API, null, 0,
-                0, 0);
+        startInputInner(StartInputReason.APP_CALLED_RESTART_INPUT_API, null, 0, 0, 0);
     }
 
-    boolean startInputInner(@InputMethodClient.StartInputReason final int startInputReason,
-            IBinder windowGainingFocus, int controlFlags, int softInputMode,
-            int windowFlags) {
+    /**
+     * Sends an async signal to the IME to reset the currently served {@link InputConnection}.
+     *
+     * @param inputConnection the connection to be invalidated.
+     * @param textSnapshot {@link TextSnapshot} to be used to update {@link EditorInfo}.
+     * @param sessionId the session ID to be sent.
+     * @return {@code true} if the operation is done. {@code false} if the caller needs to fall back
+     *         to {@link InputMethodManager#restartInput(View)}.
+     * @hide
+     */
+    public boolean doInvalidateInput(@NonNull RemoteInputConnectionImpl inputConnection,
+            @NonNull TextSnapshot textSnapshot, int sessionId) {
+        synchronized (mH) {
+            if (mServedInputConnection != inputConnection || mCurrentEditorInfo == null) {
+                // OK to ignore because the calling InputConnection is already abandoned.
+                return true;
+            }
+            if (!isImeSessionAvailableLocked()) {
+                // IME is not yet bound to the client.  Need to fall back to the restartInput().
+                return false;
+            }
+            final EditorInfo editorInfo = mCurrentEditorInfo.createCopyInternal();
+            editorInfo.initialSelStart = mCursorSelStart = textSnapshot.getSelectionStart();
+            editorInfo.initialSelEnd = mCursorSelEnd = textSnapshot.getSelectionEnd();
+            mCursorCandStart = textSnapshot.getCompositionStart();
+            mCursorCandEnd = textSnapshot.getCompositionEnd();
+            editorInfo.initialCapsMode = textSnapshot.getCursorCapsMode();
+            editorInfo.setInitialSurroundingTextInternal(textSnapshot.getSurroundingText());
+            mCurBindState.mImeSession.invalidateInput(editorInfo, mServedInputConnection,
+                    sessionId);
+            final IRemoteAccessibilityInputConnection accessibilityInputConnection =
+                    mServedInputConnection.asIRemoteAccessibilityInputConnection();
+            forAccessibilitySessionsLocked(wrapper -> wrapper.invalidateInput(editorInfo,
+                    accessibilityInputConnection, sessionId));
+            return true;
+        }
+    }
+
+    /**
+     * Gives a hint to the system that the text associated with {@code view} is updated by something
+     * that is not an input method editor (IME), so that the system can cancel any pending text
+     * editing requests from the IME until it receives the new editing context such as surrounding
+     * text provided by {@link InputConnection#takeSnapshot()}.
+     *
+     * <p>When {@code view} does not support {@link InputConnection#takeSnapshot()} protocol,
+     * calling this method may trigger {@link View#onCreateInputConnection(EditorInfo)}.</p>
+     *
+     * <p>Unlike {@link #restartInput(View)}, this API does not immediately interact with
+     * {@link InputConnection}.  Instead, the application may later receive
+     * {@link InputConnection#takeSnapshot()} as needed so that the system can capture new editing
+     * context for the IME.  For instance, successive invocations of this API can be coerced into a
+     * single (or zero) callback of {@link InputConnection#takeSnapshot()}.</p>
+     *
+     * @param view The view whose text has changed.
+     * @see #restartInput(View)
+     */
+    public void invalidateInput(@NonNull View view) {
+        Objects.requireNonNull(view);
+        if (DEBUG) {
+            Log.d(TAG, "IMM#invaldateInput()");
+        }
+
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(view);
+        if (fallbackImm != null) {
+            fallbackImm.invalidateInput(view);
+            return;
+        }
+
+        synchronized (mH) {
+            if (mServedInputConnection == null || getServedViewLocked() != view) {
+                return;
+            }
+            mServedInputConnection.scheduleInvalidateInput(
+                    mLastPendingStartSeqId != INVALID_SEQ_ID);
+        }
+    }
+
+    /**
+     * Starts an input connection from the served view that gains the window focus.
+     * Note that this method should *NOT* be called inside of {@code mH} lock to prevent start input
+     * background thread may blocked by other methods which already inside {@code mH} lock.
+     *
+     * <p>{@link Manifest.permission#INTERACT_ACROSS_USERS_FULL} is required when and only when
+     * {@code userId} is different from the user id of the current process.</p>
+     */
+    @RequiresPermission(value = Manifest.permission.INTERACT_ACROSS_USERS_FULL, conditional = true)
+    private boolean startInputInner(@StartInputReason int startInputReason,
+            @Nullable IBinder windowGainingFocus, @StartInputFlags int startInputFlags,
+            @SoftInputModeFlags int softInputMode,
+            @WindowManager.LayoutParams.Flags int windowFlags) {
         final View view;
         synchronized (mH) {
-            view = mServedView;
+            view = getServedViewLocked();
 
             // Make sure we have a window token for the served view.
-            if (DEBUG) {
-                Log.v(TAG, "Starting input: view=" + dumpViewInfo(view) +
-                        " reason=" + InputMethodClient.getStartInputReason(startInputReason));
+            if (android.tracing.Flags.imetrackerProtolog()
+                        && ProtoLog.isEnabled(INPUT_METHOD_MANAGER_DEBUG, LogLevel.VERBOSE)) {
+                ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG, "Starting input: view=%s reason=%s",
+                        InputMethodDebug.dumpViewInfo(view),
+                        InputMethodDebug.startInputReasonToString(startInputReason));
+            } else if (DEBUG) {
+                Log.v(TAG,
+                        "Starting input: view=" + InputMethodDebug.dumpViewInfo(view) + " reason="
+                                + InputMethodDebug.startInputReasonToString(startInputReason));
             }
             if (view == null) {
-                if (DEBUG) Log.v(TAG, "ABORT input: no served view!");
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG, "ABORT input: no served view!");
+                } else if (DEBUG) {
+                    Log.v(TAG, "ABORT input: no served view!");
+                }
                 return false;
             }
         }
@@ -1266,350 +3599,509 @@ public final class InputMethodManager {
             // from under us, so just close the current input.
             // If we don't close the current input, the current input method can remain on the
             // screen without a connection.
-            if (DEBUG) Log.v(TAG, "ABORT input: no handler for view! Close current input.");
+            if (android.tracing.Flags.imetrackerProtolog()) {
+                ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG,
+                        "ABORT input: no handler for view! Close current input.");
+            } else if (DEBUG) {
+                Log.v(TAG, "ABORT input: no handler for view! Close current input.");
+            }
             closeCurrentInput();
             return false;
         }
         if (vh.getLooper() != Looper.myLooper()) {
             // The view is running on a different thread than our own, so
             // we need to reschedule our work for over there.
-            if (DEBUG) Log.v(TAG, "Starting input: reschedule to view thread");
-            vh.post(() -> startInputInner(startInputReason, null, 0, 0, 0));
+            if (android.tracing.Flags.imetrackerProtolog()) {
+                ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG, "Starting input: reschedule to view thread");
+            } else if (DEBUG) {
+                Log.v(TAG, "Starting input: reschedule to view thread");
+            }
+            vh.post(() -> startInputOnWindowFocusGainInternal(startInputReason, null, 0, 0, 0));
             return false;
+        }
+
+        if (windowGainingFocus == null) {
+            windowGainingFocus = view.getWindowToken();
+            if (windowGainingFocus == null) {
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.e(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                            "ABORT input: ServedView must be attached to a Window");
+                } else {
+                    Log.e(TAG, "ABORT input: ServedView must be attached to a Window");
+                }
+                return false;
+            }
+            startInputFlags = getStartInputFlags(view, startInputFlags);
+            softInputMode = view.getViewRootImpl().mWindowAttributes.softInputMode;
+            windowFlags = view.getViewRootImpl().mWindowAttributes.flags;
         }
 
         // Okay we are now ready to call into the served view and have it
         // do its stuff.
         // Life is good: let's hook everything up!
-        EditorInfo tba = new EditorInfo();
-        // Note: Use Context#getOpPackageName() rather than Context#getPackageName() so that the
-        // system can verify the consistency between the uid of this process and package name passed
-        // from here. See comment of Context#getOpPackageName() for details.
-        tba.packageName = view.getContext().getOpPackageName();
-        tba.fieldId = view.getId();
-        InputConnection ic = view.onCreateInputConnection(tba);
-        if (DEBUG) Log.v(TAG, "Starting input: tba=" + tba + " ic=" + ic);
-
+        final Pair<InputConnection, EditorInfo> connectionPair = createInputConnection(view);
+        final InputConnection ic = connectionPair.first;
+        final EditorInfo editorInfo = connectionPair.second;
+        final Handler icHandler;
+        final boolean imeRequestedVisible;
         synchronized (mH) {
             // Now that we are locked again, validate that our state hasn't
             // changed.
-            if (mServedView != view || !mServedConnecting) {
+            final View servedView = getServedViewLocked();
+            if (servedView != view || !mServedConnecting) {
                 // Something else happened, so abort.
-                if (DEBUG) Log.v(TAG,
-                        "Starting input: finished by someone else. view=" + dumpViewInfo(view)
-                        + " mServedView=" + dumpViewInfo(mServedView)
-                        + " mServedConnecting=" + mServedConnecting);
+                if (android.tracing.Flags.imetrackerProtolog()
+                        && ProtoLog.isEnabled(INPUT_METHOD_MANAGER_DEBUG, LogLevel.VERBOSE)) {
+                    ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG,
+                            "Starting input: finished by someone else. view=%s servedView=%s "
+                                    + "mServedConnecting=%b",
+                            InputMethodDebug.dumpViewInfo(view),
+                            InputMethodDebug.dumpViewInfo(servedView), mServedConnecting);
+                } else if (DEBUG) {
+                    Log.v(TAG, "Starting input: finished by someone else."
+                            + " view=" + InputMethodDebug.dumpViewInfo(view)
+                            + " servedView=" + InputMethodDebug.dumpViewInfo(servedView)
+                            + " mServedConnecting=" + mServedConnecting);
+                }
+                if (mServedInputConnection != null && startInputReason == BOUND_TO_IMMS) {
+                    // This is not an error. Once IME binds (MSG_BIND), InputConnection is fully
+                    // established. So we report this to interested recipients.
+                    reportInputConnectionOpened(
+                            mServedInputConnection.getInputConnection(), mCurrentEditorInfo,
+                            mServedInputConnectionHandler, view);
+                }
                 return false;
             }
 
             // If we already have a text box, then this view is already
             // connected so we want to restart it.
-            if (mCurrentTextBoxAttribute == null) {
-                controlFlags |= CONTROL_START_INITIAL;
+            if (mCurrentEditorInfo == null) {
+                startInputFlags |= StartInputFlags.INITIAL_CONNECTION;
             }
 
+            editorInfo.setInitialToolType(mCurRootView.getLastClickToolType());
+
             // Hook 'em up and let 'er rip.
-            mCurrentTextBoxAttribute = tba;
+            mCurrentEditorInfo = editorInfo.createCopyInternal();
+            // Store the previously served connection so that we can determine whether it is safe
+            // to skip the call to startInputOrWindowGainedFocus in the IMMS
+            final RemoteInputConnectionImpl previouslyServedConnection = mServedInputConnection;
+
             mServedConnecting = false;
-            if (mServedInputConnectionWrapper != null) {
-                mServedInputConnectionWrapper.deactivate();
-                mServedInputConnectionWrapper = null;
+            if (mServedInputConnection != null) {
+                mServedInputConnection.deactivate();
+                mServedInputConnection = null;
+                mServedInputConnectionHandler = null;
             }
-            ControlledInputConnectionWrapper servedContext;
-            final int missingMethodFlags;
+            final RemoteInputConnectionImpl servedInputConnection;
             if (ic != null) {
-                mCursorSelStart = tba.initialSelStart;
-                mCursorSelEnd = tba.initialSelEnd;
+                mCursorSelStart = editorInfo.initialSelStart;
+                mCursorSelEnd = editorInfo.initialSelEnd;
+                mInitialSelStart = mCursorSelStart;
+                mInitialSelEnd = mCursorSelEnd;
                 mCursorCandStart = -1;
                 mCursorCandEnd = -1;
                 mCursorRect.setEmpty();
                 mCursorAnchorInfo = null;
-                final Handler icHandler;
-                missingMethodFlags = InputConnectionInspector.getMissingMethodFlags(ic);
-                if ((missingMethodFlags & InputConnectionInspector.MissingMethodFlags.GET_HANDLER)
-                        != 0) {
-                    // InputConnection#getHandler() is not implemented.
-                    icHandler = null;
-                } else {
-                    icHandler = ic.getHandler();
+                Handler handler = null;
+                try {
+                    handler = ic.getHandler();
+                } catch (AbstractMethodError ignored) {
+                    // TODO(b/199934664): See if we can remove this by providing a default impl.
                 }
-                servedContext = new ControlledInputConnectionWrapper(
-                        icHandler != null ? icHandler.getLooper() : vh.getLooper(), ic, this);
+                icHandler = handler;
+                mServedInputConnectionHandler = icHandler;
+                servedInputConnection = new RemoteInputConnectionImpl(
+                        icHandler != null ? icHandler.getLooper() : vh.getLooper(), ic, this, view);
             } else {
-                servedContext = null;
-                missingMethodFlags = 0;
+                servedInputConnection = null;
+                icHandler = null;
+                mServedInputConnectionHandler = null;
             }
-            mServedInputConnectionWrapper = servedContext;
+            mServedInputConnection = servedInputConnection;
 
-            try {
-                if (DEBUG) Log.v(TAG, "START INPUT: view=" + dumpViewInfo(view) + " ic="
-                        + ic + " tba=" + tba + " controlFlags=#"
-                        + Integer.toHexString(controlFlags));
-                final InputBindResult res = mService.startInputOrWindowGainedFocus(
-                        startInputReason, mClient, windowGainingFocus, controlFlags, softInputMode,
-                        windowFlags, tba, servedContext, missingMethodFlags,
-                        view.getContext().getApplicationInfo().targetSdkVersion);
-                if (DEBUG) Log.v(TAG, "Starting input: Bind result=" + res);
-                if (res == null) {
-                    Log.wtf(TAG, "startInputOrWindowGainedFocus must not return"
-                            + " null. startInputReason="
-                            + InputMethodClient.getStartInputReason(startInputReason)
-                            + " editorInfo=" + tba
-                            + " controlFlags=#" + Integer.toHexString(controlFlags));
-                    return false;
+            imeRequestedVisible = hasViewImeRequestedVisible(servedView);
+
+            if (android.tracing.Flags.imetrackerProtolog()
+                        && ProtoLog.isEnabled(INPUT_METHOD_MANAGER_DEBUG, LogLevel.VERBOSE)) {
+                ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG,
+                        "START INPUT: view=%s ic=%s editorInfo=%s startInputFlags=%s "
+                                + "imeRequestedVisible=%b",
+                        InputMethodDebug.dumpViewInfo(view), ic, editorInfo,
+                        InputMethodDebug.startInputFlagsToString(startInputFlags),
+                        imeRequestedVisible);
+            } else if (DEBUG) {
+                Log.v(TAG, "START INPUT: view=" + InputMethodDebug.dumpViewInfo(view) + " ic=" + ic
+                        + " editorInfo=" + editorInfo + " startInputFlags="
+                        + InputMethodDebug.startInputFlagsToString(startInputFlags)
+                        + " imeRequestedVisible=" + imeRequestedVisible);
+            }
+
+            // When we switch between non-editable views, do not call into the IMMS.
+            final boolean canSkip = OPTIMIZE_NONEDITABLE_VIEWS
+                    && previouslyServedConnection == null
+                    && ic == null
+                    && isSwitchingBetweenEquivalentNonEditableViews(
+                    mPreviousViewFocusParameters, startInputFlags,
+                    startInputReason, softInputMode, windowFlags);
+            mPreviousViewFocusParameters = new ViewFocusParameterInfo(mCurrentEditorInfo,
+                    startInputFlags, startInputReason, softInputMode, windowFlags);
+            if (canSkip) {
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.d(INPUT_METHOD_MANAGER_DEBUG,
+                            "Not calling IMMS due to switching between non-editable views.");
+                } else if (DEBUG) {
+                    Log.d(TAG, "Not calling IMMS due to switching between non-editable views.");
                 }
-                if (res.id != null) {
-                    setInputChannelLocked(res.channel);
-                    mBindSequence = res.sequence;
-                    mCurMethod = res.method;
-                    mCurId = res.id;
-                    mNextUserActionNotificationSequenceNumber =
-                            res.userActionNotificationSequenceNumber;
-                } else if (res.channel != null && res.channel != mCurChannel) {
-                    res.channel.dispose();
-                }
-                switch (res.result) {
-                    case InputBindResult.ResultCode.ERROR_NOT_IME_TARGET_WINDOW:
-                        mRestartOnNextWindowFocus = true;
-                        break;
-                }
-                if (mCurMethod != null && mCompletions != null) {
-                    try {
-                        mCurMethod.displayCompletions(mCompletions);
-                    } catch (RemoteException e) {
-                    }
-                }
-            } catch (RemoteException e) {
-                Log.w(TAG, "IME died: " + mCurId, e);
+                return false;
+            }
+            final int targetUserId = editorInfo.targetInputMethodUser != null
+                    ? editorInfo.targetInputMethodUser.getIdentifier() : UserHandle.myUserId();
+            Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "IMM.startInputOrWindowGainedFocus");
+
+            final IRemoteAccessibilityInputConnection accessibilityInputConnection =
+                    servedInputConnection == null ? null
+                            : servedInputConnection.asIRemoteAccessibilityInputConnection();
+            final IRemoteComputerControlInputConnection computerControlInputConnection =
+                    servedInputConnection == null ? null
+                            : servedInputConnection.asIRemoteComputerControlInputConnection();
+            // async result delivered via MSG_START_INPUT_RESULT.
+            final int startInputSeq =
+                    IInputMethodManagerGlobalInvoker.startInputOrWindowGainedFocus(
+                            startInputReason, mClient, windowGainingFocus, startInputFlags,
+                            softInputMode, windowFlags, editorInfo, servedInputConnection,
+                            accessibilityInputConnection, computerControlInputConnection,
+                            view.getContext().getApplicationInfo().targetSdkVersion, targetUserId,
+                            mImeBackCallbackProxy.getResultReceiver(), imeRequestedVisible);
+
+            Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
+            // Create a runnable for delayed notification to the app that the InputConnection is
+            // initialized and ready for use.
+            if (ic != null) {
+                mLastPendingStartSeqId = startInputSeq;
+                mReportInputConnectionOpenedRunner =
+                        new ReportInputConnectionOpenedRunner(startInputSeq) {
+                            @Override
+                            public void run() {
+                                if (android.tracing.Flags.imetrackerProtolog()) {
+                                    ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG,
+                                            "Calling View.onInputConnectionOpened: view=%s, ic=%s, "
+                                                    + "editorInfo=%s, handler=%s, startInputSeq=%d",
+                                            view, ic, editorInfo, icHandler, startInputSeq);
+                                } else if (DEBUG) {
+                                    Log.v(TAG, "Calling View.onInputConnectionOpened: view= "
+                                            + view
+                                            + ", ic=" + ic + ", editorInfo=" + editorInfo
+                                            + ", handler="
+                                            + icHandler + ", startInputSeq=" + startInputSeq);
+                                }
+                                reportInputConnectionOpened(ic, editorInfo, icHandler, view);
+                            }
+                        };
+            } else {
+                mReportInputConnectionOpenedRunner = null;
             }
         }
-
         return true;
     }
 
     /**
-     * When the focused window is dismissed, this method is called to finish the
-     * input method started before.
+     * @return {@code true} when we are switching focus between two non-editable views
+     * so that we can avoid calling {@link IInputMethodManager#startInputOrWindowGainedFocus}.
+     */
+    @GuardedBy("mH")
+    private boolean isSwitchingBetweenEquivalentNonEditableViews(
+            @Nullable ViewFocusParameterInfo previousViewFocusParameters,
+            @StartInputFlags int startInputFlags,
+            @StartInputReason int startInputReason,
+            @SoftInputModeFlags int softInputMode,
+            @WindowManager.LayoutParams.Flags int windowFlags) {
+        return (startInputFlags & StartInputFlags.WINDOW_GAINED_FOCUS) == 0
+                && (startInputFlags & StartInputFlags.IS_TEXT_EDITOR) == 0
+                && previousViewFocusParameters != null
+                && previousViewFocusParameters.sameAs(mCurrentEditorInfo,
+                    startInputFlags, startInputReason, softInputMode, windowFlags);
+    }
+
+    private void reportInputConnectionOpened(
+            InputConnection ic, EditorInfo editorInfo, Handler icHandler, View view) {
+        view.onInputConnectionOpenedInternal(ic, editorInfo, icHandler);
+        final ViewRootImpl viewRoot = view.getViewRootImpl();
+        if (viewRoot != null) {
+            viewRoot.getHandwritingInitiator().onInputConnectionCreated(view);
+        }
+    }
+
+    /**
+     *
      * @hide
      */
+    @TestApi
+    @RequiresPermission(Manifest.permission.TEST_INPUT_METHOD)
+    public void addVirtualStylusIdForTestSession() {
+        synchronized (mH) {
+            IInputMethodManagerGlobalInvoker.addVirtualStylusIdForTestSession(mClient);
+        }
+    }
+
+    /**
+     * Set a stylus idle-timeout after which handwriting {@code InkWindow} will be removed.
+     * <p> This API is for tests only.</p>
+     * @param timeout to set in milliseconds. To reset to default, use a value <= zero.
+     * @hide
+     */
+    @TestApi
+    @RequiresPermission(Manifest.permission.TEST_INPUT_METHOD)
+    public void setStylusWindowIdleTimeoutForTest(@DurationMillisLong long timeout) {
+        synchronized (mH) {
+            IInputMethodManagerGlobalInvoker.setStylusWindowIdleTimeoutForTest(mClient, timeout);
+        }
+    }
+
+    /**
+     * A test-only method to set a list of allowed IMEs for the next session.
+     * Note: this will reset on the next window focus.
+     * @param allowedPackages {@link List} of allowed IME packages. Set {@code null} to reset after
+     *                                    the test run.
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_ENFORCE_DEVICE_POLICY_IME)
+    @TestApi
+    @RequiresPermission(Manifest.permission.TEST_INPUT_METHOD)
+    public void setAllowedImesByPolicyForTest(@Nullable List<String> allowedPackages) {
+        synchronized (mH) {
+            IInputMethodManagerGlobalInvoker.setAllowedImesByPolicyForTest(
+                    mClient, allowedPackages);
+        }
+    }
+
+    /**
+     * A test-only method to set a list of allowed apps to bypass IME startup prevention.
+     *
+     * @param allowedPackages {@link List} of allowed apps for which the IME should start up. Set
+     *                        {@code null} to reset after the test run.
+     * @hide
+     */
+    @TestApi
+    @FlaggedApi(Flags.FLAG_PREVENT_IME_STARTUP_BYPASSED_APPS)
+    @RequiresPermission(Manifest.permission.TEST_INPUT_METHOD)
+    public void setPreventImeStartupBypassedAppsForTest(@Nullable List<String> allowedPackages) {
+        synchronized (mH) {
+            IInputMethodManagerGlobalInvoker.setPreventImeStartupBypassedAppsForTest(
+                    allowedPackages);
+        }
+    }
+
+    /**
+     * An empty method only to avoid crashes of apps that call this method via reflection and do not
+     * handle {@link NoSuchMethodException} in a graceful manner.
+     *
+     * @deprecated This is an empty method.  No framework method must call this method.
+     * @hide
+     */
+    @Deprecated
+    @UnsupportedAppUsage(trackingBug = 37122102, maxTargetSdk = Build.VERSION_CODES.Q,
+            publicAlternatives = "{@code androidx.activity.ComponentActivity}")
     public void windowDismissed(IBinder appWindowToken) {
-        checkFocus();
-        synchronized (mH) {
-            if (mServedView != null &&
-                    mServedView.getWindowToken() == appWindowToken) {
-                finishInputLocked();
-            }
+        // Intentionally empty.
+        //
+        // It seems that some applications call this method via reflection to null clear the
+        // following fields that used to exist in InputMethodManager:
+        //  * InputMethodManager#mCurRootView
+        //  * InputMethodManager#mServedView
+        //  * InputMethodManager#mNextServedView
+        // so that these objects can be garbage-collected when an Activity gets dismissed.
+        //
+        // It is indeed true that older versions of InputMethodManager had issues that prevented
+        // these fields from being null-cleared when it should have been, but the understanding of
+        // the engineering team is that all known issues have already been fixed as of Android 10.
+        //
+        // For older devices, developers can work around the object leaks by using
+        // androidx.activity.ComponentActivity.
+        // See https://issuetracker.google.com/u/1/issues/37122102 for details.
+        //
+        // If you believe InputMethodManager is leaking objects in API 24 or any later version,
+        // please file a bug at https://issuetracker.google.com/issues/new?component=192705.
+    }
+
+    private int getStartInputFlags(View focusedView, int startInputFlags) {
+        startInputFlags |= StartInputFlags.VIEW_HAS_FOCUS;
+        if (focusedView.onCheckIsTextEditor()) {
+            startInputFlags |= StartInputFlags.IS_TEXT_EDITOR;
         }
+        return startInputFlags;
     }
 
     /**
-     * Call this when a view receives focus.
+     * Note that this method should *NOT* be called inside of {@code mH} lock to prevent start input
+     * background thread may blocked by other methods which already inside {@code mH} lock.
      * @hide
      */
-    public void focusIn(View view) {
-        synchronized (mH) {
-            focusInLocked(view);
-        }
-    }
-
-    void focusInLocked(View view) {
-        if (DEBUG) Log.v(TAG, "focusIn: " + dumpViewInfo(view));
-
-        if (view != null && view.isTemporarilyDetached()) {
-            // This is a request from a view that is temporarily detached from a window.
-            if (DEBUG) Log.v(TAG, "Temporarily detached view, ignoring");
-            return;
-        }
-
-        if (mCurRootView != view.getRootView()) {
-            // This is a request from a window that isn't in the window with
-            // IME focus, so ignore it.
-            if (DEBUG) Log.v(TAG, "Not IME target window, ignoring");
-            return;
-        }
-
-        mNextServedView = view;
-        scheduleCheckFocusLocked(view);
-    }
-
-    /**
-     * Call this when a view loses focus.
-     * @hide
-     */
-    public void focusOut(View view) {
-        synchronized (mH) {
-            if (DEBUG) Log.v(TAG, "focusOut: view=" + dumpViewInfo(view)
-                    + " mServedView=" + dumpViewInfo(mServedView));
-            if (mServedView != view) {
-                // The following code would auto-hide the IME if we end up
-                // with no more views with focus.  This can happen, however,
-                // whenever we go into touch mode, so it ends up hiding
-                // at times when we don't really want it to.  For now it
-                // seems better to just turn it all off.
-                // TODO: Check view.isTemporarilyDetached() when re-enable the following code.
-                if (false && canStartInput(view)) {
-                    mNextServedView = null;
-                    scheduleCheckFocusLocked(view);
-                }
-            }
-        }
-    }
-
-    /**
-     * Call this when a view is being detached from a {@link android.view.Window}.
-     * @hide
-     */
-    public void onViewDetachedFromWindow(View view) {
-        synchronized (mH) {
-            if (DEBUG) Log.v(TAG, "onViewDetachedFromWindow: view=" + dumpViewInfo(view)
-                    + " mServedView=" + dumpViewInfo(mServedView));
-            if (mServedView == view) {
-                mNextServedView = null;
-                scheduleCheckFocusLocked(view);
-            }
-        }
-    }
-
-    static void scheduleCheckFocusLocked(View view) {
-        ViewRootImpl viewRootImpl = view.getViewRootImpl();
-        if (viewRootImpl != null) {
-            viewRootImpl.dispatchCheckFocus();
-        }
-    }
-
-    /**
-     * @hide
-     */
+    @UnsupportedAppUsage
     public void checkFocus() {
-        if (checkFocusNoStartInput(false)) {
-            startInputInner(InputMethodClient.START_INPUT_REASON_CHECK_FOCUS, null, 0, 0, 0);
-        }
-    }
-
-    private boolean checkFocusNoStartInput(boolean forceNewFocus) {
-        // This is called a lot, so short-circuit before locking.
-        if (mServedView == mNextServedView && !forceNewFocus) {
-            return false;
-        }
-
-        final ControlledInputConnectionWrapper ic;
         synchronized (mH) {
-            if (mServedView == mNextServedView && !forceNewFocus) {
-                return false;
+            if (mCurRootView == null) {
+                return;
             }
-            if (DEBUG) Log.v(TAG, "checkFocus: view=" + mServedView
-                    + " next=" + mNextServedView
-                    + " forceNewFocus=" + forceNewFocus
-                    + " package="
-                    + (mServedView != null ? mServedView.getContext().getPackageName() : "<none>"));
-
-            if (mNextServedView == null) {
-                finishInputLocked();
-                // In this case, we used to have a focused view on the window,
-                // but no longer do.  We should make sure the input method is
-                // no longer shown, since it serves no purpose.
-                closeCurrentInput();
-                return false;
-            }
-
-            ic = mServedInputConnectionWrapper;
-
-            mServedView = mNextServedView;
-            mCurrentTextBoxAttribute = null;
-            mCompletions = null;
-            mServedConnecting = true;
-        }
-
-        if (ic != null) {
-            ic.finishComposingText();
-        }
-
-        return true;
-    }
-
-    void closeCurrentInput() {
-        try {
-            mService.hideSoftInput(mClient, HIDE_NOT_ALWAYS, null);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Called by ViewAncestor when its window gets input focus.
-     * @hide
-     */
-    public void onPostWindowFocus(View rootView, View focusedView,
-            @SoftInputModeFlags int softInputMode, boolean first, int windowFlags) {
-        boolean forceNewFocus = false;
-        synchronized (mH) {
-            if (DEBUG) Log.v(TAG, "onWindowFocus: " + focusedView
-                    + " softInputMode=" + InputMethodClient.softInputModeToString(softInputMode)
-                    + " first=" + first + " flags=#"
-                    + Integer.toHexString(windowFlags));
-            if (mRestartOnNextWindowFocus) {
-                if (DEBUG) Log.v(TAG, "Restarting due to mRestartOnNextWindowFocus");
-                mRestartOnNextWindowFocus = false;
-                forceNewFocus = true;
-            }
-            focusInLocked(focusedView != null ? focusedView : rootView);
-        }
-
-        int controlFlags = 0;
-        if (focusedView != null) {
-            controlFlags |= CONTROL_WINDOW_VIEW_HAS_FOCUS;
-            if (focusedView.onCheckIsTextEditor()) {
-                controlFlags |= CONTROL_WINDOW_IS_TEXT_EDITOR;
-            }
-        }
-        if (first) {
-            controlFlags |= CONTROL_WINDOW_FIRST;
-        }
-
-        if (checkFocusNoStartInput(forceNewFocus)) {
-            // We need to restart input on the current focus view.  This
-            // should be done in conjunction with telling the system service
-            // about the window gaining focus, to help make the transition
-            // smooth.
-            if (startInputInner(InputMethodClient.START_INPUT_REASON_WINDOW_FOCUS_GAIN,
-                    rootView.getWindowToken(), controlFlags, softInputMode, windowFlags)) {
+            if (!checkFocusInternalLocked(false /* forceNewFocus */, mCurRootView)) {
                 return;
             }
         }
+        startInputOnWindowFocusGainInternal(StartInputReason.CHECK_FOCUS,
+                null /* focusedView */,
+                0 /* startInputFlags */, 0 /* softInputMode */, 0 /* windowFlags */);
+    }
 
-        // For some reason we didn't do a startInput + windowFocusGain, so
-        // we'll just do a window focus gain and call it a day.
+    /**
+     * Returns the {@link ImeBackCallbackProxy}.
+     * @hide
+     */
+    public ImeBackCallbackProxy getImeBackCallbackProxy() {
+        return mImeBackCallbackProxy;
+    }
+
+    /**
+     * Check the next served view if needs to start input.
+     */
+    @GuardedBy("mH")
+    private boolean checkFocusInternalLocked(boolean forceNewFocus, ViewRootImpl viewRootImpl) {
+        if (mCurRootView != viewRootImpl) {
+            return false;
+        }
+        if (mServedView == mNextServedView && !forceNewFocus) {
+            return false;
+        }
+        if (android.tracing.Flags.imetrackerProtolog()) {
+            ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG,
+                    "checkFocus: view=%s next=%s force=%b package=%s",
+                    mServedView, mNextServedView, forceNewFocus,
+                    (mServedView != null ? mServedView.getContext().getPackageName() : "<none>"));
+        } else if (DEBUG) {
+            Log.v(TAG, "checkFocus: view=" + mServedView
+                    + " next=" + mNextServedView
+                    + " force=" + forceNewFocus
+                    + " package="
+                    + (mServedView != null ? mServedView.getContext().getPackageName()
+                    : "<none>"));
+        }
+        // Close the connection when no next served view coming.
+        if (mNextServedView == null) {
+            finishInputLocked();
+            closeCurrentInput();
+            return false;
+        }
+        mServedView = mNextServedView;
+        if (mServedInputConnection != null) {
+            mServedInputConnection.finishComposingTextFromImm();
+        }
+        return true;
+    }
+
+    @UiThread
+    private void onViewFocusChangedInternal(@Nullable View view, boolean hasFocus) {
+        if (view == null || view.isTemporarilyDetached()) {
+            return;
+        }
+        final ViewRootImpl viewRootImpl = view.getViewRootImpl();
         synchronized (mH) {
-            try {
-                if (DEBUG) Log.v(TAG, "Reporting focus gain, without startInput");
-                mService.startInputOrWindowGainedFocus(
-                        InputMethodClient.START_INPUT_REASON_WINDOW_FOCUS_GAIN_REPORT_ONLY, mClient,
-                        rootView.getWindowToken(), controlFlags, softInputMode, windowFlags, null,
-                        null, 0 /* missingMethodFlags */,
-                        rootView.getContext().getApplicationInfo().targetSdkVersion);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+            if (mCurRootView != viewRootImpl) {
+                return;
+            }
+            if (!view.hasImeFocus() || !view.hasWindowFocus()) {
+                return;
+            }
+            if (android.tracing.Flags.imetrackerProtolog()
+                        && ProtoLog.isEnabled(INPUT_METHOD_MANAGER_DEBUG, LogLevel.DEBUG)) {
+                ProtoLog.d(INPUT_METHOD_MANAGER_DEBUG, "onViewFocusChangedInternal, view=%s",
+                        InputMethodDebug.dumpViewInfo(view));
+            } else if (DEBUG) {
+                Log.d(TAG, "onViewFocusChangedInternal, view="
+                        + InputMethodDebug.dumpViewInfo(view));
+            }
+
+            // We don't need to track the next served view when the view lost focus here
+            // because:
+            // 1) The current view focus may be cleared temporary when in touch mode, closing
+            //    input at this moment isn't the right way.
+            // 2) We only care about the served view change when it focused, since changing
+            //    input connection when the focus target changed is reasonable.
+            // 3) Setting the next served view as null when no more served view should be
+            //    handled in other special events (e.g. view detached from window or the window
+            //    dismissed).
+            if (hasFocus) {
+                mNextServedView = view;
+            }
+        }
+        viewRootImpl.dispatchCheckFocus();
+    }
+
+    @UnsupportedAppUsage
+    void closeCurrentInput() {
+        final int reason = SoftInputShowHideReason.HIDE_CLOSE_CURRENT_SESSION;
+        final var statsToken = ImeTracker.forLogging().onStart(ImeTracker.TYPE_HIDE,
+                ImeTracker.ORIGIN_CLIENT, reason, false /* fromUser */,
+                UserHandle.myUserId(), mDisplayId);
+        ImeTracker.forLatency().onRequestHide(statsToken,
+                ImeTracker.ORIGIN_CLIENT, reason,
+                ActivityThread::currentApplication);
+
+        synchronized (mH) {
+            if (mCurRootView == null) {
+                ImeTracker.forLogging().onFailed(statsToken, ImeTracker.PHASE_CLIENT_VIEW_SERVED);
+                ImeTracker.forLatency().onHideFailed(statsToken,
+                        ImeTracker.PHASE_CLIENT_VIEW_SERVED, ActivityThread::currentApplication);
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.w(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                            "No current root view, ignoring closeCurrentInput()");
+                } else {
+                    Log.w(TAG, "No current root view, ignoring closeCurrentInput()");
+                }
+                return;
+            }
+            ImeTracker.forLogging().onProgress(statsToken, ImeTracker.PHASE_CLIENT_VIEW_SERVED);
+            setImeVisibilityOnInsetsController(mCurRootView, false, statsToken);
+        }
+    }
+
+
+    /**
+     * @hide
+     */
+    public void requestFocusAfterSessionReset() {
+        synchronized (mH) {
+            if (!mFocusRequestedAfterImeSessionReset && !isImeSessionAvailableLocked()) {
+                final View view = getServedViewLocked();
+                ProtoLog.d(INPUT_METHOD_MANAGER_DEBUG, "requestFocusAfterSessionReset: view=%s",
+                        view);
+                if (view == null) {
+                    return;
+                }
+                // Use the same state as the main startInput call.
+                final int startInputFlags = getStartInputFlags(view, 0 /* startInputFlags */);
+                int softInputMode = 0;
+                int windowFlags = 0;
+                final var viewRootImpl = view.getViewRootImpl();
+                if (viewRootImpl != null) {
+                    softInputMode = viewRootImpl.mWindowAttributes.softInputMode;
+                    windowFlags = viewRootImpl.mWindowAttributes.flags;
+                }
+                // Call into IMMS only once after the binding was cleared (e.g., after pm clear)
+                mFocusRequestedAfterImeSessionReset = true;
+                startInputOnWindowFocusGainInternal(StartInputReason.CHECK_FOCUS, view,
+                        startInputFlags, softInputMode, windowFlags);
             }
         }
     }
 
-    /** @hide */
-    public void onPreWindowFocus(View rootView, boolean hasWindowFocus) {
+    /**
+     * Remove the IME surface if the given window is the currently focused IME Client window.
+     *
+     * @param windowToken the IME client window.
+     * @hide
+     */
+    public void removeImeSurfaceFromWindow(@NonNull IBinder windowToken) {
         synchronized (mH) {
-            if (rootView == null) {
-                mCurRootView = null;
-            } if (hasWindowFocus) {
-                mCurRootView = rootView;
-            } else if (rootView == mCurRootView) {
-                // If the mCurRootView is losing window focus, release the strong reference to it
-                // so as not to prevent it from being garbage-collected.
-                mCurRootView = null;
-            } else {
-                if (DEBUG) {
-                    Log.v(TAG, "Ignoring onPreWindowFocus()."
-                            + " mCurRootView=" + mCurRootView + " rootView=" + rootView);
-                }
-            }
+            IInputMethodManagerGlobalInvoker.removeImeSurfaceFromWindow(windowToken);
         }
     }
 
@@ -1626,57 +4118,86 @@ public final class InputMethodManager {
      */
     public void updateSelection(View view, int selStart, int selEnd,
             int candidatesStart, int candidatesEnd) {
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(view);
+        if (fallbackImm != null) {
+            fallbackImm.updateSelection(view, selStart, selEnd, candidatesStart, candidatesEnd);
+            return;
+        }
+
         checkFocus();
         synchronized (mH) {
-            if ((mServedView != view && (mServedView == null
-                        || !mServedView.checkInputConnectionProxy(view)))
-                    || mCurrentTextBoxAttribute == null || mCurMethod == null) {
+            if (!hasServedByInputMethodLocked(view) || mCurrentEditorInfo == null
+                    || !isImeSessionAvailableLocked()) {
+                return;
+            }
+
+            if (mServedInputConnection != null && mServedInputConnection.hasPendingInvalidation()) {
                 return;
             }
 
             if (mCursorSelStart != selStart || mCursorSelEnd != selEnd
                     || mCursorCandStart != candidatesStart
                     || mCursorCandEnd != candidatesEnd) {
-                if (DEBUG) Log.d(TAG, "updateSelection");
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.d(INPUT_METHOD_MANAGER_DEBUG, "updateSelection");
 
-                try {
-                    if (DEBUG) Log.v(TAG, "SELECTION CHANGE: " + mCurMethod);
-                    final int oldSelStart = mCursorSelStart;
-                    final int oldSelEnd = mCursorSelEnd;
-                    // Update internal values before sending updateSelection to the IME, because
-                    // if it changes the text within its onUpdateSelection handler in a way that
-                    // does not move the cursor we don't want to call it again with the same values.
-                    mCursorSelStart = selStart;
-                    mCursorSelEnd = selEnd;
-                    mCursorCandStart = candidatesStart;
-                    mCursorCandEnd = candidatesEnd;
-                    mCurMethod.updateSelection(oldSelStart, oldSelEnd,
-                            selStart, selEnd, candidatesStart, candidatesEnd);
-                } catch (RemoteException e) {
-                    Log.w(TAG, "IME died: " + mCurId, e);
+                    ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG,
+                            "SELECTION CHANGE: %s", mCurBindState.mImeSession);
+                } else if (DEBUG) {
+                    Log.d(TAG, "updateSelection");
+                    Log.v(TAG, "SELECTION CHANGE: " + mCurBindState.mImeSession);
                 }
+                mCurBindState.mImeSession.updateSelection(mCursorSelStart, mCursorSelEnd, selStart,
+                        selEnd, candidatesStart, candidatesEnd);
+                forAccessibilitySessionsLocked(wrapper -> wrapper.updateSelection(mCursorSelStart,
+                        mCursorSelEnd, selStart, selEnd, candidatesStart, candidatesEnd));
+                mCursorSelStart = selStart;
+                mCursorSelEnd = selEnd;
+                mCursorCandStart = candidatesStart;
+                mCursorCandEnd = candidatesEnd;
             }
         }
     }
 
     /**
      * Notify the event when the user tapped or clicked the text view.
+     *
+     * @param view {@link View} which is being clicked.
+     * @see InputMethodService#onViewClicked(boolean)
+     * @deprecated The semantics of this method can never be defined well for composite {@link View}
+     *             that works as a giant "Canvas", which can host its own UI hierarchy and sub focus
+     *             state. {@link android.webkit.WebView} is a good example. Application / IME
+     *             developers should not rely on this method.
      */
+    @Deprecated
     public void viewClicked(View view) {
-        final boolean focusChanged = mServedView != mNextServedView;
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(view);
+        if (fallbackImm != null) {
+            fallbackImm.viewClicked(view);
+            return;
+        }
+
+        final View servedView;
+        final View nextServedView;
+        synchronized (mH) {
+            servedView = getServedViewLocked();
+            nextServedView = getNextServedViewLocked();
+        }
+        final boolean focusChanged = servedView != nextServedView;
         checkFocus();
         synchronized (mH) {
-            if ((mServedView != view && (mServedView == null
-                    || !mServedView.checkInputConnectionProxy(view)))
-                    || mCurrentTextBoxAttribute == null || mCurMethod == null) {
+            if (!hasServedByInputMethodLocked(view) || mCurrentEditorInfo == null
+                    || !isImeSessionAvailableLocked()) {
                 return;
             }
-            try {
-                if (DEBUG) Log.v(TAG, "onViewClicked: " + focusChanged);
-                mCurMethod.viewClicked(focusChanged);
-            } catch (RemoteException e) {
-                Log.w(TAG, "IME died: " + mCurId, e);
+            if (android.tracing.Flags.imetrackerProtolog()) {
+                ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG, "onViewClicked: %b", focusChanged);
+            } else if (DEBUG) {
+                Log.v(TAG, "onViewClicked: " + focusChanged);
             }
+            mCurBindState.mImeSession.viewClicked(focusChanged);
         }
     }
 
@@ -1695,14 +4216,17 @@ public final class InputMethodManager {
      * Return true if the current input method wants to be notified when cursor/anchor location
      * is changed.
      *
+     * @deprecated This method is kept for {@link UnsupportedAppUsage}.  Must not be used.
      * @hide
      */
+    @Deprecated
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isCursorAnchorInfoEnabled() {
         synchronized (mH) {
             final boolean isImmediate = (mRequestUpdateCursorAnchorInfoMonitorMode &
-                    InputConnection.CURSOR_UPDATE_IMMEDIATE) != 0;
+                    CURSOR_UPDATE_IMMEDIATE) != 0;
             final boolean isMonitoring = (mRequestUpdateCursorAnchorInfoMonitorMode &
-                    InputConnection.CURSOR_UPDATE_MONITOR) != 0;
+                    CURSOR_UPDATE_MONITOR) != 0;
             return isImmediate || isMonitoring;
         }
     }
@@ -1710,8 +4234,11 @@ public final class InputMethodManager {
     /**
      * Set the requested mode for {@link #updateCursorAnchorInfo(View, CursorAnchorInfo)}.
      *
+     * @deprecated This method is kept for {@link UnsupportedAppUsage}.  Must not be used.
      * @hide
      */
+    @Deprecated
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setUpdateCursorAnchorInfoMode(int flags) {
         synchronized (mH) {
             mRequestUpdateCursorAnchorInfoMonitorMode = flags;
@@ -1725,25 +4252,31 @@ public final class InputMethodManager {
      */
     @Deprecated
     public void updateCursor(View view, int left, int top, int right, int bottom) {
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(view);
+        if (fallbackImm != null) {
+            fallbackImm.updateCursor(view, left, top, right, bottom);
+            return;
+        }
+
         checkFocus();
         synchronized (mH) {
-            if ((mServedView != view && (mServedView == null
-                        || !mServedView.checkInputConnectionProxy(view)))
-                    || mCurrentTextBoxAttribute == null || mCurMethod == null) {
+            if (!hasServedByInputMethodLocked(view) || mCurrentEditorInfo == null
+                    || !isImeSessionAvailableLocked()) {
                 return;
             }
 
             mTmpCursorRect.set(left, top, right, bottom);
             if (!mCursorRect.equals(mTmpCursorRect)) {
-                if (DEBUG) Log.d(TAG, "updateCursor");
-
-                try {
-                    if (DEBUG) Log.v(TAG, "CURSOR CHANGE: " + mCurMethod);
-                    mCurMethod.updateCursor(mTmpCursorRect);
-                    mCursorRect.set(mTmpCursorRect);
-                } catch (RemoteException e) {
-                    Log.w(TAG, "IME died: " + mCurId, e);
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.d(INPUT_METHOD_MANAGER_DEBUG, "updateCursor: %s",
+                            mCurBindState.mImeSession);
+                } else if (DEBUG) {
+                    Log.d(TAG, "updateCursor: " + mCurBindState.mImeSession);
                 }
+
+                mCurBindState.mImeSession.updateCursor(mTmpCursorRect);
+                mCursorRect.set(mTmpCursorRect);
             }
         }
     }
@@ -1756,17 +4289,23 @@ public final class InputMethodManager {
         if (view == null || cursorAnchorInfo == null) {
             return;
         }
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(view);
+        if (fallbackImm != null) {
+            fallbackImm.updateCursorAnchorInfo(view, cursorAnchorInfo);
+            return;
+        }
+
         checkFocus();
         synchronized (mH) {
-            if ((mServedView != view &&
-                    (mServedView == null || !mServedView.checkInputConnectionProxy(view)))
-                    || mCurrentTextBoxAttribute == null || mCurMethod == null) {
+            if (!hasServedByInputMethodLocked(view) || mCurrentEditorInfo == null
+                    || !isImeSessionAvailableLocked()) {
                 return;
             }
             // If immediate bit is set, we will call updateCursorAnchorInfo() even when the data has
             // not been changed from the previous call.
-            final boolean isImmediate = (mRequestUpdateCursorAnchorInfoMonitorMode &
-                    InputConnection.CURSOR_UPDATE_IMMEDIATE) != 0;
+            final boolean isImmediate = mServedInputConnection != null
+                    && mServedInputConnection.resetHasPendingImmediateCursorAnchorInfoUpdate();
             if (!isImmediate && Objects.equals(mCursorAnchorInfo, cursorAnchorInfo)) {
                 // TODO: Consider always emitting this message once we have addressed redundant
                 // calls of this method from android.widget.Editor.
@@ -1777,15 +4316,8 @@ public final class InputMethodManager {
                 return;
             }
             if (DEBUG) Log.v(TAG, "updateCursorAnchorInfo: " + cursorAnchorInfo);
-            try {
-                mCurMethod.updateCursorAnchorInfo(cursorAnchorInfo);
-                mCursorAnchorInfo = cursorAnchorInfo;
-                // Clear immediate bit (if any).
-                mRequestUpdateCursorAnchorInfoMonitorMode &=
-                        ~InputConnection.CURSOR_UPDATE_IMMEDIATE;
-            } catch (RemoteException e) {
-                Log.w(TAG, "IME died: " + mCurId, e);
-            }
+            mCurBindState.mImeSession.updateCursorAnchorInfo(cursorAnchorInfo);
+            mCursorAnchorInfo = cursorAnchorInfo;
         }
     }
 
@@ -1801,77 +4333,136 @@ public final class InputMethodManager {
      * @param data Any data to include with the command.
      */
     public void sendAppPrivateCommand(View view, String action, Bundle data) {
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(view);
+        if (fallbackImm != null) {
+            fallbackImm.sendAppPrivateCommand(view, action, data);
+            return;
+        }
+
         checkFocus();
         synchronized (mH) {
-            if ((mServedView != view && (mServedView == null
-                        || !mServedView.checkInputConnectionProxy(view)))
-                    || mCurrentTextBoxAttribute == null || mCurMethod == null) {
+            if (!hasServedByInputMethodLocked(view) || mCurrentEditorInfo == null
+                    || !isImeSessionAvailableLocked()) {
                 return;
             }
-            try {
-                if (DEBUG) Log.v(TAG, "APP PRIVATE COMMAND " + action + ": " + data);
-                mCurMethod.appPrivateCommand(action, data);
-            } catch (RemoteException e) {
-                Log.w(TAG, "IME died: " + mCurId, e);
+            if (android.tracing.Flags.imetrackerProtolog()) {
+                ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG, "APP PRIVATE COMMAND %s: %s", action, data);
+            } else if (DEBUG) {
+                Log.v(TAG, "APP PRIVATE COMMAND " + action + ": " + data);
             }
+            mCurBindState.mImeSession.appPrivateCommand(action, data);
         }
     }
 
     /**
      * Force switch to a new input method component. This can only be called
      * from an application or a service which has a token of the currently active input method.
+     *
+     * <p>On Android {@link Build.VERSION_CODES#Q} and later devices, the undocumented behavior that
+     * token can be {@code null} when the caller has
+     * {@link Manifest.permission#WRITE_SECURE_SETTINGS} is deprecated. Instead, update
+     * {@link android.provider.Settings.Secure#DEFAULT_INPUT_METHOD} and
+     * {@link android.provider.Settings.Secure#SELECTED_INPUT_METHOD_SUBTYPE} directly.</p>
+     *
      * @param token Supplies the identifying token given to an input method
      * when it was started, which allows it to perform this operation on
      * itself.
      * @param id The unique identifier for the new input method to be switched to.
+     * @throws IllegalArgumentException if the input method is unknown or filtered by the rules of
+     * <a href="/training/basics/intents/package-visibility">package visibility</a>.
      * @deprecated Use {@link InputMethodService#switchInputMethod(String)}
      * instead. This method was intended for IME developers who should be accessing APIs through
      * the service. APIs in this class are intended for app developers interacting with the IME.
      */
     @Deprecated
     public void setInputMethod(IBinder token, String id) {
-        setInputMethodInternal(token, id);
-    }
-
-    /**
-     * @hide
-     */
-    public void setInputMethodInternal(IBinder token, String id) {
-        try {
-            mService.setInputMethod(token, id);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+        if (token == null) {
+            // There are still some system components that rely on this undocumented behavior
+            // regarding null IME token with WRITE_SECURE_SETTINGS.  Provide a fallback logic as a
+            // temporary remedy.
+            if (id == null) {
+                return;
+            }
+            if (Process.myUid() == Process.SYSTEM_UID) {
+                Log.w(TAG, "System process should not be calling setInputMethod() because almost "
+                        + "always it is a bug under multi-user / multi-profile environment. "
+                        + "Consider interacting with InputMethodManagerService directly via "
+                        + "LocalServices.");
+                return;
+            }
+            final Context fallbackContext = ActivityThread.currentApplication();
+            if (fallbackContext == null) {
+                return;
+            }
+            if (fallbackContext.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                return;
+            }
+            final List<InputMethodInfo> imis = getEnabledInputMethodList();
+            final int numImis = imis.size();
+            boolean found = false;
+            for (int i = 0; i < numImis; ++i) {
+                final InputMethodInfo imi = imis.get(i);
+                if (id.equals(imi.getId())) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.e(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                            "Ignoring setInputMethod(null, %s) because the specified id not found"
+                                    + " in enabled IMEs.", id);
+                } else {
+                    Log.e(TAG, "Ignoring setInputMethod(null, " + id + ") because the specified "
+                            + "id not found in enabled IMEs.");
+                }
+                return;
+            }
+            Log.w(TAG, "The undocumented behavior that setInputMethod() accepts null token "
+                    + "when the caller has WRITE_SECURE_SETTINGS is deprecated. This behavior may "
+                    + "be completely removed in a future version.  Update secure settings directly "
+                    + "instead.");
+            final ContentResolver resolver = fallbackContext.getContentResolver();
+            Settings.Secure.putInt(resolver, Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE,
+                    NOT_A_SUBTYPE_ID);
+            Settings.Secure.putString(resolver, Settings.Secure.DEFAULT_INPUT_METHOD, id);
+            return;
         }
+        InputMethodPrivilegedOperationsRegistry.get(token).setInputMethod(id);
     }
 
     /**
      * Force switch to a new input method and subtype. This can only be called
      * from an application or a service which has a token of the currently active input method.
+     *
+     * <p>On Android {@link Build.VERSION_CODES#Q} and later devices, {@code token} cannot be
+     * {@code null} even with {@link Manifest.permission#WRITE_SECURE_SETTINGS}. Instead,
+     * update {@link android.provider.Settings.Secure#DEFAULT_INPUT_METHOD} and
+     * {@link android.provider.Settings.Secure#SELECTED_INPUT_METHOD_SUBTYPE} directly.</p>
+     *
      * @param token Supplies the identifying token given to an input method
      * when it was started, which allows it to perform this operation on
      * itself.
      * @param id The unique identifier for the new input method to be switched to.
      * @param subtype The new subtype of the new input method to be switched to.
+     * @throws IllegalArgumentException if the input method is unknown or filtered by the rules of
+     * <a href="/training/basics/intents/package-visibility">package visibility</a>.
      * @deprecated Use
      * {@link InputMethodService#switchInputMethod(String, InputMethodSubtype)}
      * instead. This method was intended for IME developers who should be accessing APIs through
      * the service. APIs in this class are intended for app developers interacting with the IME.
      */
     @Deprecated
-    public void setInputMethodAndSubtype(IBinder token, String id, InputMethodSubtype subtype) {
-        setInputMethodAndSubtypeInternal(token, id, subtype);
-    }
-
-    /**
-     * @hide
-     */
-    public void setInputMethodAndSubtypeInternal(
-            IBinder token, String id, InputMethodSubtype subtype) {
-        try {
-            mService.setInputMethodAndSubtype(token, id, subtype);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
+    public void setInputMethodAndSubtype(@NonNull IBinder token, String id,
+            InputMethodSubtype subtype) {
+        if (token == null) {
+            Log.e(TAG, "setInputMethodAndSubtype() does not accept null token on Android Q "
+                    + "and later.");
+            return;
         }
+        InputMethodPrivilegedOperationsRegistry.get(token).setInputMethodAndSubtype(id, subtype);
     }
 
     /**
@@ -1882,27 +4473,18 @@ public final class InputMethodManager {
      * @param token Supplies the identifying token given to an input method
      * when it was started, which allows it to perform this operation on
      * itself.
-     * @param flags Provides additional operating flags.  Currently may be
-     * 0 or have the {@link #HIDE_IMPLICIT_ONLY},
-     * {@link #HIDE_NOT_ALWAYS} bit set.
      * @deprecated Use {@link InputMethodService#requestHideSelf(int)} instead. This method was
      * intended for IME developers who should be accessing APIs through the service. APIs in this
      * class are intended for app developers interacting with the IME.
      */
     @Deprecated
-    public void hideSoftInputFromInputMethod(IBinder token, int flags) {
-        hideSoftInputFromInputMethodInternal(token, flags);
-    }
-
-    /**
-     * @hide
-     */
-    public void hideSoftInputFromInputMethodInternal(IBinder token, int flags) {
-        try {
-            mService.hideMySoftInput(token, flags);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+    public void hideSoftInputFromInputMethod(IBinder token, @HideFlags int flags) {
+        final int reason = SoftInputShowHideReason.HIDE_SOFT_INPUT_IMM_DEPRECATION;
+        final var statsToken = ImeTracker.forLogging().onStart(ImeTracker.TYPE_HIDE,
+                ImeTracker.ORIGIN_CLIENT, reason, false /* fromUser */,  UserHandle.myUserId(),
+                mDisplayId);
+        InputMethodPrivilegedOperationsRegistry.get(token).hideMySoftInput(statsToken, flags,
+                reason);
     }
 
     /**
@@ -1914,27 +4496,18 @@ public final class InputMethodManager {
      * @param token Supplies the identifying token given to an input method
      * when it was started, which allows it to perform this operation on
      * itself.
-     * @param flags Provides additional operating flags.  Currently may be
-     * 0 or have the {@link #SHOW_IMPLICIT} or
-     * {@link #SHOW_FORCED} bit set.
      * @deprecated Use {@link InputMethodService#requestShowSelf(int)} instead. This method was
      * intended for IME developers who should be accessing APIs through the service. APIs in this
      * class are intended for app developers interacting with the IME.
      */
     @Deprecated
-    public void showSoftInputFromInputMethod(IBinder token, int flags) {
-        showSoftInputFromInputMethodInternal(token, flags);
-    }
-
-    /**
-     * @hide
-     */
-    public void showSoftInputFromInputMethodInternal(IBinder token, int flags) {
-        try {
-            mService.showMySoftInput(token, flags);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+    public void showSoftInputFromInputMethod(IBinder token, @ShowFlags int flags) {
+        final int reason = SoftInputShowHideReason.SHOW_SOFT_INPUT_IMM_DEPRECATION;
+        final var statsToken = ImeTracker.forLogging().onStart(ImeTracker.TYPE_SHOW,
+                ImeTracker.ORIGIN_CLIENT, reason, false /* fromUser */, UserHandle.myUserId(),
+                mDisplayId);
+        InputMethodPrivilegedOperationsRegistry.get(token).showMySoftInput(statsToken, flags,
+                reason);
     }
 
     /**
@@ -1950,7 +4523,7 @@ public final class InputMethodManager {
     public int dispatchInputEvent(InputEvent event, Object token,
             FinishedInputEventCallback callback, Handler handler) {
         synchronized (mH) {
-            if (mCurMethod != null) {
+            if (isImeSessionAvailableLocked()) {
                 if (event instanceof KeyEvent) {
                     KeyEvent keyEvent = (KeyEvent)event;
                     if (keyEvent.getAction() == KeyEvent.ACTION_DOWN
@@ -1961,10 +4534,15 @@ public final class InputMethodManager {
                     }
                 }
 
-                if (DEBUG) Log.v(TAG, "DISPATCH INPUT EVENT: " + mCurMethod);
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.v(INPUT_METHOD_MANAGER_DEBUG, "DISPATCH INPUT EVENT: %s",
+                            mCurBindState.mImeSession);
+                } else if (DEBUG) {
+                    Log.v(TAG, "DISPATCH INPUT EVENT: " + mCurBindState.mImeSession);
+                }
 
                 PendingEvent p = obtainPendingEventLocked(
-                        event, token, mCurId, callback, handler);
+                        event, token, mCurBindState.mImeId, callback, handler);
                 if (mMainLooper.isCurrentThread()) {
                     // Already running on the IMM thread so we can send the event immediately.
                     return sendInputEventOnMainLooperLocked(p);
@@ -1995,11 +4573,19 @@ public final class InputMethodManager {
      */
     public void dispatchKeyEventFromInputMethod(@Nullable View targetView,
             @NonNull KeyEvent event) {
+        // Re-dispatch if there is a context mismatch.
+        final InputMethodManager fallbackImm = getFallbackInputMethodManagerIfNecessary(targetView);
+        if (fallbackImm != null) {
+            fallbackImm.dispatchKeyEventFromInputMethod(targetView, event);
+            return;
+        }
+
         synchronized (mH) {
             ViewRootImpl viewRootImpl = targetView != null ? targetView.getViewRootImpl() : null;
             if (viewRootImpl == null) {
-                if (mServedView != null) {
-                    viewRootImpl = mServedView.getViewRootImpl();
+                final View servedView = getServedViewLocked();
+                if (servedView != null) {
+                    viewRootImpl = servedView.getViewRootImpl();
                 }
             }
             if (viewRootImpl != null) {
@@ -2009,7 +4595,7 @@ public final class InputMethodManager {
     }
 
     // Must be called on the main looper
-    void sendInputEventAndReportResultOnMainLooper(PendingEvent p) {
+    private void sendInputEventAndReportResultOnMainLooper(PendingEvent p) {
         final boolean handled;
         synchronized (mH) {
             int result = sendInputEventOnMainLooperLocked(p);
@@ -2024,12 +4610,9 @@ public final class InputMethodManager {
     }
 
     // Must be called on the main looper
-    int sendInputEventOnMainLooperLocked(PendingEvent p) {
-        if (mCurChannel != null) {
-            if (mCurSender == null) {
-                mCurSender = new ImeInputEventSender(mCurChannel, mH.getLooper());
-            }
-
+    @GuardedBy("mH")
+    private int sendInputEventOnMainLooperLocked(PendingEvent p) {
+        if (mCurSender != null) {
             final InputEvent event = p.mEvent;
             final int seq = event.getSequenceNumber();
             if (mCurSender.sendInputEvent(seq, event)) {
@@ -2043,13 +4626,28 @@ public final class InputMethodManager {
                 return DISPATCH_IN_PROGRESS;
             }
 
-            Log.w(TAG, "Unable to send input event to IME: "
-                    + mCurId + " dropping: " + event);
+            if (sPreventImeStartupUnlessTextEditor) {
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.d(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                            "Dropping event because IME is evicted: %s", event);
+                } else {
+                    Log.d(TAG, "Dropping event because IME is evicted: " + event);
+                }
+            } else {
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.w(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                            "Unable to send input event to IME: %s dropping: %s", getImeIdLocked(),
+                            event);
+                } else {
+                    Log.w(TAG, "Unable to send input event to IME: " + getImeIdLocked()
+                            + " dropping: " + event);
+                }
+            }
         }
         return DISPATCH_NOT_HANDLED;
     }
 
-    void finishedInputEvent(int seq, boolean handled, boolean timeout) {
+    private void finishedInputEvent(int seq, boolean handled, boolean timeout) {
         final PendingEvent p;
         synchronized (mH) {
             int index = mPendingEvents.indexOfKey(seq);
@@ -2062,8 +4660,15 @@ public final class InputMethodManager {
             Trace.traceCounter(Trace.TRACE_TAG_INPUT, PENDING_EVENT_COUNTER, mPendingEvents.size());
 
             if (timeout) {
-                Log.w(TAG, "Timeout waiting for IME to handle input event after "
-                        + INPUT_METHOD_NOT_RESPONDING_TIMEOUT + " ms: " + p.mInputMethodId);
+                if (android.tracing.Flags.imetrackerProtolog()) {
+                    ProtoLog.w(INPUT_METHOD_MANAGER_WITH_LOGCAT,
+                            "Timeout waiting for IME to handle input event after "
+                                    + INPUT_METHOD_NOT_RESPONDING_TIMEOUT + " ms: %s",
+                            p.mInputMethodId);
+                } else {
+                    Log.w(TAG, "Timeout waiting for IME to handle input event after "
+                            + INPUT_METHOD_NOT_RESPONDING_TIMEOUT + " ms: " + p.mInputMethodId);
+                }
             } else {
                 mH.removeMessages(MSG_TIMEOUT_INPUT_EVENT, p);
             }
@@ -2073,7 +4678,7 @@ public final class InputMethodManager {
     }
 
     // Assumes the event has already been removed from the queue.
-    void invokeFinishedInputEventCallback(PendingEvent p, boolean handled) {
+    private void invokeFinishedInputEventCallback(PendingEvent p, boolean handled) {
         p.mHandled = handled;
         if (p.mHandler.getLooper().isCurrentThread()) {
             // Already running on the callback handler thread so we can send the
@@ -2088,6 +4693,7 @@ public final class InputMethodManager {
         }
     }
 
+    @GuardedBy("mH")
     private void flushPendingEventsLocked() {
         mH.removeMessages(MSG_FLUSH_INPUT_EVENT);
 
@@ -2100,6 +4706,7 @@ public final class InputMethodManager {
         }
     }
 
+    @GuardedBy("mH")
     private PendingEvent obtainPendingEventLocked(InputEvent event, Object token,
             String inputMethodId, FinishedInputEventCallback callback, Handler handler) {
         PendingEvent p = mPendingEventPool.acquire();
@@ -2114,11 +4721,18 @@ public final class InputMethodManager {
         return p;
     }
 
+    @GuardedBy("mH")
     private void recyclePendingEventLocked(PendingEvent p) {
         p.recycle();
         mPendingEventPool.release(p);
     }
 
+    /**
+     * Show IME picker popup window.
+     *
+     * <p>Requires the {@link PackageManager#FEATURE_INPUT_METHODS} feature which can be detected
+     * using {@link PackageManager#hasSystemFeature(String)}.
+     */
     public void showInputMethodPicker() {
         synchronized (mH) {
             showInputMethodPickerLocked();
@@ -2126,30 +4740,27 @@ public final class InputMethodManager {
     }
 
     /**
-     * Shows the input method chooser dialog.
+     * Shows the input method chooser dialog from system.
      *
      * @param showAuxiliarySubtypes Set true to show auxiliary input methods.
+     * @param entryPoint The entry point where the chooser dialog was requested from.
+     * @param displayId The ID of the display where the chooser dialog should be shown.
      * @hide
      */
-    public void showInputMethodPicker(boolean showAuxiliarySubtypes) {
-        synchronized (mH) {
-            try {
-                final int mode = showAuxiliarySubtypes ?
-                        SHOW_IM_PICKER_MODE_INCLUDE_AUXILIARY_SUBTYPES:
-                        SHOW_IM_PICKER_MODE_EXCLUDE_AUXILIARY_SUBTYPES;
-                mService.showInputMethodPickerFromClient(mClient, mode);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        }
+    @RequiresPermission(Manifest.permission.WRITE_SECURE_SETTINGS)
+    public void showInputMethodPickerFromSystem(boolean showAuxiliarySubtypes,
+            @IMPickerEntryPoint int entryPoint, int displayId) {
+        final int mode = showAuxiliarySubtypes
+                ? SHOW_IM_PICKER_MODE_INCLUDE_AUXILIARY_SUBTYPES
+                : SHOW_IM_PICKER_MODE_EXCLUDE_AUXILIARY_SUBTYPES;
+        IInputMethodManagerGlobalInvoker.showInputMethodPickerFromSystem(
+                mode, entryPoint, displayId);
     }
 
+    @GuardedBy("mH")
     private void showInputMethodPickerLocked() {
-        try {
-            mService.showInputMethodPickerFromClient(mClient, SHOW_IM_PICKER_MODE_AUTO);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        IInputMethodManagerGlobalInvoker.showInputMethodPickerFromClient(mClient,
+                SHOW_IM_PICKER_MODE_AUTO);
     }
 
     /**
@@ -2164,27 +4775,112 @@ public final class InputMethodManager {
      * @hide
      */
     @TestApi
+    @RequiresPermission(Manifest.permission.TEST_INPUT_METHOD)
     public boolean isInputMethodPickerShown() {
-        try {
-            return mService.isInputMethodPickerShownForTest();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        return IInputMethodManagerGlobalInvoker
+                .isInputMethodPickerShownForTest(UserHandle.myUserId());
+    }
+
+    /**
+     * Called when the IME switch button was clicked from the system. Depending on the number of
+     * enabled IME subtypes, this will either switch to the next IME/subtype, or show the input
+     * method picker dialog.
+     *
+     * @param displayId The ID of the display where the input method picker dialog should be shown.
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.WRITE_SECURE_SETTINGS)
+    public void onImeSwitchButtonClickFromSystem(int displayId) {
+        IInputMethodManagerGlobalInvoker.onImeSwitchButtonClickFromSystem(displayId);
+    }
+
+    /**
+     * A test API for CTS to check whether the IME Switcher button should be shown when the IME
+     * is shown.
+     *
+     * @hide
+     */
+    @SuppressLint("UnflaggedApi") // @TestApi without associated feature.
+    @TestApi
+    @RequiresPermission(Manifest.permission.TEST_INPUT_METHOD)
+    public boolean shouldShowImeSwitcherButtonForTest() {
+        return IInputMethodManagerGlobalInvoker.shouldShowImeSwitcherButtonForTest();
+    }
+
+    /**
+     * Registers an interface for sending calls to the IME Switcher Menu controller. This is called
+     * after the IME Switcher Menu is fully initialized.
+     *
+     * @param imeSwitcherMenu the interface to send calls to the IME Switcher Menu controller.
+     *
+     * @hide
+     */
+    @RequiresPermission(allOf = {
+            Manifest.permission.WRITE_SECURE_SETTINGS,
+            Manifest.permission.INTERACT_ACROSS_USERS_FULL,
+            Manifest.permission.STATUS_BAR_SERVICE,
+    })
+    public void registerImeSwitcherMenu(@NonNull IImeSwitcherMenu imeSwitcherMenu) {
+        IInputMethodManagerGlobalInvoker.registerImeSwitcherMenu(imeSwitcherMenu);
+    }
+
+    /**
+     * A test API for CTS to wait until there are no more pending IME visibility requests, up to the
+     * given timeout. This will throw a {@link java.util.concurrent.TimeoutException} if the wait
+     * times out.
+     *
+     * @param timeoutMs the timeout in milliseconds.
+     *
+     * @hide
+     */
+    @SuppressLint("UnflaggedApi") // @TestApi without associated feature.
+    @TestApi
+    @RequiresPermission(Manifest.permission.TEST_INPUT_METHOD)
+    public void waitUntilNoPendingRequests(long timeoutMs) {
+        IInputMethodManagerGlobalInvoker.waitUntilNoPendingRequests(timeoutMs);
+    }
+
+    /**
+     * A test API for CTS to finish the tracking of any pending IME visibility requests. This
+     * won't stop the actual requests, but allows resetting the state when starting up test runs.
+     *
+     * @hide
+     */
+    @SuppressLint("UnflaggedApi") // @TestApi without associated feature.
+    @TestApi
+    @RequiresPermission(Manifest.permission.TEST_INPUT_METHOD)
+    public void finishTrackingPendingRequests() {
+        IInputMethodManagerGlobalInvoker.finishTrackingPendingRequests();
     }
 
     /**
      * Show the settings for enabling subtypes of the specified input method.
+     *
      * @param imiId An input method, whose subtypes settings will be shown. If imiId is null,
      * subtypes of all input methods will be shown.
      */
-    public void showInputMethodAndSubtypeEnabler(String imiId) {
+    public void showInputMethodAndSubtypeEnabler(@Nullable String imiId) {
+        Context context = null;
         synchronized (mH) {
-            try {
-                mService.showInputMethodAndSubtypeEnablerFromClient(mClient, imiId);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+            if (mCurRootView != null) {
+                context = mCurRootView.mContext;
             }
         }
+        if (context == null) {
+            final Context appContext = ActivityThread.currentApplication();
+            final DisplayManager displayManager = appContext.getSystemService(DisplayManager.class);
+            context = appContext.createDisplayContext(displayManager.getDisplay(mDisplayId));
+        }
+
+        final Intent intent = new Intent(Settings.ACTION_INPUT_METHOD_SUBTYPE_SETTINGS);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        if (!TextUtils.isEmpty(imiId)) {
+            intent.putExtra(Settings.EXTRA_INPUT_METHOD_ID, imiId);
+        }
+        context.startActivity(intent);
     }
 
     /**
@@ -2192,12 +4888,9 @@ public final class InputMethodManager {
      * the current input method. This method returns null when the current input method doesn't
      * have any input method subtype.
      */
+    @Nullable
     public InputMethodSubtype getCurrentInputMethodSubtype() {
-        try {
-            return mService.getCurrentInputMethodSubtype();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        return IInputMethodManagerGlobalInvoker.getCurrentInputMethodSubtype(UserHandle.myUserId());
     }
 
     /**
@@ -2205,120 +4898,110 @@ public final class InputMethodManager {
      * @param subtype A new input method subtype to switch.
      * @return true if the current subtype was successfully switched. When the specified subtype is
      * null, this method returns false.
+     * @deprecated If the calling process is an IME, use
+     *             {@link InputMethodService#switchInputMethod(String, InputMethodSubtype)}, which
+     *             does not require any permission as long as the caller is the current IME.
+     *             If the calling process is some privileged app that already has
+     *             {@link Manifest.permission#WRITE_SECURE_SETTINGS} permission, just
+     *             directly update {@link Settings.Secure#SELECTED_INPUT_METHOD_SUBTYPE}.
      */
-    @RequiresPermission(WRITE_SECURE_SETTINGS)
+    @Deprecated
+    @RequiresPermission(Manifest.permission.WRITE_SECURE_SETTINGS)
     public boolean setCurrentInputMethodSubtype(InputMethodSubtype subtype) {
-        synchronized (mH) {
-            try {
-                return mService.setCurrentInputMethodSubtype(subtype);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+        if (Process.myUid() == Process.SYSTEM_UID) {
+            Log.w(TAG, "System process should not call setCurrentInputMethodSubtype() because "
+                    + "almost always it is a bug under multi-user / multi-profile environment. "
+                    + "Consider directly interacting with InputMethodManagerService "
+                    + "via LocalServices.");
+            return false;
+        }
+        if (subtype == null) {
+            // See the JavaDoc. This is how this method has worked.
+            return false;
+        }
+        final Context fallbackContext = ActivityThread.currentApplication();
+        if (fallbackContext == null) {
+            return false;
+        }
+        if (fallbackContext.checkSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS)
+                != PackageManager.PERMISSION_GRANTED) {
+            return false;
+        }
+        final ContentResolver contentResolver = fallbackContext.getContentResolver();
+        final String imeId = Settings.Secure.getString(contentResolver,
+                Settings.Secure.DEFAULT_INPUT_METHOD);
+        if (ComponentName.unflattenFromString(imeId) == null) {
+            // Null or invalid IME ID format.
+            return false;
+        }
+        final List<InputMethodSubtype> enabledSubtypes =
+                IInputMethodManagerGlobalInvoker.getEnabledInputMethodSubtypeList(imeId, true,
+                        UserHandle.myUserId());
+        final int numSubtypes = enabledSubtypes.size();
+        for (int i = 0; i < numSubtypes; ++i) {
+            final InputMethodSubtype enabledSubtype = enabledSubtypes.get(i);
+            if (enabledSubtype.equals(subtype)) {
+                Settings.Secure.putInt(contentResolver,
+                        Settings.Secure.SELECTED_INPUT_METHOD_SUBTYPE, enabledSubtype.hashCode());
+                return true;
             }
         }
+        return false;
     }
 
     /**
      * Notify that a user took some action with this input method.
+     *
+     * @deprecated Just kept to avoid possible app compat issue.
      * @hide
      */
+    @Deprecated
+    @UnsupportedAppUsage(trackingBug = 114740982, maxTargetSdk = Build.VERSION_CODES.P)
     public void notifyUserAction() {
-        synchronized (mH) {
-            if (mLastSentUserActionNotificationSequenceNumber ==
-                    mNextUserActionNotificationSequenceNumber) {
-                if (DEBUG) {
-                    Log.w(TAG, "Ignoring notifyUserAction as it has already been sent."
-                            + " mLastSentUserActionNotificationSequenceNumber: "
-                            + mLastSentUserActionNotificationSequenceNumber
-                            + " mNextUserActionNotificationSequenceNumber: "
-                            + mNextUserActionNotificationSequenceNumber);
-                }
-                return;
-            }
-            try {
-                if (DEBUG) {
-                    Log.w(TAG, "notifyUserAction: "
-                            + " mLastSentUserActionNotificationSequenceNumber: "
-                            + mLastSentUserActionNotificationSequenceNumber
-                            + " mNextUserActionNotificationSequenceNumber: "
-                            + mNextUserActionNotificationSequenceNumber);
-                }
-                mService.notifyUserAction(mNextUserActionNotificationSequenceNumber);
-                mLastSentUserActionNotificationSequenceNumber =
-                        mNextUserActionNotificationSequenceNumber;
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        }
+        Log.w(TAG, "notifyUserAction() is a hidden method, which is now just a stub method"
+                + " that does nothing.  Leave comments in b.android.com/114740982 if your "
+                + " application still depends on the previous behavior of this method.");
     }
 
     /**
      * Returns a map of all shortcut input method info and their subtypes.
      */
     public Map<InputMethodInfo, List<InputMethodSubtype>> getShortcutInputMethodsAndSubtypes() {
-        synchronized (mH) {
-            HashMap<InputMethodInfo, List<InputMethodSubtype>> ret = new HashMap<>();
-            try {
-                // TODO: We should change the return type from List<Object> to List<Parcelable>
-                List<Object> info = mService.getShortcutInputMethodsAndSubtypes();
-                // "info" has imi1, subtype1, subtype2, imi2, subtype2, imi3, subtype3..in the list
-                ArrayList<InputMethodSubtype> subtypes = null;
-                if (info != null && !info.isEmpty()) {
-                    final int N = info.size();
-                    for (int i = 0; i < N; ++i) {
-                        Object o = info.get(i);
-                        if (o instanceof InputMethodInfo) {
-                            if (ret.containsKey(o)) {
-                                Log.e(TAG, "IMI list already contains the same InputMethod.");
-                                break;
-                            }
-                            subtypes = new ArrayList<>();
-                            ret.put((InputMethodInfo)o, subtypes);
-                        } else if (subtypes != null && o instanceof InputMethodSubtype) {
-                            subtypes.add((InputMethodSubtype)o);
-                        }
-                    }
+        final List<InputMethodInfo> enabledImes = getEnabledInputMethodList();
+
+        // Ensure we check system IMEs first.
+        enabledImes.sort(Comparator.comparingInt(imi -> imi.isSystem() ? 0 : 1));
+
+        final int numEnabledImes = enabledImes.size();
+        for (int imiIndex = 0; imiIndex < numEnabledImes; ++imiIndex) {
+            final InputMethodInfo imi = enabledImes.get(imiIndex);
+            final List<InputMethodSubtype> subtypes = getEnabledInputMethodSubtypeList(
+                    imi, true);
+            final int subtypeCount = subtypes.size();
+            for (int subtypeIndex = 0; subtypeIndex < subtypeCount; ++subtypeIndex) {
+                final InputMethodSubtype subtype = imi.getSubtypeAt(subtypeIndex);
+                if (SUBTYPE_MODE_VOICE.equals(subtype.getMode())) {
+                    return Collections.singletonMap(imi, Collections.singletonList(subtype));
                 }
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
             }
-            return ret;
         }
+        return Collections.emptyMap();
     }
 
     /**
-     * @return The current height of the input method window.
+     * This is kept due to {@link android.compat.annotation.UnsupportedAppUsage}.
+     *
+     * <p>TODO(Bug 113914148): Check if we can remove this.  We have accidentally exposed
+     * WindowManagerInternal#getInputMethodWindowVisibleHeight to app developers and some of them
+     * started relying on it.</p>
+     *
+     * @return Something that is not well-defined.
      * @hide
      */
+    @UnsupportedAppUsage(trackingBug = 204906124, maxTargetSdk = Build.VERSION_CODES.TIRAMISU,
+            publicAlternatives = "Use {@link android.view.WindowInsets} instead")
     public int getInputMethodWindowVisibleHeight() {
-        synchronized (mH) {
-            try {
-                return mService.getInputMethodWindowVisibleHeight();
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        }
-    }
-
-    /**
-     * Tells the system that the IME decided to not show a window and the system no longer needs to
-     * use the previous IME's inset.
-     *
-     * <p>Caveat: {@link android.inputmethodservice.InputMethodService#clearInsetOfPreviousIme()}
-     * is the only expected caller of this method.  Do not depend on this anywhere else.</p>
-     *
-     * <p>TODO: We probably need to reconsider how IME should be handled.</p>
-     * @hide
-     * @param token Supplies the identifying token given to an input method when it was started,
-     * which allows it to perform this operation on itself.
-     */
-    public void clearLastInputMethodWindowForTransition(final IBinder token) {
-        synchronized (mH) {
-            try {
-                mService.clearLastInputMethodWindowForTransition(token);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        }
+        return IInputMethodManagerGlobalInvoker.getInputMethodWindowVisibleHeight(mClient);
     }
 
     /**
@@ -2335,20 +5018,7 @@ public final class InputMethodManager {
      */
     @Deprecated
     public boolean switchToLastInputMethod(IBinder imeToken) {
-        return switchToPreviousInputMethodInternal(imeToken);
-    }
-
-    /**
-     * @hide
-     */
-    public boolean switchToPreviousInputMethodInternal(IBinder imeToken) {
-        synchronized (mH) {
-            try {
-                return mService.switchToPreviousInputMethod(imeToken);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        }
+        return InputMethodPrivilegedOperationsRegistry.get(imeToken).switchToPreviousInputMethod();
     }
 
     /**
@@ -2366,20 +5036,8 @@ public final class InputMethodManager {
      */
     @Deprecated
     public boolean switchToNextInputMethod(IBinder imeToken, boolean onlyCurrentIme) {
-        return switchToNextInputMethodInternal(imeToken, onlyCurrentIme);
-    }
-
-    /**
-     * @hide
-     */
-    public boolean switchToNextInputMethodInternal(IBinder imeToken, boolean onlyCurrentIme) {
-        synchronized (mH) {
-            try {
-                return mService.switchToNextInputMethod(imeToken, onlyCurrentIme);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        }
+        return InputMethodPrivilegedOperationsRegistry.get(imeToken)
+                .switchToNextInputMethod(onlyCurrentIme);
     }
 
     /**
@@ -2398,20 +5056,8 @@ public final class InputMethodManager {
      */
     @Deprecated
     public boolean shouldOfferSwitchingToNextInputMethod(IBinder imeToken) {
-        return shouldOfferSwitchingToNextInputMethodInternal(imeToken);
-    }
-
-    /**
-     * @hide
-     */
-    public boolean shouldOfferSwitchingToNextInputMethodInternal(IBinder imeToken) {
-        synchronized (mH) {
-            try {
-                return mService.shouldOfferSwitchingToNextInputMethod(imeToken);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        }
+        return InputMethodPrivilegedOperationsRegistry.get(imeToken)
+                .shouldOfferSwitchingToNextInputMethod();
     }
 
     /**
@@ -2437,96 +5083,135 @@ public final class InputMethodManager {
      * specifying one of those statically defined subtypes in {@code subtypes}.</p>
      *
      * @param imiId Id of InputMethodInfo which additional input method subtypes will be added to.
+     * If the imiId is {@code null}, system would do nothing for this operation.
      * @param subtypes subtypes will be added as additional subtypes of the current input method.
+     * If the subtypes is {@code null}, system would do nothing for this operation.
+     * @deprecated For IMEs that have already implemented features like customizable/downloadable
+     *             keyboard layouts/languages, please start migration to other approaches. One idea
+     *             would be exposing only one unified {@link InputMethodSubtype} then implement
+     *             IME's own language switching mechanism within that unified subtype. The support
+     *             of "Additional Subtype" may be completely dropped in a future version of Android.
      */
-    public void setAdditionalInputMethodSubtypes(String imiId, InputMethodSubtype[] subtypes) {
-        synchronized (mH) {
-            try {
-                mService.setAdditionalInputMethodSubtypes(imiId, subtypes);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        }
-    }
-
-    public InputMethodSubtype getLastInputMethodSubtype() {
-        synchronized (mH) {
-            try {
-                return mService.getLastInputMethodSubtype();
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-        }
+    @Deprecated
+    public void setAdditionalInputMethodSubtypes(@NonNull String imiId,
+            @NonNull InputMethodSubtype[] subtypes) {
+        IInputMethodManagerGlobalInvoker.setAdditionalInputMethodSubtypes(imiId, subtypes,
+                UserHandle.myUserId());
     }
 
     /**
-     * Allow the receiver of {@link InputContentInfo} to obtain a temporary read-only access
-     * permission to the content.
+     * Updates the list of explicitly enabled {@link InputMethodSubtype} for a given IME owned by
+     * the calling process.
      *
-     * <p>See {@link android.inputmethodservice.InputMethodService#exposeContent(InputContentInfo,
-     * InputConnection)} for details.</p>
+     * <p>By default each IME has no explicitly enabled {@link InputMethodSubtype}.  In this state
+     * the system will decide what {@link InputMethodSubtype} should be enabled by using information
+     * available at runtime as per-user language settings.  Users can, however, manually pick up one
+     * or more {@link InputMethodSubtype} to be enabled on an Activity shown by
+     * {@link #showInputMethodAndSubtypeEnabler(String)}. Such a manual change is stored in
+     * {@link Settings.Secure#ENABLED_INPUT_METHODS} so that the change can persist across reboots.
+     * {@link Settings.Secure#ENABLED_INPUT_METHODS} stores {@link InputMethodSubtype#hashCode()} as
+     * the identifier of {@link InputMethodSubtype} for historical reasons.</p>
      *
-     * @param token Supplies the identifying token given to an input method when it was started,
-     * which allows it to perform this operation on itself.
-     * @param inputContentInfo Content to be temporarily exposed from the input method to the
-     * application.
-     * This cannot be {@code null}.
-     * @param editorInfo The editor that receives {@link InputContentInfo}.
-     * @hide
+     * <p>This API provides a safe and managed way for IME developers to modify what
+     * {@link InputMethodSubtype} are referenced in {@link Settings.Secure#ENABLED_INPUT_METHODS}
+     * for their own IME.  One use case is when IME developers want to use their own Activity for
+     * users to pick up {@link InputMethodSubtype}. Another use case is for IME developers to fix up
+     * any stale and/or invalid value stored in {@link Settings.Secure#ENABLED_INPUT_METHODS}
+     * without bothering users. Passing an empty {@code subtypeHashCodes} is guaranteed to reset
+     * the state to default.</p>
+     *
+     * <h3>To control the return value of {@link InputMethodSubtype#hashCode()}</h3>
+     * <p>{@link android.R.attr#subtypeId} and {@link
+     * android.view.inputmethod.InputMethodSubtype.InputMethodSubtypeBuilder#setSubtypeId(int)} are
+     * available for IME developers to control the return value of
+     * {@link InputMethodSubtype#hashCode()}. Beware that {@code -1} is not a valid value of
+     * {@link InputMethodSubtype#hashCode()} for historical reasons.</p>
+     *
+     * <h3>Note for Direct Boot support</h3>
+     * <p>While IME developers can call this API even before
+     * {@link android.os.UserManager#isUserUnlocked()} becomes {@code true}, such a change is
+     * volatile thus remains effective only until {@link android.os.UserManager#isUserUnlocked()}
+     * becomes {@code true} or the device is rebooted. To make the change persistent IME developers
+     * need to call this API again after receiving {@link Intent#ACTION_USER_UNLOCKED}.</p>
+     *
+     * @param imiId IME ID. The specified IME and the calling process need to belong to the same
+     *              package.  Otherwise {@link SecurityException} will be thrown.
+     * @param subtypeHashCodes An arrays of {@link InputMethodSubtype#hashCode()} to be explicitly
+     *                         enabled. Entries that are found in the specified IME will be silently
+     *                         ignored. Pass an empty array to reset the state to default.
+     * @throws NullPointerException if {@code subtypeHashCodes} is {@code null}.
+     * @throws SecurityException if the specified IME and the calling process do not belong to the
+     *                           same package.
      */
-    public void exposeContent(@NonNull IBinder token, @NonNull InputContentInfo inputContentInfo,
-            @NonNull EditorInfo editorInfo) {
-        final IInputContentUriToken uriToken;
-        final Uri contentUri = inputContentInfo.getContentUri();
-        try {
-            uriToken = mService.createInputContentUriToken(token, contentUri,
-                    editorInfo.packageName);
-            if (uriToken == null) {
-                return;
-            }
-        } catch (RemoteException e) {
-            Log.e(TAG, "createInputContentAccessToken failed. contentUri=" + contentUri.toString()
-                    + " packageName=" + editorInfo.packageName, e);
-            return;
-        }
-        inputContentInfo.setUriToken(uriToken);
-        return;
+    public void setExplicitlyEnabledInputMethodSubtypes(@NonNull String imiId,
+            @NonNull int[] subtypeHashCodes) {
+        IInputMethodManagerGlobalInvoker.setExplicitlyEnabledInputMethodSubtypes(imiId,
+                subtypeHashCodes, UserHandle.myUserId());
     }
 
-    void doDump(FileDescriptor fd, PrintWriter fout, String[] args) {
+    /**
+     * Returns the last used {@link InputMethodSubtype} in system history.
+     *
+     * @return the last {@link InputMethodSubtype}, {@code null} if last IME have no subtype.
+     */
+    @Nullable
+    public InputMethodSubtype getLastInputMethodSubtype() {
+        return IInputMethodManagerGlobalInvoker.getLastInputMethodSubtype(UserHandle.myUserId());
+    }
+
+    /**
+     * <p>This is used for CTS test only. Do not use this method outside of CTS package.<p/>
+     * @return the ID of this display which this {@link InputMethodManager} resides
+     * @hide
+     */
+    @TestApi
+    public int getDisplayId() {
+        return mDisplayId;
+    }
+
+    private void doDump(FileDescriptor fd, PrintWriter fout, String[] args) {
+        if (processDump(fd, args)) {
+            return;
+        }
+
         final Printer p = new PrintWriterPrinter(fout);
         p.println("Input method client state for " + this + ":");
-
-        p.println("  mService=" + mService);
-        p.println("  mMainLooper=" + mMainLooper);
-        p.println("  mIInputContext=" + mIInputContext);
+        p.println("  mFallbackInputConnection=" + mFallbackInputConnection);
         p.println("  mActive=" + mActive
                 + " mRestartOnNextWindowFocus=" + mRestartOnNextWindowFocus
-                + " mBindSequence=" + mBindSequence
-                + " mCurId=" + mCurId);
+                + " mBindSequence=" + getBindSequenceLocked()
+                + " mCurImeId=" + getImeIdLocked());
         p.println("  mFullscreenMode=" + mFullscreenMode);
-        p.println("  mCurMethod=" + mCurMethod);
-        p.println("  mCurRootView=" + mCurRootView);
-        p.println("  mServedView=" + mServedView);
-        p.println("  mNextServedView=" + mNextServedView);
-        p.println("  mServedConnecting=" + mServedConnecting);
-        if (mCurrentTextBoxAttribute != null) {
-            p.println("  mCurrentTextBoxAttribute:");
-            mCurrentTextBoxAttribute.dump(p, "    ");
+        if (isImeSessionAvailableLocked()) {
+            p.println("  mCurMethod=" + mCurBindState.mImeSession);
         } else {
-            p.println("  mCurrentTextBoxAttribute: null");
+            p.println("  mCurMethod= null");
         }
-        p.println("  mServedInputConnectionWrapper=" + mServedInputConnectionWrapper);
+        for (int i = 0; i < mAccessibilityInputMethodSession.size(); i++) {
+            p.println("  mAccessibilityInputMethodSession("
+                    + mAccessibilityInputMethodSession.keyAt(i) + ")="
+                    + mAccessibilityInputMethodSession.valueAt(i));
+        }
+        p.println("  mCurRootView=" + mCurRootView);
+        p.println("  mServedView=" + getServedViewLocked());
+        p.println("  mNextServedView=" + getNextServedViewLocked());
+        p.println("  mServedConnecting=" + mServedConnecting);
+        if (mCurrentEditorInfo != null) {
+            p.println("  mCurrentEditorInfo:");
+            mCurrentEditorInfo.dump(p, "    ", false /* dumpExtras */);
+        } else {
+            p.println("  mCurrentEditorInfo: null");
+        }
+        p.println("  mServedInputConnection=" + mServedInputConnection);
+        p.println("  mServedInputConnectionHandler=" + mServedInputConnectionHandler);
+        p.println("  mLastPendingStartSeqId=" + mLastPendingStartSeqId);
         p.println("  mCompletions=" + Arrays.toString(mCompletions));
         p.println("  mCursorRect=" + mCursorRect);
         p.println("  mCursorSelStart=" + mCursorSelStart
                 + " mCursorSelEnd=" + mCursorSelEnd
                 + " mCursorCandStart=" + mCursorCandStart
                 + " mCursorCandEnd=" + mCursorCandEnd);
-        p.println("  mNextUserActionNotificationSequenceNumber="
-                + mNextUserActionNotificationSequenceNumber
-                + " mLastSentUserActionNotificationSequenceNumber="
-                + mLastSentUserActionNotificationSequenceNumber);
+        mImeBackCallbackProxy.dump(p, "  ");
     }
 
     /**
@@ -2536,6 +5221,73 @@ public final class InputMethodManager {
      */
     public interface FinishedInputEventCallback {
         public void onFinishedInputEvent(Object token, boolean handled);
+    }
+
+    private static class ConnectionlessHandwritingCallbackProxy
+            extends IConnectionlessHandwritingCallback.Stub {
+        private final Object mLock = new Object();
+
+        @Nullable
+        @GuardedBy("mLock")
+        private Executor mExecutor;
+
+        @Nullable
+        @GuardedBy("mLock")
+        private ConnectionlessHandwritingCallback mCallback;
+
+        ConnectionlessHandwritingCallbackProxy(
+                @NonNull Executor executor, @NonNull ConnectionlessHandwritingCallback callback) {
+            mExecutor = executor;
+            mCallback = callback;
+        }
+
+        @Override
+        public void onResult(CharSequence text) {
+            Executor executor;
+            ConnectionlessHandwritingCallback callback;
+            synchronized (mLock) {
+                if (mExecutor == null || mCallback == null) {
+                    return;
+                }
+                executor = mExecutor;
+                callback = mCallback;
+                mExecutor = null;
+                mCallback = null;
+            }
+            final long identity = Binder.clearCallingIdentity();
+            try {
+                if (TextUtils.isEmpty(text)) {
+                    executor.execute(() -> callback.onError(
+                            ConnectionlessHandwritingCallback
+                                    .CONNECTIONLESS_HANDWRITING_ERROR_NO_TEXT_RECOGNIZED));
+                } else {
+                    executor.execute(() -> callback.onResult(text));
+                }
+            } finally {
+                Binder.restoreCallingIdentity(identity);
+            }
+        }
+
+        @Override
+        public void onError(int errorCode) {
+            Executor executor;
+            ConnectionlessHandwritingCallback callback;
+            synchronized (mLock) {
+                if (mExecutor == null || mCallback == null) {
+                    return;
+                }
+                executor = mExecutor;
+                callback = mCallback;
+                mExecutor = null;
+                mCallback = null;
+            }
+            final long identity = Binder.clearCallingIdentity();
+            try {
+                executor.execute(() -> callback.onError(errorCode));
+            } finally {
+                Binder.restoreCallingIdentity(identity);
+            }
+        }
     }
 
     private final class ImeInputEventSender extends InputEventSender {
@@ -2576,17 +5328,158 @@ public final class InputMethodManager {
         }
     }
 
-    private static String dumpViewInfo(@Nullable final View view) {
-        if (view == null) {
-            return "null";
+    private static final class BindState {
+        /**
+         * Encapsulates IPCs to the currently connected InputMethodService.
+         */
+        @Nullable
+        final IInputMethodSessionInvoker mImeSession;
+
+        /**
+         * As reported by {@link InputBindResult}. This value is determined by
+         * {@link com.android.internal.R.styleable#InputMethod_suppressesSpellChecker}.
+         */
+        final boolean mIsInputMethodSuppressingSpellChecker;
+
+        /**
+         * As reported by {@link InputBindResult}. This value indicates the bound input method ID.
+         */
+        @Nullable
+        final String mImeId;
+
+        /**
+         * Sequence number of this binding, as returned by the server.
+         */
+        final int mBindSequence;
+
+        BindState(@NonNull InputBindResult inputBindResult) {
+            mImeSession = IInputMethodSessionInvoker.createOrNull(inputBindResult.method);
+            mIsInputMethodSuppressingSpellChecker =
+                    inputBindResult.isInputMethodSuppressingSpellChecker;
+            mImeId = inputBindResult.id;
+            mBindSequence = inputBindResult.sequence;
         }
-        final StringBuilder sb = new StringBuilder();
-        sb.append(view);
-        sb.append(",focus=" + view.hasFocus());
-        sb.append(",windowFocus=" + view.hasWindowFocus());
-        sb.append(",autofillUiShowing=" + isAutofillUIShowing(view));
-        sb.append(",window=" + view.getWindowToken());
-        sb.append(",temporaryDetach=" + view.isTemporarilyDetached());
-        return sb.toString();
+    }
+
+    @GuardedBy("mH")
+    private boolean isImeSessionAvailableLocked() {
+        return mCurBindState != null && mCurBindState.mImeSession != null;
+    }
+
+    @GuardedBy("mH")
+    private String getImeIdLocked() {
+        return mCurBindState != null ? mCurBindState.mImeId : null;
+    }
+
+    @GuardedBy("mH")
+    private int getBindSequenceLocked() {
+        return mCurBindState != null ? mCurBindState.mBindSequence : -1;
+    }
+
+    /**
+     * A test API for CTS to check whether an IME is bound to this client.
+     *
+     * @hide
+     */
+    @SuppressLint("UnflaggedApi") // @TestApi without associated feature.
+    @TestApi
+    public boolean isImeBoundForTesting() {
+        return mCurBindState != null;
+    }
+
+    /**
+     * Checks the args to see if a proto-based ime dump was requested and writes the client side
+     * ime dump to the given {@link FileDescriptor}.
+     *
+     * @return {@code true} if a proto-based ime dump was requested.
+     */
+    private boolean processDump(final FileDescriptor fd, final String[] args) {
+        if (args == null) {
+            return false;
+        }
+
+        for (String arg : args) {
+            if (arg.equals(ImeTracing.PROTO_ARG)) {
+                final ProtoOutputStream proto = new ProtoOutputStream(fd);
+                dumpDebug(proto, null /* icProto */);
+                proto.flush();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Write the proto dump of various client side components to the provided
+     * {@link ProtoOutputStream}.
+     *
+     * @param proto The proto stream to which the dumps are written.
+     * @param icProto {@link InputConnection} call data in proto format.
+     * @hide
+     */
+    public void dumpDebug(ProtoOutputStream proto, @Nullable byte[] icProto) {
+        synchronized (mH) {
+            if (!isImeSessionAvailableLocked()) {
+                return;
+            }
+
+            proto.write(DISPLAY_ID, mDisplayId);
+            final long token = proto.start(INPUT_METHOD_MANAGER);
+            proto.write(CUR_ID, mCurBindState.mImeId);
+            proto.write(FULLSCREEN_MODE, mFullscreenMode);
+            proto.write(ACTIVE, mActive);
+            proto.write(SERVED_CONNECTING, mServedConnecting);
+            proto.write(SERVED_VIEW, Objects.toString(mServedView));
+            proto.write(NEXT_SERVED_VIEW, Objects.toString(mNextServedView));
+            proto.end(token);
+            if (mCurRootView != null) {
+                mCurRootView.dumpDebug(proto, VIEW_ROOT_IMPL);
+            }
+            if (mCurrentEditorInfo != null) {
+                mCurrentEditorInfo.dumpDebug(proto, EDITOR_INFO);
+            }
+            if (mServedInputConnection != null) {
+                mServedInputConnection.dumpDebug(proto, INPUT_CONNECTION);
+            }
+            if (icProto != null) {
+                proto.write(INPUT_CONNECTION_CALL, icProto);
+            }
+        }
+    }
+
+    @GuardedBy("mH")
+    private void forAccessibilitySessionsLocked(
+            Consumer<IAccessibilityInputMethodSessionInvoker> consumer) {
+        for (int i = 0; i < mAccessibilityInputMethodSession.size(); i++) {
+            consumer.accept(mAccessibilityInputMethodSession.valueAt(i));
+        }
+    }
+
+    @UiThread
+    private static Pair<InputConnection, EditorInfo> createInputConnection(
+            @NonNull View servedView) {
+        final EditorInfo editorInfo = new EditorInfo();
+        // Note: Use Context#getOpPackageName() rather than Context#getPackageName() so that the
+        // system can verify the consistency between the uid of this process and package name passed
+        // from here. See comment of Context#getOpPackageName() for details.
+        editorInfo.packageName = servedView.getContext().getOpPackageName();
+        editorInfo.setAutofillId(servedView.getAutofillId());
+        editorInfo.fieldId = servedView.getId();
+        final InputConnection ic = servedView.onCreateInputConnection(editorInfo);
+        if (android.tracing.Flags.imetrackerProtolog()) {
+            ProtoLog.w(INPUT_METHOD_MANAGER_DEBUG, "Starting input: editorInfo=%s ic=%s",
+                    editorInfo, ic);
+        } else if (DEBUG) {
+            Log.v(TAG, "Starting input: editorInfo=" + editorInfo + " ic=" + ic);
+        }
+
+        // Clear autofill and field ids if a connection could not be established.
+        // This ensures that even disconnected EditorInfos have well-defined attributes,
+        // making them consistently and straightforwardly comparable.
+        if (ic == null) {
+            editorInfo.setAutofillId(AutofillId.NO_AUTOFILL_ID);
+            editorInfo.fieldId = 0;
+        }
+        return new Pair<>(ic, editorInfo);
     }
 }

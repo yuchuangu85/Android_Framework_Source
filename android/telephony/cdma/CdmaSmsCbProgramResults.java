@@ -22,7 +22,7 @@ import android.os.Parcelable;
 /**
  * CDMA Service Category Program Results from SCPT teleservice SMS.
  *
- * {@hide}
+ * @hide
  */
 public class CdmaSmsCbProgramResults implements Parcelable {
 

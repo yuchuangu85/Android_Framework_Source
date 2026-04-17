@@ -16,6 +16,7 @@
 
 package android.text.method;
 
+import android.app.compat.CompatChanges;
 import android.graphics.Paint;
 import android.icu.lang.UCharacter;
 import android.icu.lang.UProperty;
@@ -25,6 +26,8 @@ import android.text.InputType;
 import android.text.Layout;
 import android.text.NoCopySpan;
 import android.text.Selection;
+import android.text.ShowSecretsSetting;
+import android.text.Spannable;
 import android.text.Spanned;
 import android.text.method.TextKeyListener.Capitalize;
 import android.text.style.ReplacementSpan;
@@ -33,6 +36,8 @@ import android.view.View;
 import android.widget.TextView;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.text.flags.Flags;
 
 import java.text.BreakIterator;
 
@@ -47,9 +52,18 @@ import java.text.BreakIterator;
  * with hardware keyboards.  Software input methods have no obligation to trigger
  * the methods in this class.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public abstract class BaseKeyListener extends MetaKeyKeyListener
         implements KeyListener {
     /* package */ static final Object OLD_SEL_START = new NoCopySpan.Concrete();
+
+    /**
+     * Span used to mark the content that was entered on a physical keyboard.
+     *
+     * @hide
+     */
+    @VisibleForTesting
+    public static class PhysicalInputSpan {}
 
     private static final int LINE_FEED = 0x0A;
     private static final int CARRIAGE_RETURN = 0x0D;
@@ -229,6 +243,8 @@ public abstract class BaseKeyListener extends MetaKeyKeyListener
                         break;
                     } else if (Emoji.isEmojiModifierBase(codePoint)) {
                         deleteCharCount += Character.charCount(codePoint);
+                        state = STATE_BEFORE_EMOJI;
+                        break;
                     }
                     state = STATE_FINISHED;
                     break;
@@ -310,7 +326,7 @@ public abstract class BaseKeyListener extends MetaKeyKeyListener
             return len;
         }
 
-        offset = paint.getTextRunCursor(text, offset, len, Paint.DIRECTION_LTR /* not used */,
+        offset = paint.getTextRunCursor(text, offset, len, false /* LTR, not used */,
                 offset, Paint.CURSOR_AFTER);
 
         return adjustReplacementSpan(text, offset, false /* move to the end */);
@@ -343,7 +359,7 @@ public abstract class BaseKeyListener extends MetaKeyKeyListener
         }
 
         // Alt+Backspace or Alt+ForwardDelete deletes the current line, if possible.
-        if (isAltActive && deleteLine(view, content)) {
+        if (isAltActive && deleteLineFromCursor(view, content, isForwardDelete)) {
             return true;
         }
 
@@ -436,17 +452,34 @@ public abstract class BaseKeyListener extends MetaKeyKeyListener
         return false;
     }
 
-    private boolean deleteLine(View view, Editable content) {
+    private boolean deleteLineFromCursor(View view, Editable content, boolean forward) {
         if (view instanceof TextView) {
-            final Layout layout = ((TextView) view).getLayout();
-            if (layout != null) {
+            final int selectionStart = Selection.getSelectionStart(content);
+            final int selectionEnd = Selection.getSelectionEnd(content);
+            final int selectionMin;
+            final int selectionMax;
+            if (selectionStart < selectionEnd) {
+                selectionMin = selectionStart;
+                selectionMax = selectionEnd;
+            } else {
+                selectionMin = selectionEnd;
+                selectionMax = selectionStart;
+            }
+
+            final TextView textView = (TextView) view;
+            final Layout layout = textView.getLayout();
+            if (layout != null && !textView.isOffsetMappingAvailable()) {
                 final int line = layout.getLineForOffset(Selection.getSelectionStart(content));
                 final int start = layout.getLineStart(line);
                 final int end = layout.getLineEnd(line);
-                if (end != start) {
-                    content.delete(start, end);
-                    return true;
+
+                if (forward) {
+                    content.delete(selectionMin, end);
+                } else {
+                    content.delete(start, selectionMax);
                 }
+
+                return true;
             }
         }
         return false;
@@ -495,6 +528,51 @@ public abstract class BaseKeyListener extends MetaKeyKeyListener
     }
 
     /**
+     * Replaces the specified range of the content with the given text, and attaches a {@link
+     * PhysicalInputSpan} if the event originated from a physical keyboard.
+     *
+     * @hide
+     */
+    protected static void replaceText(
+            Editable content, int start, int end, CharSequence text, KeyEvent event) {
+        replaceText(content, start, end, text, 0, text.length(), event);
+    }
+
+    /**
+     * Replaces the specified range of the content with the given text range, and attaches a {@link
+     * PhysicalInputSpan} if the event originated from a physical keyboard.
+     *
+     * @hide
+     */
+    protected static void replaceText(
+            Editable content,
+            int start,
+            int end,
+            CharSequence text,
+            int tbStart,
+            int tbEnd,
+            KeyEvent event) {
+        // To span the newly inserted text, a zero-length INCLUSIVE span is used to expand
+        // upon replacement (and thus insertion of the new characters) which is used by consumers
+        // in the onTextChanged callback.
+        // Then removed to prevent slowing down the editor with newly attached spans.
+        PhysicalInputSpan physicalInputSpan = null;
+        if (event.getDeviceId() >= 0
+                && Flags.splitShowPasswordsToTouchAndPhysical()
+                && CompatChanges.isChangeEnabled(
+                        ShowSecretsSetting.SPLIT_SHOW_PASSWORDS_TO_TOUCH_AND_PHYSICAL)) {
+            physicalInputSpan = new PhysicalInputSpan();
+            content.setSpan(physicalInputSpan, start, start, Spannable.SPAN_INCLUSIVE_INCLUSIVE);
+        }
+
+        content.replace(start, end, text, tbStart, tbEnd);
+
+        if (physicalInputSpan != null) {
+            content.removeSpan(physicalInputSpan);
+        }
+    }
+
+    /**
      * Base implementation handles ACTION_MULTIPLE KEYCODE_UNKNOWN by inserting
      * the event's text into the content.
      */
@@ -518,7 +596,8 @@ public abstract class BaseKeyListener extends MetaKeyKeyListener
             return false;
         }
 
-        content.replace(selectionStart, selectionEnd, text);
+        replaceText(content, selectionStart, selectionEnd, text, event);
+
         return true;
     }
 }

@@ -16,12 +16,16 @@
 
 package android.text.method;
 
+import android.app.compat.CompatChanges;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Handler;
 import android.os.SystemClock;
 import android.text.Editable;
 import android.text.GetChars;
 import android.text.NoCopySpan;
+import android.text.ShowSecretsSetting;
 import android.text.Spannable;
 import android.text.Spanned;
 import android.text.TextUtils;
@@ -29,8 +33,12 @@ import android.text.TextWatcher;
 import android.text.style.UpdateLayout;
 import android.view.View;
 
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.text.flags.Flags;
+
 import java.lang.ref.WeakReference;
 
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class PasswordTransformationMethod
 implements TransformationMethod, TextWatcher
 {
@@ -74,6 +82,9 @@ implements TransformationMethod, TextWatcher
 
     public void onTextChanged(CharSequence s, int start,
                               int before, int count) {
+        if (count <= 0) {
+            return;
+        }
         if (s instanceof Spannable) {
             Spannable sp = (Spannable) s;
             ViewReference[] vr = sp.getSpans(0, s.length(),
@@ -98,15 +109,46 @@ implements TransformationMethod, TextWatcher
                 return;
             }
 
-            int pref = TextKeyListener.getInstance().getPrefs(v.getContext());
-            if ((pref & TextKeyListener.SHOW_PASSWORD) != 0) {
-                if (count > 0) {
-                    removeVisibleSpans(sp);
+            final int pref = TextKeyListener.getInstance().getPrefs(v.getContext());
+            boolean shouldShowPassword;
 
-                    if (count == 1) {
-                        sp.setSpan(new Visible(sp, this), start, start + count,
-                                   Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            if (Flags.splitShowPasswordsToTouchAndPhysical()
+                    && CompatChanges.isChangeEnabled(
+                            ShowSecretsSetting.SPLIT_SHOW_PASSWORDS_TO_TOUCH_AND_PHYSICAL)) {
+                final boolean showTouch = (pref & TextKeyListener.SHOW_PASSWORD_TOUCH) != 0;
+                final boolean showPhysical = (pref & TextKeyListener.SHOW_PASSWORD_PHYSICAL) != 0;
+                // No need to differentiate where the event came from if the settings are identical.
+                if (showTouch == showPhysical) {
+                    shouldShowPassword = showTouch;
+                } else {
+                    final int end = start + count;
+                    // Differentiate between touch and physical keyboard input. Physical keyboard
+                    // input is identified by a PhysicalInputSpan, added by *KeyListener earlier in
+                    // the callstack, that matches the range of this text change.
+                    final BaseKeyListener.PhysicalInputSpan[] spans =
+                            sp.getSpans(start, end, BaseKeyListener.PhysicalInputSpan.class);
+                    boolean isPhysicalInput = false;
+                    for (BaseKeyListener.PhysicalInputSpan span : spans) {
+                        if (sp.getSpanStart(span) == start && sp.getSpanEnd(span) == end) {
+                            isPhysicalInput = true;
+                            break;
+                        }
                     }
+                    shouldShowPassword = isPhysicalInput ? showPhysical : showTouch;
+                }
+            } else {
+                shouldShowPassword = (pref & TextKeyListener.SHOW_PASSWORD) != 0;
+            }
+
+            if (shouldShowPassword) {
+                removeVisibleSpans(sp);
+
+                if (count == 1) {
+                    sp.setSpan(
+                            new Visible(sp, this),
+                            start,
+                            start + count,
+                            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
                 }
             }
         }
@@ -232,16 +274,17 @@ implements TransformationMethod, TextWatcher
         private CharSequence mSource;
     }
 
-    private static class Visible
-    extends Handler
-    implements UpdateLayout, Runnable
-    {
+    /** @hide */
+    @VisibleForTesting
+    public static class Visible extends Handler implements UpdateLayout, Runnable {
+        /** @hide */
         public Visible(Spannable sp, PasswordTransformationMethod ptm) {
             mText = sp;
             mTransformer = ptm;
             postAtTime(this, SystemClock.uptimeMillis() + 1500);
         }
 
+        /** @hide */
         public void run() {
             mText.removeSpan(this);
         }
@@ -261,6 +304,8 @@ implements TransformationMethod, TextWatcher
         }
     }
 
+    @UnsupportedAppUsage
     private static PasswordTransformationMethod sInstance;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private static char DOT = '\u2022';
 }

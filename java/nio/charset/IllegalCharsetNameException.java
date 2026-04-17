@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2007, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2021, Oracle and/or its affiliates. All rights reserved.
  *
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -41,12 +41,16 @@ public class IllegalCharsetNameException
     extends IllegalArgumentException
 {
 
+    @java.io.Serial
     private static final long serialVersionUID = 1457525358470002989L;
 
+    /**
+     * The illegal charset name.
+     */
     private String charsetName;
 
     /**
-     * Constructs an instance of this class. </p>
+     * Constructs an instance of this class.
      *
      * @param  charsetName
      *         The illegal charset name
@@ -57,7 +61,7 @@ public class IllegalCharsetNameException
     }
 
     /**
-     * Retrieves the illegal charset name. </p>
+     * Retrieves the illegal charset name.
      *
      * @return  The illegal charset name
      */

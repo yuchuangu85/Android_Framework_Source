@@ -16,23 +16,40 @@
 
 package android.net.wifi.aware;
 
+import static android.Manifest.permission.MANAGE_WIFI_NETWORK_SELECTION;
+
+import static com.android.ranging.flags.Flags.FLAG_RANGING_RTT_ENABLED;
+
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
+import android.annotation.SystemApi;
+import android.net.wifi.OuiKeyedData;
+import android.net.wifi.ParcelUtil;
+import android.net.wifi.ScanResult;
+import android.net.wifi.WifiScanner;
+import android.net.wifi.util.HexEncoding;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-import libcore.util.HexEncoding;
+import androidx.annotation.RequiresApi;
+
+import com.android.modules.utils.build.SdkLevel;
+import com.android.wifi.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
 /**
- * Defines the configuration of a Aware publish session. Built using
+ * Defines the configuration of an Aware publish session. Built using
  * {@link PublishConfig.Builder}. A publish session is created using
  * {@link WifiAwareSession#publish(PublishConfig, DiscoverySessionCallback,
  * android.os.Handler)} or updated using
@@ -49,7 +66,7 @@ public final class PublishConfig implements Parcelable {
     /**
      * Defines an unsolicited publish session - a publish session where the publisher is
      * advertising itself by broadcasting on-the-air. An unsolicited publish session is paired
-     * with an passive subscribe session {@link SubscribeConfig#SUBSCRIBE_TYPE_PASSIVE}.
+     * with a passive subscribe session {@link SubscribeConfig#SUBSCRIBE_TYPE_PASSIVE}.
      * Configuration is done using {@link PublishConfig.Builder#setPublishType(int)}.
      */
     public static final int PUBLISH_TYPE_UNSOLICITED = 0;
@@ -84,10 +101,28 @@ public final class PublishConfig implements Parcelable {
     /** @hide */
     public final boolean mEnableRanging;
 
+    private final boolean mEnableInstantMode;
+
+    private final int mBand;
+
+    private final WifiAwareDataPathSecurityConfig mSecurityConfig;
+
+    private final AwarePairingConfig mPairingConfig;
+
+    private final boolean mIsSuspendable;
+
+    private final List<OuiKeyedData> mVendorData;
+
+    /** @hide */
+    public final boolean mEnablePeriodicRangingResults;
+
     /** @hide */
     public PublishConfig(byte[] serviceName, byte[] serviceSpecificInfo, byte[] matchFilter,
             int publishType, int ttlSec, boolean enableTerminateNotification,
-            boolean enableRanging) {
+            boolean enableRanging, boolean enableInstantMode, @WifiScanner.WifiBand int
+            band, WifiAwareDataPathSecurityConfig securityConfig,
+            AwarePairingConfig pairingConfig, boolean isSuspendable,
+            @NonNull List<OuiKeyedData> vendorData, boolean enablePeriodicRangingResults) {
         mServiceName = serviceName;
         mServiceSpecificInfo = serviceSpecificInfo;
         mMatchFilter = matchFilter;
@@ -95,6 +130,13 @@ public final class PublishConfig implements Parcelable {
         mTtlSec = ttlSec;
         mEnableTerminateNotification = enableTerminateNotification;
         mEnableRanging = enableRanging;
+        mEnableInstantMode = enableInstantMode;
+        mBand = band;
+        mSecurityConfig = securityConfig;
+        mPairingConfig = pairingConfig;
+        mIsSuspendable = isSuspendable;
+        mVendorData = vendorData;
+        mEnablePeriodicRangingResults = enablePeriodicRangingResults;
     }
 
     @Override
@@ -110,7 +152,14 @@ public final class PublishConfig implements Parcelable {
                 + ", mMatchFilter.length=" + (mMatchFilter == null ? 0 : mMatchFilter.length)
                 + ", mPublishType=" + mPublishType + ", mTtlSec=" + mTtlSec
                 + ", mEnableTerminateNotification=" + mEnableTerminateNotification
-                + ", mEnableRanging=" + mEnableRanging + "]";
+                + ", mEnableRanging=" + mEnableRanging + "]"
+                + ", mEnableInstantMode=" + mEnableInstantMode
+                + ", mBand=" + mBand
+                + ", mSecurityConfig" + mSecurityConfig
+                + ", mPairingConfig" + mPairingConfig
+                + ", mIsSuspendable=" + mIsSuspendable
+                + ", mVendorData=" + mVendorData + "]"
+                + ", mEnablePeriodicRangingResults=" + mEnablePeriodicRangingResults;
     }
 
     @Override
@@ -127,9 +176,17 @@ public final class PublishConfig implements Parcelable {
         dest.writeInt(mTtlSec);
         dest.writeInt(mEnableTerminateNotification ? 1 : 0);
         dest.writeInt(mEnableRanging ? 1 : 0);
+        dest.writeBoolean(mEnableInstantMode);
+        dest.writeInt(mBand);
+        dest.writeParcelable(mSecurityConfig, flags);
+        dest.writeParcelable(mPairingConfig, flags);
+        dest.writeBoolean(mIsSuspendable);
+        dest.writeList(mVendorData);
+        dest.writeBoolean(mEnablePeriodicRangingResults);
     }
 
-    public static final Creator<PublishConfig> CREATOR = new Creator<PublishConfig>() {
+    @NonNull
+    public static final Creator<PublishConfig> CREATOR = new Creator<>() {
         @Override
         public PublishConfig[] newArray(int size) {
             return new PublishConfig[size];
@@ -144,9 +201,20 @@ public final class PublishConfig implements Parcelable {
             int ttlSec = in.readInt();
             boolean enableTerminateNotification = in.readInt() != 0;
             boolean enableRanging = in.readInt() != 0;
+            boolean enableInstantMode = in.readBoolean();
+            int band = in.readInt();
+            WifiAwareDataPathSecurityConfig securityConfig = in
+                    .readParcelable(WifiAwareDataPathSecurityConfig.class.getClassLoader());
+            AwarePairingConfig pairingConfig = in
+                    .readParcelable(AwarePairingConfig.class.getClassLoader());
+            boolean isSuspendable = in.readBoolean();
+            List<OuiKeyedData> vendorData = ParcelUtil.readOuiKeyedDataList(in);
+            boolean enablePeriodicRangingResults = in.readBoolean();
 
-            return new PublishConfig(serviceName, ssi, matchFilter, publishType,
-                    ttlSec, enableTerminateNotification, enableRanging);
+            return new PublishConfig(serviceName, ssi, matchFilter, publishType, ttlSec,
+                    enableTerminateNotification, enableRanging, enableInstantMode,
+                    band, securityConfig, pairingConfig, isSuspendable, vendorData,
+                    enablePeriodicRangingResults);
         }
     };
 
@@ -167,13 +235,22 @@ public final class PublishConfig implements Parcelable {
                 && mPublishType == lhs.mPublishType
                 && mTtlSec == lhs.mTtlSec
                 && mEnableTerminateNotification == lhs.mEnableTerminateNotification
-                && mEnableRanging == lhs.mEnableRanging;
+                && mEnableRanging == lhs.mEnableRanging
+                && mEnablePeriodicRangingResults == lhs.mEnablePeriodicRangingResults
+                && mEnableInstantMode == lhs.mEnableInstantMode
+                && mBand == lhs.mBand
+                && mIsSuspendable == lhs.mIsSuspendable
+                && Objects.equals(mSecurityConfig, lhs.mSecurityConfig)
+                && Objects.equals(mPairingConfig, lhs.mPairingConfig)
+                && Objects.equals(mVendorData, lhs.mVendorData);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mServiceName, mServiceSpecificInfo, mMatchFilter, mPublishType, mTtlSec,
-                mEnableTerminateNotification, mEnableRanging);
+        return Objects.hash(Arrays.hashCode(mServiceName), Arrays.hashCode(mServiceSpecificInfo),
+                Arrays.hashCode(mMatchFilter), mPublishType, mTtlSec, mEnableTerminateNotification,
+                mEnableRanging, mEnableInstantMode, mBand, mSecurityConfig, mPairingConfig,
+                mIsSuspendable, mVendorData, mEnablePeriodicRangingResults);
     }
 
     /**
@@ -196,6 +273,9 @@ public final class PublishConfig implements Parcelable {
         if (mTtlSec < 0) {
             throw new IllegalArgumentException("Invalid ttlSec - must be non-negative");
         }
+        if (mSecurityConfig != null && !mSecurityConfig.isValid()) {
+            throw new IllegalArgumentException("WifiAwareDataPathSecurityConfig is invalid");
+        }
 
         if (characteristics != null) {
             int maxServiceNameLength = characteristics.getMaxServiceNameLength();
@@ -215,11 +295,123 @@ public final class PublishConfig implements Parcelable {
                 throw new IllegalArgumentException(
                         "Match filter longer than supported by device characteristics");
             }
+            if (mEnableInstantMode) {
+                if (SdkLevel.isAtLeastT()
+                        && characteristics.isInstantCommunicationModeSupported()) {
+                    // Valid to use instant communication mode
+                } else {
+                    throw new IllegalArgumentException("instant mode is not supported");
+                }
+            }
+            if (mIsSuspendable && !characteristics.isSuspensionSupported()) {
+                throw new IllegalArgumentException("Aware Suspension is not supported");
+            }
+            if (mSecurityConfig != null && (characteristics.getSupportedCipherSuites()
+                    & mSecurityConfig.getCipherSuite()) == 0) {
+                throw new IllegalArgumentException("Unsupported cipher suite");
+            }
+            if (mPairingConfig != null && !characteristics.isAwarePairingSupported()) {
+                throw new IllegalArgumentException("Aware Pairing is not supported");
+            }
+            if (mPairingConfig != null && !mPairingConfig.assertValid(characteristics)) {
+                throw new IllegalArgumentException("Unsupported pairing config");
+            }
         }
 
         if (!rttSupported && mEnableRanging) {
             throw new IllegalArgumentException("Ranging is not supported");
         }
+
+        if ((!rttSupported || !characteristics.isPeriodicRangingSupported())
+                && mEnablePeriodicRangingResults) {
+            throw new IllegalArgumentException("Periodic Ranging is not supported");
+        }
+    }
+
+    /**
+     * Check if instant communication mode is enabled for this publish session.
+     * @see Builder#setInstantCommunicationModeEnabled(boolean, int)
+     * @return true for enabled, false otherwise.
+     */
+    public boolean isInstantCommunicationModeEnabled() {
+        return mEnableInstantMode;
+    }
+
+    /**
+     * Get the Wi-Fi band for instant communication mode for this publish session
+     *
+     * @see Builder#setInstantCommunicationModeEnabled(boolean, int)
+     * @return The Wi-Fi band. If instant communication mode is not enabled will return {@link
+     *     ScanResult#WIFI_BAND_24_GHZ} as default.
+     */
+    @WifiAwareManager.InstantModeBand
+    public int getInstantCommunicationBand() {
+        return mBand;
+    }
+
+    /**
+     * Get the data-path security config for this publish session
+     * @see Builder#setDataPathSecurityConfig(WifiAwareDataPathSecurityConfig)
+     * @return A {@link WifiAwareDataPathSecurityConfig} specified in this config.
+     */
+    @Nullable
+    public WifiAwareDataPathSecurityConfig getSecurityConfig() {
+        return mSecurityConfig;
+    }
+
+    /**
+     * Get the Aware Pairing config for this publish session
+     * @see Builder#setPairingConfig(AwarePairingConfig)
+     * @return A {@link AwarePairingConfig} specified in this config.
+     */
+    @Nullable
+    public AwarePairingConfig getPairingConfig() {
+        return mPairingConfig;
+    }
+
+    /**
+     * Check if suspension is supported for this publish session.
+     * @see Builder#setSuspendable(boolean)
+     * @return true for supported, false otherwise.
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    @SystemApi
+    public boolean isSuspendable() {
+        if (!SdkLevel.isAtLeastU()) {
+            throw new UnsupportedOperationException();
+        }
+        return mIsSuspendable;
+    }
+
+    /**
+     * Return the vendor-provided configuration data, if it exists. See also {@link
+     * Builder#setVendorData(List)}
+     *
+     * @return Vendor configuration data, or empty list if it does not exist.
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    @NonNull
+    @SystemApi
+    public List<OuiKeyedData> getVendorData() {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        return mVendorData != null ? mVendorData : Collections.emptyList();
+    }
+
+    /**
+     * Check if periodic ranging reporting is enabled for publish session
+     * @see Builder#setPeriodicRangingResultsEnabled(boolean)
+     * @return true for enabled, false otherwise.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public boolean isPeriodicRangingResultsEnabled() {
+        return mEnablePeriodicRangingResults;
     }
 
     /**
@@ -233,6 +425,13 @@ public final class PublishConfig implements Parcelable {
         private int mTtlSec = 0;
         private boolean mEnableTerminateNotification = true;
         private boolean mEnableRanging = false;
+        private boolean mEnableInstantMode = false;
+        private int mBand = WifiScanner.WIFI_BAND_24_GHZ;
+        private WifiAwareDataPathSecurityConfig mSecurityConfig = null;
+        private AwarePairingConfig mPairingConfig = null;
+        private boolean mIsSuspendable = false;
+        private @NonNull List<OuiKeyedData> mVendorData = Collections.emptyList();
+        private boolean mEnablePeriodicRangingResults = false;
 
         /**
          * Specify the service name of the publish session. The actual on-air
@@ -240,8 +439,11 @@ public final class PublishConfig implements Parcelable {
          * <p>
          * The Service Name is a UTF-8 encoded string from 1 to 255 bytes in length.
          * The only acceptable single-byte UTF-8 symbols for a Service Name are alphanumeric
-         * values (A-Z, a-z, 0-9), the hyphen ('-'), and the period ('.'). All valid multi-byte
-         * UTF-8 characters are acceptable in a Service Name.
+         * values (A-Z, a-z, 0-9), the hyphen ('-'), the period ('.') and the underscore ('_'). All
+         * valid multi-byte UTF-8 characters are acceptable in a Service Name.
+         * <p>
+         * Note: for compatibility with devices running Android 11 or older, avoid using
+         * underscore ('_') symbol as a single-byte UTF-8 service name.
          * <p>
          * Must be called - an empty ServiceName is not valid.
          *
@@ -361,8 +563,8 @@ public final class PublishConfig implements Parcelable {
         /**
          * Configure whether the publish discovery session supports ranging and allows peers to
          * measure distance to it. This API is used in conjunction with
-         * {@link SubscribeConfig.Builder#setMinDistanceMm(int)} and
-         * {@link SubscribeConfig.Builder#setMaxDistanceMm(int)} to specify a minimum and/or
+         * {@link SubscribeConfig.Builder#setEgressDistanceMm(int)} and
+         * {@link SubscribeConfig.Builder#setIngressDistanceMm(int)} to specify a minimum and/or
          * maximum distance at which discovery will be triggered.
          * <p>
          * Optional. Disabled by default - i.e. any peer attempt to measure distance to this device
@@ -382,12 +584,174 @@ public final class PublishConfig implements Parcelable {
         }
 
         /**
+         * Configure whether periodic ranging results need to be notified to Publisher
+         * <p>
+         * Optional. Disabled by default - i.e. any ranging result will not be notified to
+         * the Publisher.
+         * <p>
+         * The device must support Periodic Ranging for this feature to be used.
+         * Feature support check is determined by
+         * {@link Characteristics#isPeriodicRangingSupported()}.
+         * <p>
+         * The ranging result will be notified to Publisher via
+         * {@link DiscoverySessionCallback#onRangingResultsReceived(RangingResults)}.
+         *
+         * @param enable If true, ranging result will be notified to Publisher.
+         *
+         * @return The builder to facilitate chaining
+         *         {@code builder.setXXX(..).setXXX(..)}.
+         * @hide
+         */
+        @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+        @SystemApi
+        @NonNull
+        public Builder setPeriodicRangingResultsEnabled(boolean enable) {
+            mEnablePeriodicRangingResults = enable;
+            return this;
+        }
+
+        /**
+         * Configure whether to enable and use instant communication for this publish session.
+         * Instant communication will speed up service discovery and any data-path set up as part of
+         * this session. Use {@link Characteristics#isInstantCommunicationModeSupported()} to check
+         * if the device supports this feature.
+         *
+         * <p>Note: due to increased power requirements of this mode - it will only remain enabled
+         * for 30 seconds from the time the discovery session is started.
+         *
+         * @param enabled true for enable instant communication mode, default is false.
+         * @param band When setting to {@link ScanResult#WIFI_BAND_5_GHZ}, device will try to enable
+         *     instant communication mode on 5Ghz, but may fall back to 2.4Ghz due to regulatory
+         *     requirements.
+         * @return the current {@link Builder} builder, enabling chaining of builder methods.
+         */
+        @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+        @NonNull
+        public Builder setInstantCommunicationModeEnabled(
+                boolean enabled, @WifiAwareManager.InstantModeBand int band) {
+            if (!SdkLevel.isAtLeastT()) {
+                throw new UnsupportedOperationException();
+            }
+            if (band != ScanResult.WIFI_BAND_24_GHZ && band != ScanResult.WIFI_BAND_5_GHZ) {
+                throw new IllegalArgumentException();
+            }
+            mBand = band;
+            mEnableInstantMode = enabled;
+            return this;
+        }
+
+        /**
+         * Configure security config for the Wi-Fi Aware publish session. The security config set
+         * here must be the same as the one used to request Wi-Fi Aware data-path connection using
+         * {@link WifiAwareNetworkSpecifier.Builder#setDataPathSecurityConfig(WifiAwareDataPathSecurityConfig)}.
+         * This security config will create a security identifier (SCID) which contains a PMKID and
+         * transmitted in the publish message. The device which subscribe this session can get this
+         * info by {@link ServiceDiscoveryInfo#getScid()}
+         * This method is optional - if not called, then no security context identifier will be
+         * passed in the publish message, then no security context identifier will be provided in
+         * the {@link ServiceDiscoveryInfo} on the subscriber. Security can still be negotiated
+         * using out-of-band (OOB) mechanisms.
+         *
+         * @param securityConfig The (optional) security config to be used to create security
+         *                       context Identifier
+         * @return the current {@link Builder} builder, enabling chaining of builder methods.
+         */
+        @NonNull
+        public Builder setDataPathSecurityConfig(
+                @NonNull WifiAwareDataPathSecurityConfig securityConfig) {
+            if (securityConfig == null) {
+                throw new IllegalArgumentException("The WifiAwareDataPathSecurityConfig "
+                        + "should be non-null");
+            }
+            if (!securityConfig.isValid()) {
+                throw new IllegalArgumentException("The WifiAwareDataPathSecurityConfig "
+                        + "is invalid");
+            }
+            mSecurityConfig = securityConfig;
+            return this;
+        }
+
+        /**
+         * Set the {@link AwarePairingConfig} for this publish session, the peer can use this info
+         * to determine the config of the following bootstrapping, pairing setup/verification
+         * request.
+         * @see AwarePairingConfig
+         * @param config The pairing config set to the peer. Only valid when
+         * {@link Characteristics#isAwarePairingSupported()} is true.
+         * @return the current {@link Builder} builder, enabling chaining of builder methods.
+         */
+        @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+        @NonNull public Builder setPairingConfig(@Nullable AwarePairingConfig config) {
+            if (!SdkLevel.isAtLeastU()) {
+                throw new UnsupportedOperationException();
+            }
+            mPairingConfig = config;
+            return this;
+        }
+
+        /**
+         * Specify whether to configure the publish discovery session to be suspendable. This API
+         * doesn't suspend the session, it allows it to be suspended and resumed in the future using
+         * {@link DiscoverySession#suspend()} and {@link DiscoverySession#resume()} respectively.
+         * <p>
+         * Optional. Not suspendable by default.
+         * <p>
+         * The device must support Wi-Fi Aware suspension for a publish session to be
+         * suspendable. Feature support check is determined by
+         * {@link Characteristics#isSuspensionSupported()}.
+         *
+         * @param isSuspendable If true, then this publish session can be suspended.
+         *
+         * @return the current {@link Builder} builder, enabling chaining of builder methods.
+         *
+         * @see DiscoverySession#suspend()
+         * @see DiscoverySession#resume()
+         * @hide
+         */
+        @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+        @RequiresPermission(value = MANAGE_WIFI_NETWORK_SELECTION)
+        @SystemApi
+        @NonNull
+        public Builder setSuspendable(boolean isSuspendable) {
+            if (!SdkLevel.isAtLeastU()) {
+                throw new UnsupportedOperationException();
+            }
+            mIsSuspendable = isSuspendable;
+            return this;
+        }
+
+        /**
+         * Set additional vendor-provided configuration data.
+         *
+         * @param vendorData List of {@link OuiKeyedData} containing the vendor-provided
+         *     configuration data. Note that multiple elements with the same OUI are allowed.
+         * @return Builder for chaining.
+         * @hide
+         */
+        @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        @SystemApi
+        public Builder setVendorData(@NonNull List<OuiKeyedData> vendorData) {
+            if (!SdkLevel.isAtLeastV()) {
+                throw new UnsupportedOperationException();
+            }
+            if (vendorData == null) {
+                throw new IllegalArgumentException("setVendorData received a null value");
+            }
+            mVendorData = vendorData;
+            return this;
+        }
+
+        /**
          * Build {@link PublishConfig} given the current requests made on the
          * builder.
          */
         public PublishConfig build() {
             return new PublishConfig(mServiceName, mServiceSpecificInfo, mMatchFilter, mPublishType,
-                    mTtlSec, mEnableTerminateNotification, mEnableRanging);
+                    mTtlSec, mEnableTerminateNotification, mEnableRanging, mEnableInstantMode,
+                    mBand, mSecurityConfig, mPairingConfig, mIsSuspendable, mVendorData,
+                    mEnablePeriodicRangingResults);
         }
     }
 }

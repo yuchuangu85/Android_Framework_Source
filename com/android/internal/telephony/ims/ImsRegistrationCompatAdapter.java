@@ -18,6 +18,7 @@ package com.android.internal.telephony.ims;
 
 import static android.telephony.ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN;
 import static android.telephony.ServiceState.RIL_RADIO_TECHNOLOGY_LTE;
+import static android.telephony.ServiceState.RIL_RADIO_TECHNOLOGY_NR;
 
 import android.net.Uri;
 import android.os.RemoteException;
@@ -34,6 +35,7 @@ public class ImsRegistrationCompatAdapter extends ImsRegistrationImplBase {
     // Maps "RAT" based radio technologies to ImsRegistrationImplBase definitions.
     private static final Map<Integer, Integer> RADIO_TECH_MAPPER = new ArrayMap<>(2);
     static {
+        RADIO_TECH_MAPPER.put(RIL_RADIO_TECHNOLOGY_NR, REGISTRATION_TECH_NR);
         RADIO_TECH_MAPPER.put(RIL_RADIO_TECHNOLOGY_LTE, REGISTRATION_TECH_LTE);
         RADIO_TECH_MAPPER.put(RIL_RADIO_TECHNOLOGY_IWLAN, REGISTRATION_TECH_IWLAN);
     }

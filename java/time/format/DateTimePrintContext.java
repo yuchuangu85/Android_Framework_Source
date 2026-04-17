@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -146,7 +146,7 @@ final class DateTimePrintContext {
         if (overrideZone != null) {
             // if have zone and instant, calculation is simple, defaulting chrono if necessary
             if (temporal.isSupported(INSTANT_SECONDS)) {
-                Chronology chrono = (effectiveChrono != null ? effectiveChrono : IsoChronology.INSTANCE);
+                Chronology chrono = Objects.requireNonNullElse(effectiveChrono, IsoChronology.INSTANCE);
                 return chrono.zonedDateTime(Instant.from(temporal), overrideZone);
             }
             // block changing zone on OffsetTime, and similar problem cases
@@ -218,6 +218,13 @@ final class DateTimePrintContext {
                 }
                 return query.queryFrom(this);
             }
+
+            @Override
+            public String toString() {
+                return temporal +
+                        (effectiveChrono != null ? " with chronology " + effectiveChrono : "") +
+                        (effectiveZone != null ? " with zone " + effectiveZone : "");
+            }
         };
     }
 
@@ -279,7 +286,8 @@ final class DateTimePrintContext {
     <R> R getValue(TemporalQuery<R> query) {
         R result = temporal.query(query);
         if (result == null && optional == 0) {
-            throw new DateTimeException("Unable to extract value: " + temporal.getClass());
+            throw new DateTimeException("Unable to extract " +
+                    query + " from temporal " + temporal);
         }
         return result;
     }
@@ -294,14 +302,10 @@ final class DateTimePrintContext {
      * @throws DateTimeException if the field is not available and the section is not optional
      */
     Long getValue(TemporalField field) {
-        try {
-            return temporal.getLong(field);
-        } catch (DateTimeException ex) {
-            if (optional > 0) {
-                return null;
-            }
-            throw ex;
+        if (optional > 0 && !temporal.isSupported(field)) {
+            return null;
         }
+        return temporal.getLong(field);
     }
 
     //-----------------------------------------------------------------------

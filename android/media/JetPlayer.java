@@ -17,48 +17,47 @@
 package android.media;
 
 
-import java.io.FileDescriptor;
-import java.lang.ref.WeakReference;
-import java.lang.CloneNotSupportedException;
-
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.AssetFileDescriptor;
-import android.os.Looper;
+import android.os.Build;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
 import android.util.AndroidRuntimeException;
 import android.util.Log;
 
+import java.io.FileDescriptor;
+import java.lang.ref.WeakReference;
+
 /**
  * JetPlayer provides access to JET content playback and control.
- * 
- * <p>Please refer to the JET Creator User Manual for a presentation of the JET interactive
- * music concept and how to use the JetCreator tool to create content to be player by JetPlayer.
- * 
+ *
+ * <p>Please refer to the
+ * <a href="https://developer.android.com/guide/topics/media/jet/jetcreator_manual">JET Creator User
+ * Manual</a> for a presentation of the JET interactive music concept and how to use the JetCreator
+ * tool to create content to be player by JetPlayer.
+ *
  * <p>Use of the JetPlayer class is based around the playback of a number of JET segments
  * sequentially added to a playback FIFO queue. The rendering of the MIDI content stored in each
  * segment can be dynamically affected by two mechanisms:
  * <ul>
- * <li>tracks in a segment can be muted or unmuted at any moment, individually or through
- *    a mask (to change the mute state of multiple tracks at once)</li>
- * <li>parts of tracks in a segment can be played at predefined points in the segment, in order
- *    to maintain synchronization with the other tracks in the segment. This is achieved through
- *    the notion of "clips", which can be triggered at any time, but that will play only at the
- *    right time, as authored in the corresponding JET file.</li>
+ *   <li>Tracks in a segment can be muted or unmuted at any moment, individually or through a mask
+ *       (to change the mute state of multiple tracks at once).
+ *   <li>Parts of tracks in a segment can be played at predefined points in the segment, in order to
+ *       maintain synchronization with the other tracks in the segment. This is achieved through the
+ *       notion of "clips", which can be triggered at any time, but that will play only at the right
+ *       time, as authored in the corresponding JET file.
  * </ul>
- * As a result of the rendering and playback of the JET segments, the user of the JetPlayer instance
- * can receive notifications from the JET engine relative to:
- * <ul>
- * <li>the playback state,</li>
- * <li>the number of segments left to play in the queue,</li>
- * <li>application controller events (CC80-83) to mark points in the MIDI segments.</li>
- * </ul>
- * Use {@link #getJetPlayer()} to construct a JetPlayer instance. JetPlayer is a singleton class.
- * </p>
  *
- * <div class="special reference">
- * <h3>Developer Guides</h3>
- * <p>For more information about how to use JetPlayer, read the
- * <a href="{@docRoot}guide/topics/media/jetplayer.html">JetPlayer</a> developer guide.</p></div>
+ * <p>As a result of the rendering and playback of the JET segments, the user of the JetPlayer
+ * instance can receive notifications from the JET engine relative to:
+ * <ul>
+ *   <li>Playback state
+ *   <li>Number of segments left to play in the queue
+ *   <li>Application controller events (CC80-83) to mark points in the MIDI segments
+ * </ul>
+ *
+ * <p>Use {@link #getJetPlayer()} to construct a JetPlayer instance. JetPlayer is a singleton class.
  */
 public class JetPlayer
 {    
@@ -119,6 +118,9 @@ public class JetPlayer
     
     private static JetPlayer singletonRef;
     
+    static {
+        System.loadLibrary("media_jni");
+    }
     
     //--------------------------------
     // Used exclusively by native code
@@ -127,6 +129,7 @@ public class JetPlayer
      * Accessed by native methods: provides access to C++ JetPlayer object 
      */
     @SuppressWarnings("unused")
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private long mNativePlayerInJavaObj;
 
     
@@ -135,7 +138,7 @@ public class JetPlayer
     //------------------------
     /**
      * Factory method for the JetPlayer class.
-     * @return the singleton JetPlayer instance
+     * @return the singleton JetPlayer instance.
      */
     public static JetPlayer getJetPlayer() {
         if (singletonRef == null) {
@@ -198,7 +201,8 @@ public class JetPlayer
     // Getters
     //------------------------
     /**
-     * Returns the maximum number of simultaneous MIDI tracks supported by JetPlayer
+     * Gets the maximum number of simultaneous MIDI tracks supported by JetPlayer.
+     * @return the maximum number of simultaneous MIDI tracks supported by JetPlayer.
      */
     public static int getMaxTracks() {
         return JetPlayer.MAXTRACKS;
@@ -454,10 +458,9 @@ public class JetPlayer
     //------------------------
     /**
      * Sets the listener JetPlayer notifies when a JET event is generated by the rendering and
-     * playback engine.
-     * Notifications will be received in the same thread as the one in which the JetPlayer
-     * instance was created.
-     * @param listener
+     * playback engine. Notifications are received in the same thread as the one in which the
+     * JetPlayer instance was created.
+     * @param listener the listener that will be notified when a JET event is generated.
      */
     public void setEventListener(OnJetEventListener listener) {
         setEventListener(listener, null);
@@ -465,10 +468,9 @@ public class JetPlayer
     
     /**
      * Sets the listener JetPlayer notifies when a JET event is generated by the rendering and
-     * playback engine.
-     * Use this method to receive JET events in the Handler associated with another
-     * thread than the one in which you created the JetPlayer instance.
-     * @param listener
+     * playback engine. Use this method to receive JET events in the Handler associated with
+     * another thread than the one in which you created the JetPlayer instance.
+     * @param listener the listener that will be notified when a JET event is generated.
      * @param handler the Handler that will receive the event notification messages.
      */
     public void setEventListener(OnJetEventListener listener, Handler handler) {
@@ -560,6 +562,7 @@ public class JetPlayer
     // Called exclusively by native code
     //--------------------
     @SuppressWarnings("unused")
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static void postEventFromNative(Object jetplayer_ref,
             int what, int arg1, int arg2) {
         //logd("Event posted from the native side: event="+ what + " args="+ arg1+" "+arg2);

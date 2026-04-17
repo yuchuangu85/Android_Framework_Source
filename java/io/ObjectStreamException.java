@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2005, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,20 +28,20 @@ package java.io;
 /**
  * Superclass of all exceptions specific to Object Stream classes.
  *
- * @author  unascribed
- * @since   JDK1.1
+ * @since   1.1
  */
 public abstract class ObjectStreamException extends IOException {
 
+    @java.io.Serial
     private static final long serialVersionUID = 7260898174833392607L;
 
     /**
      * Create an ObjectStreamException with the specified argument.
      *
-     * @param classname the detailed message for the exception
+     * @param message the detailed message for the exception
      */
-    protected ObjectStreamException(String classname) {
-        super(classname);
+    protected ObjectStreamException(String message) {
+        super(message);
     }
 
     /**

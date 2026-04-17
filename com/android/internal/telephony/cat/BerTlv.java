@@ -23,7 +23,7 @@ import java.util.List;
  *
  * @see "ETSI TS 102 223 Annex C" for more information.
  *
- * {@hide}
+ * @hide
  */
 class BerTlv {
     private int mTag = BER_UNKNOWN_TAG;

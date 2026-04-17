@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,12 @@ package android.security.net.config;
 
 import android.os.Environment;
 import android.os.UserHandle;
+
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * {@link CertificateSource} based on the system trusted CA store.
@@ -32,9 +37,29 @@ public final class SystemCertificateSource extends DirectoryCertificateSource {
     private final File mUserRemovedCaDir;
 
     private SystemCertificateSource() {
-        super(new File(System.getenv("ANDROID_ROOT") + "/etc/security/cacerts"));
-        File configDir = Environment.getUserConfigDirectory(UserHandle.myUserId());
+        super(getDirectory());
+        // TODO(b/424086802): migrate to CE or DE directories.
+        File configDir =
+                new File(System.getenv("ANDROID_DATA") + "/misc/user/" + UserHandle.myUserId());
         mUserRemovedCaDir = new File(configDir, "cacerts-removed");
+    }
+
+    private static File getDirectory() {
+        if ((System.getProperty("system.certs.enabled") != null)
+            && (System.getProperty("system.certs.enabled")).equals("true")) {
+            return new File(System.getenv("ANDROID_ROOT") + "/etc/security/cacerts");
+        }
+        File updatable_dir = new File("/apex/com.android.conscrypt/cacerts");
+        if (updatable_dir.exists()) {
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(updatable_dir.toPath())) {
+                if (stream.iterator().hasNext()) {
+                    return updatable_dir;
+                }
+            } catch (IOException e) {
+                // Fallthrough and use the old path.
+            }
+        }
+        return new File(System.getenv("ANDROID_ROOT") + "/etc/security/cacerts");
     }
 
     public static SystemCertificateSource getInstance() {

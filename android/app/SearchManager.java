@@ -16,7 +16,10 @@
 
 package android.app;
 
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
 import android.annotation.SystemService;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.ContentResolver;
@@ -28,6 +31,7 @@ import android.content.res.Configuration;
 import android.database.Cursor;
 import android.graphics.Rect;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.RemoteException;
@@ -168,7 +172,7 @@ public class SearchManager
      * Intent extra data key: Use this key with Intent.ACTION_SEARCH and
      * {@link android.content.Intent#getStringExtra content.Intent.getStringExtra()}
      * to obtain the action message that was defined for a particular search action key and/or
-     * suggestion.  It will be null if the search was launched by typing "enter", touched the the
+     * suggestion.  It will be null if the search was launched by typing "enter", touching the
      * "GO" button, or other means not involving any action key.
      */
     public final static String ACTION_MSG = "action_msg";
@@ -403,7 +407,7 @@ public class SearchManager
      * Column name for suggestions cursor. <i>Optional.</i>  If your content is rentable, you
      * should provide this column to specify the displayable string representation of the rental
      * price of your content including the currency and the amount. If it's free, you should
-     * provide localized string to specify that it's free. This column can be ommitted if the
+     * provide localized string to specify that it's free. This column can be omitted if the
      * content is not applicable to rent.
      */
     public final static String SUGGEST_COLUMN_RENTAL_PRICE = "suggest_rental_price";
@@ -518,7 +522,7 @@ public class SearchManager
 
     /**
      * This means that context is voice, and therefore the SearchDialog should
-     * continue showing the microphone until the user indicates that he/she does
+     * continue showing the microphone until the user indicates that they do
      * not want to re-speak (e.g. by typing).
      *
      * @hide
@@ -530,6 +534,7 @@ public class SearchManager
      * current search engine does not support voice search.
      * @hide
      */
+    @UnsupportedAppUsage
     public final static String DISABLE_VOICE_SEARCH
             = "android.search.DISABLE_VOICE_SEARCH";
 
@@ -545,8 +550,10 @@ public class SearchManager
     /* package */ OnDismissListener mDismissListener = null;
     /* package */ OnCancelListener mCancelListener = null;
 
+    @UnsupportedAppUsage
     private SearchDialog mSearchDialog;
 
+    @UnsupportedAppUsage
     /*package*/ SearchManager(Context context, Handler handler) throws ServiceNotFoundException {
         mContext = context;
         mHandler = handler;
@@ -575,7 +582,7 @@ public class SearchManager
      *
      * @param initialQuery A search string can be pre-entered here, but this
      * is typically null or empty.
-     * @param selectInitialQuery If true, the intial query will be preselected, which means that
+     * @param selectInitialQuery If true, the initial query will be preselected, which means that
      * any further typing will replace it.  This is useful for cases where an entire pre-formed
      * query is being inserted.  If false, the selection point will be placed at the end of the
      * inserted query.  This is useful when the inserted query is text that the user entered,
@@ -609,6 +616,7 @@ public class SearchManager
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public void startSearch(String initialQuery,
                             boolean selectInitialQuery,
                             ComponentName launchActivity,
@@ -710,6 +718,7 @@ public class SearchManager
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public ComponentName getWebSearchActivity() {
         try {
             return mService.getWebSearchActivity();
@@ -770,6 +779,7 @@ public class SearchManager
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isVisible() {
         return mSearchDialog == null? false : mSearchDialog.isShowing();
     }
@@ -866,6 +876,7 @@ public class SearchManager
      *
      * @hide because SearchableInfo is not part of the API.
      */
+    @UnsupportedAppUsage
     public Cursor getSuggestions(SearchableInfo searchable, String query) {
         return getSuggestions(searchable, query, -1);
     }
@@ -881,6 +892,7 @@ public class SearchManager
      *
      * @hide because SearchableInfo is not part of the API.
      */
+    @UnsupportedAppUsage
     public Cursor getSuggestions(SearchableInfo searchable, String query, int limit) {
         if (searchable == null) {
             return null;
@@ -951,7 +963,7 @@ public class SearchManager
         try {
             Intent intent = new Intent(Intent.ACTION_ASSIST);
             if (inclContext) {
-                IActivityManager am = ActivityManager.getService();
+                IActivityTaskManager am = ActivityTaskManager.getService();
                 Bundle extras = am.getAssistContextExtras(ActivityManager.ASSIST_CONTEXT_BASIC);
                 if (extras != null) {
                     intent.replaceExtras(extras);
@@ -964,36 +976,22 @@ public class SearchManager
     }
 
     /**
-     * Starts the assistant.
+     * Starts the {@link android.provider.Settings.Secure#ASSISTANT assistant}.
      *
-     * @param args the args to pass to the assistant
+     * @param args a {@code Bundle} that will be passed to the assistant's
+     *         {@link android.service.voice.VoiceInteractionSession#onShow VoiceInteractionSession}
+     *         (or as {@link Intent#getExtras() extras} along
+     *         {@link Intent#ACTION_ASSIST ACTION_ASSIST} for legacy assistants)
      *
      * @hide
      */
-    public void launchAssist(Bundle args) {
+    @SystemApi
+    public void launchAssist(@Nullable Bundle args) {
         try {
             if (mService == null) {
                 return;
             }
-            mService.launchAssist(args);
-        } catch (RemoteException re) {
-            throw re.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Starts the legacy assistant (i.e. the {@link Intent#ACTION_ASSIST}).
-     *
-     * @param args the args to pass to the assistant
-     *
-     * @hide
-     */
-    public boolean launchLegacyAssist(String hint, int userHandle, Bundle args) {
-        try {
-            if (mService == null) {
-                return false;
-            }
-            return mService.launchLegacyAssist(hint, userHandle, args);
+            mService.launchAssist(mContext.getUserId(), args);
         } catch (RemoteException re) {
             throw re.rethrowFromSystemServer();
         }

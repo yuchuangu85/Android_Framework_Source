@@ -17,11 +17,12 @@
 package com.android.internal.os;
 
 import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Binder;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.SystemClock;
 import android.util.EventLog;
-import android.util.Log;
 import android.util.SparseIntArray;
 
 import com.android.internal.util.Preconditions;
@@ -30,10 +31,11 @@ import dalvik.system.VMRuntime;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Collection;
 
 /**
  * Private and debugging Binder APIs.
- * 
+ *
  * @see IBinder
  */
 public class BinderInternal {
@@ -43,8 +45,8 @@ public class BinderInternal {
     static ArrayList<Runnable> sGcWatchers = new ArrayList<>();
     static Runnable[] sTmpWatchers = new Runnable[1];
     static long sLastGcTime;
-    static final BinderProxyLimitListenerDelegate sBinderProxyLimitListenerDelegate =
-            new BinderProxyLimitListenerDelegate();
+    static final BinderProxyCountEventListenerDelegate sBinderProxyCountEventListenerDelegate =
+            new BinderProxyCountEventListenerDelegate();
 
     static final class GcWatcher {
         @Override
@@ -70,18 +72,98 @@ public class BinderInternal {
     }
 
     /**
+     * A session used by {@link Observer} in order to keep track of some data.
+     */
+    public static class CallSession {
+        // Binder interface descriptor.
+        public Class<? extends Binder> binderClass;
+        // Binder transaction code.
+        public int transactionCode;
+        // CPU time at the beginning of the call.
+        long cpuTimeStarted;
+        // System time at the beginning of the call.
+        long timeStarted;
+        // Should be set to one when an exception is thrown.
+        boolean exceptionThrown;
+        // Detailed information should be recorded for this call when it ends.
+        public boolean recordedCall;
+    }
+
+    /**
+     * Responsible for resolving a work source.
+     */
+    @FunctionalInterface
+    public interface WorkSourceProvider {
+        /**
+         * <p>This method is called in a critical path of the binder transaction.
+         * <p>The implementation should never execute a binder call since it is called during a
+         * binder transaction.
+         *
+         * @param untrustedWorkSourceUid The work source set by the caller.
+         * @return the uid of the process to attribute the binder transaction to.
+         */
+        int resolveWorkSourceUid(int untrustedWorkSourceUid);
+    }
+
+    /**
+     * Allows to track various steps of an API call.
+     */
+    public interface Observer {
+        /**
+         * Called when a binder call starts.
+         *
+         * @return a CallSession to pass to the callEnded method.
+         */
+        CallSession callStarted(Binder binder, int code, int workSourceUid);
+
+        /**
+         * Called when a binder call stops.
+         *
+         * <li>This method will be called even when an exception is thrown by the binder stub
+         * implementation.
+         */
+        void callEnded(CallSession s, int parcelRequestSize, int parcelReplySize,
+                int workSourceUid);
+
+        /**
+         * Called if an exception is thrown while executing the binder transaction.
+         *
+         * <li>BinderCallsStats#callEnded will be called afterwards.
+         * <li>Do not throw an exception in this method, it will swallow the original exception
+         * thrown by the binder transaction.
+         */
+        public void callThrewException(CallSession s, Exception exception);
+    }
+
+    /**
+     * Allows to track observe incoming binder call stats.
+     */
+    public interface CallStatsObserver {
+        /**
+         * Notes incoming binder call stats associated with this work source UID.
+         */
+        void noteCallStats(int workSourceUid, long incrementalCallCount,
+                Collection<BinderCallsStats.CallStat> callStats);
+
+        /**
+         * Notes the native IDs of threads taking incoming binder calls.
+         */
+        void noteBinderThreadNativeIds(int[] binderThreadNativeTids);
+    }
+
+    /**
      * Add the calling thread to the IPC thread pool.  This function does
      * not return until the current process is exiting.
      */
     public static final native void joinThreadPool();
-    
+
     /**
      * Return the system time (as reported by {@link SystemClock#uptimeMillis
      * SystemClock.uptimeMillis()}) that the last garbage collection occurred
      * in this process.  This is not for general application use, and the
      * meaning of "when a garbage collection occurred" will change as the
      * garbage collector evolves.
-     * 
+     *
      * @return Returns the time as per {@link SystemClock#uptimeMillis
      * SystemClock.uptimeMillis()} of the last garbage collection.
      */
@@ -94,8 +176,9 @@ public class BinderInternal {
      * an implementation of IServiceManager, which you can use to find
      * other services.
      */
+    @UnsupportedAppUsage
     public static final native IBinder getContextObject();
-    
+
     /**
      * Special for system process to not allow incoming calls to run at
      * background scheduling priority.
@@ -104,14 +187,15 @@ public class BinderInternal {
     public static final native void disableBackgroundScheduling(boolean disable);
 
     public static final native void setMaxThreads(int numThreads);
-    
+
+    @UnsupportedAppUsage
     static native final void handleGc();
-    
+
     public static void forceGc(String reason) {
         EventLog.writeEvent(2741, reason);
         VMRuntime.getRuntime().requestConcurrentGC();
     }
-    
+
     static void forceBinderGc() {
         forceGc("Binder");
     }
@@ -142,15 +226,24 @@ public class BinderInternal {
      * @param low   The threshold a binder count must drop below before the callback
      *              can be called again. (This is to avoid many repeated calls to the
      *              callback in a brief period of time)
+     * @param warning The threshold between {@code high} and {@code low} where if the binder count
+     *                exceeds that, the warning callback would be triggered.
      */
-    public static final native void nSetBinderProxyCountWatermarks(int high, int low);
+    public static final native void nSetBinderProxyCountWatermarks(int high, int low, int warning);
 
     /**
      * Interface for callback invocation when the Binder Proxy limit is reached. onLimitReached will
      * be called with the uid of the app causing too many Binder Proxies
      */
-    public interface BinderProxyLimitListener {
+    public interface BinderProxyCountEventListener {
         public void onLimitReached(int uid);
+
+        /**
+         * Call when the number of binder proxies from the uid of the app reaches
+         * the warning threshold.
+         */
+        default void onWarningThresholdReached(int uid) {
+        }
     }
 
     /**
@@ -159,7 +252,17 @@ public class BinderInternal {
      * @param uid The uid of the bad behaving app sending too many binders
      */
     public static void binderProxyLimitCallbackFromNative(int uid) {
-       sBinderProxyLimitListenerDelegate.notifyClient(uid);
+        sBinderProxyCountEventListenerDelegate.notifyLimitReached(uid);
+    }
+
+    /**
+     * Callback used by native code to trigger a callback in java code. The callback will be
+     * triggered when too many binder proxies from a uid hits the warning limit.
+     * @param uid The uid of the bad behaving app sending too many binders
+     */
+    @SuppressWarnings("unused")
+    public static void binderProxyWarningCallbackFromNative(int uid) {
+        sBinderProxyCountEventListenerDelegate.notifyWarningReached(uid);
     }
 
     /**
@@ -168,41 +271,45 @@ public class BinderInternal {
      * @param handler must not be null, callback will be posted through the handler;
      *
      */
-    public static void setBinderProxyCountCallback(BinderProxyLimitListener listener,
+    public static void setBinderProxyCountCallback(BinderProxyCountEventListener listener,
             @NonNull Handler handler) {
         Preconditions.checkNotNull(handler,
                 "Must provide NonNull Handler to setBinderProxyCountCallback when setting "
-                        + "BinderProxyLimitListener");
-        sBinderProxyLimitListenerDelegate.setListener(listener, handler);
+                        + "BinderProxyCountEventListener");
+        sBinderProxyCountEventListenerDelegate.setListener(listener, handler);
     }
 
     /**
      * Clear the Binder Proxy callback
      */
     public static void clearBinderProxyCountCallback() {
-        sBinderProxyLimitListenerDelegate.setListener(null, null);
+        sBinderProxyCountEventListenerDelegate.setListener(null, null);
     }
 
-    static private class BinderProxyLimitListenerDelegate {
-        private BinderProxyLimitListener mBinderProxyLimitListener;
+    private static class BinderProxyCountEventListenerDelegate {
+        private BinderProxyCountEventListener mBinderProxyCountEventListener;
         private Handler mHandler;
 
-        void setListener(BinderProxyLimitListener listener, Handler handler) {
+        void setListener(BinderProxyCountEventListener listener, Handler handler) {
             synchronized (this) {
-                mBinderProxyLimitListener = listener;
+                mBinderProxyCountEventListener = listener;
                 mHandler = handler;
             }
         }
 
-        void notifyClient(final int uid) {
+        void notifyLimitReached(final int uid) {
             synchronized (this) {
-                if (mBinderProxyLimitListener != null) {
-                    mHandler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            mBinderProxyLimitListener.onLimitReached(uid);
-                        }
-                    });
+                if (mBinderProxyCountEventListener != null) {
+                    mHandler.post(() -> mBinderProxyCountEventListener.onLimitReached(uid));
+                }
+            }
+        }
+
+        void notifyWarningReached(final int uid) {
+            synchronized (this) {
+                if (mBinderProxyCountEventListener != null) {
+                    mHandler.post(() ->
+                            mBinderProxyCountEventListener.onWarningThresholdReached(uid));
                 }
             }
         }

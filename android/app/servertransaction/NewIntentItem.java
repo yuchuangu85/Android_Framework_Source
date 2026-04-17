@@ -16,7 +16,15 @@
 
 package android.app.servertransaction;
 
+import static android.app.servertransaction.ActivityLifecycleItem.ON_RESUME;
+import static android.app.servertransaction.ActivityLifecycleItem.UNDEFINED;
+
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.app.ActivityThread.ActivityClientRecord;
 import android.app.ClientTransactionHandler;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -24,105 +32,98 @@ import android.os.Trace;
 
 import com.android.internal.content.ReferrerIntent;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
 /**
  * New intent message.
+ *
  * @hide
  */
-public class NewIntentItem extends ClientTransactionItem {
+public class NewIntentItem extends ActivityTransactionItem {
 
+    // TODO(b/170729553): Mark this with @NonNull and final once @UnsupportedAppUsage removed.
+    //  We cannot do it now to avoid app compatibility regression.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private List<ReferrerIntent> mIntents;
-    private boolean mPause;
 
-    // TODO(lifecycler): Switch new intent handling to this scheme.
-    /*@Override
-    public int getPostExecutionState() {
-        return ON_RESUME;
-    }*/
+    private final boolean mResume;
+
+    public NewIntentItem(@NonNull IBinder activityToken,
+            @NonNull List<ReferrerIntent> intents, boolean resume) {
+        super(activityToken);
+        mIntents = new ArrayList<>(intents);
+        mResume = resume;
+    }
 
     @Override
-    public void execute(ClientTransactionHandler client, IBinder token,
-            PendingTransactionActions pendingActions) {
+    public int getPostExecutionState() {
+        return mResume ? ON_RESUME : UNDEFINED;
+    }
+
+    @Override
+    public void execute(@NonNull ClientTransactionHandler client, @NonNull ActivityClientRecord r,
+            @NonNull PendingTransactionActions pendingActions) {
         Trace.traceBegin(Trace.TRACE_TAG_ACTIVITY_MANAGER, "activityNewIntent");
-        client.handleNewIntent(token, mIntents, mPause);
+        client.handleNewIntent(r, mIntents);
         Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);
     }
 
-
-    // ObjectPoolItem implementation
-
-    private NewIntentItem() {}
-
-    /** Obtain an instance initialized with provided params. */
-    public static NewIntentItem obtain(List<ReferrerIntent> intents, boolean pause) {
-        NewIntentItem instance = ObjectPool.obtain(NewIntentItem.class);
-        if (instance == null) {
-            instance = new NewIntentItem();
-        }
-        instance.mIntents = intents;
-        instance.mPause = pause;
-
-        return instance;
-    }
-
-    @Override
-    public void recycle() {
-        mIntents = null;
-        mPause = false;
-        ObjectPool.recycle(this);
-    }
-
-
     // Parcelable implementation
 
-    /** Write to Parcel. */
+    /** Writes to Parcel. */
     @Override
-    public void writeToParcel(Parcel dest, int flags) {
-        dest.writeBoolean(mPause);
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
+        super.writeToParcel(dest, flags);
+        dest.writeBoolean(mResume);
         dest.writeTypedList(mIntents, flags);
     }
 
-    /** Read from Parcel. */
-    private NewIntentItem(Parcel in) {
-        mPause = in.readBoolean();
+    /** Reads from Parcel. */
+    private NewIntentItem(@NonNull Parcel in) {
+        super(in);
+        mResume = in.readBoolean();
+        // TODO(b/170729553): Wrap with requireNonNull once @UnsupportedAppUsage removed.
         mIntents = in.createTypedArrayList(ReferrerIntent.CREATOR);
     }
 
-    public static final Parcelable.Creator<NewIntentItem> CREATOR =
-            new Parcelable.Creator<NewIntentItem>() {
-        public NewIntentItem createFromParcel(Parcel in) {
-            return new NewIntentItem(in);
-        }
+    public static final @NonNull Parcelable.Creator<NewIntentItem> CREATOR =
+            new Parcelable.Creator<>() {
+                public NewIntentItem createFromParcel(@NonNull Parcel in) {
+                    return new NewIntentItem(in);
+                }
 
-        public NewIntentItem[] newArray(int size) {
-            return new NewIntentItem[size];
-        }
-    };
+                public NewIntentItem[] newArray(int size) {
+                    return new NewIntentItem[size];
+                }
+            };
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) {
             return true;
         }
-        if (o == null || getClass() != o.getClass()) {
+        if (!super.equals(o)) {
             return false;
         }
         final NewIntentItem other = (NewIntentItem) o;
-        return mPause == other.mPause && Objects.equals(mIntents, other.mIntents);
+        return mResume == other.mResume && Objects.equals(mIntents, other.mIntents);
     }
 
     @Override
     public int hashCode() {
         int result = 17;
-        result = 31 * result + (mPause ? 1 : 0);
+        result = 31 * result + super.hashCode();
+        result = 31 * result + (mResume ? 1 : 0);
         result = 31 * result + mIntents.hashCode();
         return result;
     }
 
     @Override
     public String toString() {
-        return "NewIntentItem{pause=" + mPause + ",intents=" + mIntents + "}";
+        return "NewIntentItem{" + super.toString()
+                + ",intents=" + mIntents
+                + ",resume=" + mResume + "}";
     }
 }

@@ -34,8 +34,9 @@ import static com.android.internal.util.Preconditions.checkArgumentPositive;
  * Therefore it is purely synchronous and does not involve any asynchronous activity.
  * It is not synchronized in any way and not a thread-safe object.
  *
- * {@hide}
+ * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class TokenBucket {
 
     private final int mFillDelta; // Time in ms it takes to generate one token.

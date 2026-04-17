@@ -16,6 +16,10 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.telephony.TelephonyManager;
+
 /**
  * Object to indicate the phone radio capability.
  *
@@ -94,8 +98,9 @@ public class RadioCapability {
      * RadioAccessFamily is a bit field of radio access technologies the
      * for the modem is currently supporting. The initial value returned
      * my the modem must the the set of bits that the modem currently supports.
-     * see RadioAccessFamily#RADIO_TECHNOLOGY_XXXX
+     * see {@link android.telephony.TelephonyManager.NetworkTypeBitMask}
      */
+    @TelephonyManager.NetworkTypeBitMask
     private int mRadioAccessFamily;
 
     /**
@@ -118,14 +123,15 @@ public class RadioCapability {
      * @param session the request transaction id
      * @param phase the request phase id
      * @param radioAccessFamily the phone radio access family defined in
-     *        RadioAccessFamily. It's a bit mask value to represent
-     *        the support type.
+     * {@link android.telephony.TelephonyManager.NetworkTypeBitMask}
+     *                          It's a bit mask value to represent the support type.
      * @param logicalModemUuid the logicalModem UUID which phone connected to
      * @param status tell modem the action transaction of
      *        set radio capability is success or fail with RC_Phase_FINISH
      */
     public RadioCapability(int phoneId, int session, int phase,
-            int radioAccessFamily, String logicalModemUuid, int status) {
+                           @TelephonyManager.NetworkTypeBitMask int radioAccessFamily,
+                           String logicalModemUuid, int status) {
         mPhoneId = phoneId;
         mSession = session;
         mPhase = phase;
@@ -176,6 +182,7 @@ public class RadioCapability {
      *
      * @return radio access family
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getRadioAccessFamily() {
         return mRadioAccessFamily;
     }

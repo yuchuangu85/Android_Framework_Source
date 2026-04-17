@@ -21,6 +21,7 @@ package android.text;
  * attached and detached.  Not all Spannable classes have mutable text;
  * see {@link Editable} for that.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface Spannable
 extends Spanned
 {

@@ -15,89 +15,232 @@
  */
 package android.service.notification;
 
+import android.annotation.SuppressLint;
+import android.app.Notification;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.SharedMemory;
+import android.system.ErrnoException;
+import android.system.OsConstants;
+import android.util.Slog;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
+ * Represents an update to notification rankings.
+ *
  * @hide
  */
+@SuppressLint({"ParcelNotFinal", "ParcelCreator"})
 public class NotificationRankingUpdate implements Parcelable {
-    // TODO: Support incremental updates.
-    private final String[] mKeys;
-    private final String[] mInterceptedKeys;
-    private final Bundle mVisibilityOverrides;
-    private final Bundle mSuppressedVisualEffects;
-    private final int[] mImportance;
-    private final Bundle mImportanceExplanation;
-    private final Bundle mOverrideGroupKeys;
-    private final Bundle mChannels;
-    private final Bundle mOverridePeople;
-    private final Bundle mSnoozeCriteria;
-    private final Bundle mShowBadge;
-    private final Bundle mUserSentiment;
-    private final Bundle mHidden;
+    private static final String TAG = "NotificationRankingUpdate";
+    private final NotificationListenerService.RankingMap mRankingMap;
 
-    public NotificationRankingUpdate(String[] keys, String[] interceptedKeys,
-            Bundle visibilityOverrides, Bundle suppressedVisualEffects,
-            int[] importance, Bundle explanation, Bundle overrideGroupKeys,
-            Bundle channels, Bundle overridePeople, Bundle snoozeCriteria,
-            Bundle showBadge, Bundle userSentiment, Bundle hidden) {
-        mKeys = keys;
-        mInterceptedKeys = interceptedKeys;
-        mVisibilityOverrides = visibilityOverrides;
-        mSuppressedVisualEffects = suppressedVisualEffects;
-        mImportance = importance;
-        mImportanceExplanation = explanation;
-        mOverrideGroupKeys = overrideGroupKeys;
-        mChannels = channels;
-        mOverridePeople = overridePeople;
-        mSnoozeCriteria = snoozeCriteria;
-        mShowBadge = showBadge;
-        mUserSentiment = userSentiment;
-        mHidden = hidden;
+    // The ranking map is stored in shared memory when parceled, for sending across the binder.
+    // This is done because the ranking map can grow large if there are many notifications.
+    private SharedMemory mRankingMapFd = null;
+    private final String mSharedMemoryName = "NotificationRankingUpdatedSharedMemory";
+
+    /**
+     * @hide
+     */
+    public NotificationRankingUpdate(NotificationListenerService.Ranking[] rankings) {
+        mRankingMap = new NotificationListenerService.RankingMap(rankings);
     }
 
+    /**
+     * @hide
+     */
     public NotificationRankingUpdate(Parcel in) {
-        mKeys = in.readStringArray();
-        mInterceptedKeys = in.readStringArray();
-        mVisibilityOverrides = in.readBundle();
-        mSuppressedVisualEffects = in.readBundle();
-        mImportance = new int[mKeys.length];
-        in.readIntArray(mImportance);
-        mImportanceExplanation = in.readBundle();
-        mOverrideGroupKeys = in.readBundle();
-        mChannels = in.readBundle();
-        mOverridePeople = in.readBundle();
-        mSnoozeCriteria = in.readBundle();
-        mShowBadge = in.readBundle();
-        mUserSentiment = in.readBundle();
-        mHidden = in.readBundle();
+        // Recover the ranking map from the SharedMemory and store it in mapParcel.
+        final Parcel mapParcel = Parcel.obtain();
+        ByteBuffer buffer = null;
+        try {
+            // The ranking map should be stored in shared memory when it is parceled, so we
+            // unwrap the SharedMemory object.
+            mRankingMapFd = in.readParcelable(getClass().getClassLoader(), SharedMemory.class);
+            Bundle smartActionsBundle = in.readBundle(getClass().getClassLoader());
+
+            // In the case that the ranking map can't be read, readParcelable may return null.
+            // In this case, we set mRankingMap to null;
+            if (mRankingMapFd == null) {
+                mRankingMap = null;
+                return;
+            }
+            // We only need read-only access to the shared memory region.
+            buffer = mRankingMapFd.mapReadOnly();
+            byte[] payload = new byte[buffer.remaining()];
+            buffer.get(payload);
+            mapParcel.unmarshall(payload, 0, payload.length);
+            mapParcel.setDataPosition(0);
+
+            mRankingMap =
+                    mapParcel.readParcelable(
+                            getClass().getClassLoader(),
+                            NotificationListenerService.RankingMap.class);
+
+            addSmartActionsFromBundleToRankingMap(smartActionsBundle);
+
+        } catch (ErrnoException e) {
+            throw new RuntimeException(e);
+        } finally {
+            mapParcel.recycle();
+            if (buffer != null && mRankingMapFd != null) {
+                SharedMemory.unmap(buffer);
+                mRankingMapFd.close();
+            }
+        }
     }
 
+    /**
+     * For each key in the rankingMap, extracts lists of smart actions stored in the provided
+     * bundle and adds them to the corresponding Ranking object in the provided ranking
+     * map, then returns the rankingMap.
+     *
+     * @hide
+     */
+    private void addSmartActionsFromBundleToRankingMap(Bundle smartActionsBundle) {
+        if (smartActionsBundle == null) {
+            return;
+        }
+
+        String[] rankingMapKeys = mRankingMap.getOrderedKeys();
+        for (int i = 0; i < rankingMapKeys.length; i++) {
+            String key = rankingMapKeys[i];
+            ArrayList<Notification.Action> smartActions =
+                    smartActionsBundle.getParcelableArrayList(key, Notification.Action.class);
+            // Get the ranking object from the ranking map.
+            NotificationListenerService.Ranking ranking = mRankingMap.getRawRankingObject(key);
+            ranking.setSmartActions(smartActions);
+        }
+    }
+
+    /**
+     * Confirms that the SharedMemory file descriptor is closed. Should only be used for testing.
+     *
+     * @hide
+     */
+    @VisibleForTesting(otherwise = VisibleForTesting.NONE)
+    public final boolean isFdNotNullAndClosed() {
+        return mRankingMapFd != null && mRankingMapFd.getFd() == -1;
+    }
+
+    /**
+     * @hide
+     */
+    public NotificationListenerService.RankingMap getRankingMap() {
+        return mRankingMap;
+    }
+
+    /**
+     * @hide
+     */
     @Override
     public int describeContents() {
         return 0;
     }
 
+    /**
+     * @hide
+     */
     @Override
-    public void writeToParcel(Parcel out, int flags) {
-        out.writeStringArray(mKeys);
-        out.writeStringArray(mInterceptedKeys);
-        out.writeBundle(mVisibilityOverrides);
-        out.writeBundle(mSuppressedVisualEffects);
-        out.writeIntArray(mImportance);
-        out.writeBundle(mImportanceExplanation);
-        out.writeBundle(mOverrideGroupKeys);
-        out.writeBundle(mChannels);
-        out.writeBundle(mOverridePeople);
-        out.writeBundle(mSnoozeCriteria);
-        out.writeBundle(mShowBadge);
-        out.writeBundle(mUserSentiment);
-        out.writeBundle(mHidden);
+    public boolean equals(@Nullable Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        NotificationRankingUpdate other = (NotificationRankingUpdate) o;
+        return mRankingMap.equals(other.mRankingMap);
     }
 
-    public static final Parcelable.Creator<NotificationRankingUpdate> CREATOR
+    /**
+     * @hide
+     */
+    @Override
+    public void writeToParcel(@NonNull Parcel out, int flags) {
+        final Parcel mapParcel = Parcel.obtain();
+        ArrayList<NotificationListenerService.Ranking> marshalableRankings = new ArrayList<>();
+        Bundle smartActionsBundle = new Bundle();
+
+        // We need to separate the SmartActions from the RankingUpdate objects.
+        // SmartActions can contain PendingIntents, which cannot be marshalled,
+        // so we extract them to send separately.
+        String[] rankingMapKeys = mRankingMap.getOrderedKeys();
+        for (int i = 0; i < rankingMapKeys.length; i++) {
+            String key = rankingMapKeys[i];
+            NotificationListenerService.Ranking ranking = mRankingMap.getRawRankingObject(key);
+
+            // Removes the SmartActions and stores them in a separate map.
+            // Note that getSmartActions returns a Collections.emptyList() if there are no
+            // smart actions, and we don't want to needlessly store an empty list object, so we
+            // check for null before storing.
+            List<Notification.Action> smartActions = ranking.getSmartActions();
+            if (smartActions != null && !smartActions.isEmpty()) {
+                smartActionsBundle.putParcelableList(key, smartActions);
+            }
+
+            // Create a copy of the ranking object that doesn't have the smart actions.
+            NotificationListenerService.Ranking rankingCopy =
+                    new NotificationListenerService.Ranking();
+            rankingCopy.populate(ranking);
+            rankingCopy.setSmartActions(null);
+            marshalableRankings.add(rankingCopy);
+        }
+
+        // Create a new marshalable RankingMap.
+        NotificationListenerService.RankingMap marshalableRankingMap =
+                new NotificationListenerService.RankingMap(
+                        marshalableRankings.toArray(
+                                new NotificationListenerService.Ranking[0]
+                        )
+                );
+        ByteBuffer buffer = null;
+
+        try {
+             // Parcels the ranking map and measures its size.
+            mapParcel.writeParcelable(marshalableRankingMap, flags);
+            int mapSize = mapParcel.dataSize();
+
+            // Creates a new SharedMemory object with enough space to hold the ranking map.
+            mRankingMapFd = SharedMemory.create(mSharedMemoryName, mapSize);
+
+            // Gets a read/write buffer mapping the entire shared memory region.
+            buffer = mRankingMapFd.mapReadWrite();
+            // Puts the ranking map into the shared memory region buffer.
+            mapParcel.marshall(buffer);
+            // Protects the region from being written to, by setting it to be read-only.
+            mRankingMapFd.setProtect(OsConstants.PROT_READ);
+            // Puts the SharedMemory object in the parcel.
+            out.writeParcelable(mRankingMapFd, flags);
+            // Writes the Parceled smartActions separately.
+            if (smartActionsBundle.size() > 0) {
+                out.writeBundle(smartActionsBundle);
+            } else {
+                out.writeBundle(null);
+            }
+        } catch (ErrnoException e) {
+            Slog.wtf(TAG, "Failed to write ranking map to shared memory", e);
+        } finally {
+            mapParcel.recycle();
+            // To prevent memory leaks, we can close the ranking map fd here.
+            // This is safe to do because a reference to this still exists.
+            if (buffer != null && mRankingMapFd != null) {
+                SharedMemory.unmap(buffer);
+                mRankingMapFd.close();
+            }
+        }
+    }
+
+    /**
+     * @hide
+     */
+    public static final @NonNull Parcelable.Creator<NotificationRankingUpdate> CREATOR
             = new Parcelable.Creator<NotificationRankingUpdate>() {
         public NotificationRankingUpdate createFromParcel(Parcel parcel) {
             return new NotificationRankingUpdate(parcel);
@@ -107,56 +250,4 @@ public class NotificationRankingUpdate implements Parcelable {
             return new NotificationRankingUpdate[size];
         }
     };
-
-    public String[] getOrderedKeys() {
-        return mKeys;
-    }
-
-    public String[] getInterceptedKeys() {
-        return mInterceptedKeys;
-    }
-
-    public Bundle getVisibilityOverrides() {
-        return mVisibilityOverrides;
-    }
-
-    public Bundle getSuppressedVisualEffects() {
-        return mSuppressedVisualEffects;
-    }
-
-    public int[] getImportance() {
-        return mImportance;
-    }
-
-    public Bundle getImportanceExplanation() {
-        return mImportanceExplanation;
-    }
-
-    public Bundle getOverrideGroupKeys() {
-        return mOverrideGroupKeys;
-    }
-
-    public Bundle getChannels() {
-        return mChannels;
-    }
-
-    public Bundle getOverridePeople() {
-        return mOverridePeople;
-    }
-
-    public Bundle getSnoozeCriteria() {
-        return mSnoozeCriteria;
-    }
-
-    public Bundle getShowBadge() {
-        return mShowBadge;
-    }
-
-    public Bundle getUserSentiment() {
-        return mUserSentiment;
-    }
-
-    public Bundle getHidden() {
-        return mHidden;
-    }
 }

@@ -22,6 +22,7 @@ import android.text.TextPaint;
 /**
  *  @removed Rasterizer is not supported for hw-accerlerated and PDF rendering
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class RasterizerSpan extends CharacterStyle implements UpdateAppearance {
 
     private Rasterizer mRasterizer;

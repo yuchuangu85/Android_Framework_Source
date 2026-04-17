@@ -18,6 +18,7 @@ package com.android.internal.app;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.DialogInterface;
 import android.os.Bundle;
 import android.view.KeyEvent;
@@ -33,16 +34,22 @@ import android.view.accessibility.AccessibilityEvent;
  */
 public abstract class AlertActivity extends Activity implements DialogInterface {
 
+    @UnsupportedAppUsage
+    public AlertActivity() {
+    }
+
     /**
      * The model for the alert.
      * 
      * @see #mAlertParams
      */
+    @UnsupportedAppUsage
     protected AlertController mAlert;
 
     /**
      * The parameters for the alert.
      */
+    @UnsupportedAppUsage
     protected AlertController.AlertParams mAlertParams;
 
     @Override
@@ -90,6 +97,7 @@ public abstract class AlertActivity extends Activity implements DialogInterface 
      * @see #mAlert
      * @see #mAlertParams
      */
+    @UnsupportedAppUsage
     protected void setupAlert() {
         mAlert.installContent(mAlertParams);
     }

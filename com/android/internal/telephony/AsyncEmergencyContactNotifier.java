@@ -19,13 +19,14 @@ package com.android.internal.telephony;
 import android.content.Context;
 import android.os.AsyncTask;
 import android.provider.BlockedNumberContract;
-import android.telephony.Rlog;
+
+import com.android.telephony.Rlog;
 
 /**
  * An {@link AsyncTask} that notifies the Blocked number provider that emergency services were
  * contacted. See {@link BlockedNumberContract.SystemContract#notifyEmergencyContact(Context)}
  * for details.
- * {@hide}
+ * @hide
  */
 public class AsyncEmergencyContactNotifier extends AsyncTask<Void, Void, Void> {
     private static final String TAG = "AsyncEmergencyContactNotifier";

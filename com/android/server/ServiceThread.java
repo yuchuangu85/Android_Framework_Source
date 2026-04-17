@@ -16,13 +16,17 @@
 
 package com.android.server;
 
+import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.Process;
+import android.os.Looper;
 import android.os.StrictMode;
 
 /**
  * Special handler thread that we create for system services that require their own loopers.
+ *
+ * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class ServiceThread extends HandlerThread {
     private static final String TAG = "ServiceThread";
 
@@ -35,12 +39,14 @@ public class ServiceThread extends HandlerThread {
 
     @Override
     public void run() {
-        Process.setCanSelfBackground(false);
-
         if (!mAllowIo) {
             StrictMode.initThreadDefaults(null);
         }
 
         super.run();
+    }
+
+    protected static Handler makeSharedHandler(Looper looper) {
+        return new Handler(looper, /*callback=*/ null, /* async=*/ false, /* shared=*/ true);
     }
 }

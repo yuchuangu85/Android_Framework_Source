@@ -343,6 +343,7 @@ public interface ResultSet extends Wrapper, AutoCloseable {
      */
     double getDouble(int columnIndex) throws SQLException;
 
+    // Android-changed: Added reason to @deprecated to improve the documentation.
     /**
      * Retrieves the value of the designated column in the current row
      * of this <code>ResultSet</code> object as
@@ -360,6 +361,7 @@ public interface ResultSet extends Wrapper, AutoCloseable {
      * @deprecated Use {@code getBigDecimal(int columnIndex)}
      *             or {@code getBigDecimal(String columnLabel)}
      */
+    // Android-added: @Deprecated annotation from OpenJDK8u121-b13 to fix build warnings.
     @Deprecated
     BigDecimal getBigDecimal(int columnIndex, int scale) throws SQLException;
 
@@ -480,6 +482,7 @@ public interface ResultSet extends Wrapper, AutoCloseable {
      * @deprecated use <code>getCharacterStream</code> in place of
      *              <code>getUnicodeStream</code>
      */
+    // Android-added: @Deprecated annotation from OpenJDK8u121-b13 to fix build warnings.
     @Deprecated
     java.io.InputStream getUnicodeStream(int columnIndex) throws SQLException;
 
@@ -631,6 +634,7 @@ public interface ResultSet extends Wrapper, AutoCloseable {
      */
     double getDouble(String columnLabel) throws SQLException;
 
+    // Android-changed: Added reason to @deprecated to improve the documentation.
     /**
      * Retrieves the value of the designated column in the current row
      * of this <code>ResultSet</code> object as
@@ -648,6 +652,7 @@ public interface ResultSet extends Wrapper, AutoCloseable {
      * @deprecated Use {@code getBigDecimal(int columnIndex)}
      *             or {@code getBigDecimal(String columnLabel)}
      */
+    // Android-added: @Deprecated annotation from OpenJDK8u121-b13 to fix build warnings.
     @Deprecated
     BigDecimal getBigDecimal(String columnLabel, int scale) throws SQLException;
 
@@ -766,6 +771,7 @@ public interface ResultSet extends Wrapper, AutoCloseable {
      * this method
      * @deprecated use <code>getCharacterStream</code> instead
      */
+    // Android-added: @Deprecated annotation from OpenJDK8u121-b13 to fix build warnings.
     @Deprecated
     java.io.InputStream getUnicodeStream(String columnLabel) throws SQLException;
 
@@ -4083,4 +4089,5 @@ public interface ResultSet extends Wrapper, AutoCloseable {
      */
     void updateNClob(String columnLabel,  Reader reader) throws SQLException;
 
+    // Android-removed: JDBC 4.1 methods were removed immediately after the initial import.
 }

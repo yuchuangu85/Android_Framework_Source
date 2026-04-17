@@ -16,18 +16,35 @@
 
 package android.net.wifi.rtt;
 
+import android.annotation.ElapsedRealtimeLong;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
+import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.net.MacAddress;
+import android.net.wifi.OuiKeyedData;
+import android.net.wifi.ParcelUtil;
+import android.net.wifi.ScanResult;
+import android.net.wifi.WifiAnnotations.ChannelWidth;
 import android.net.wifi.aware.PeerHandle;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.Log;
+
+import androidx.annotation.RequiresApi;
+
+import com.android.modules.utils.build.SdkLevel;
+import com.android.wifi.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -44,7 +61,8 @@ public final class RangingResult implements Parcelable {
     private static final byte[] EMPTY_BYTE_ARRAY = new byte[0];
 
     /** @hide */
-    @IntDef({STATUS_SUCCESS, STATUS_FAIL, STATUS_RESPONDER_DOES_NOT_SUPPORT_IEEE80211MC})
+    @IntDef({STATUS_SUCCESS, STATUS_FAIL, STATUS_RESPONDER_DOES_NOT_SUPPORT_IEEE80211MC,
+            STATUS_BUSY_TRY_LATER})
     @Retention(RetentionPolicy.SOURCE)
     public @interface RangeResultStatus {
     }
@@ -72,7 +90,21 @@ public final class RangingResult implements Parcelable {
      */
     public static final int STATUS_RESPONDER_DOES_NOT_SUPPORT_IEEE80211MC = 2;
 
-    private final int mStatus;
+    /**
+     * Individual range request status, {@link #getStatus()}. Indicates that the ranging operation
+     * failed because the peer is busy and unable to handle the request at this time. The requester
+     * should try again after a suggested delay, which can be retrieved with
+     * {@link #getRetryAfterDurationMillis()}.
+     */
+    @FlaggedApi(Flags.FLAG_RTT_BUSY_TRY_LATER_API)
+    public static final int STATUS_BUSY_TRY_LATER = 12;
+
+    /**
+     * The unspecified value.
+     */
+    public static final int UNSPECIFIED = -1;
+
+    private final @RangeResultStatus int mStatus;
     private final MacAddress mMac;
     private final PeerHandle mPeerHandle;
     private final int mDistanceMm;
@@ -82,40 +114,751 @@ public final class RangingResult implements Parcelable {
     private final int mNumSuccessfulMeasurements;
     private final byte[] mLci;
     private final byte[] mLcr;
+    private final ResponderLocation mResponderLocation;
     private final long mTimestamp;
+    private final int mRetryAfterDurationMillis;
+    private final boolean mIs80211mcMeasurement;
+    private final int mFrequencyMHz;
+    private final int mPacketBw;
+    private final boolean mIs80211azNtbMeasurement;
+    private final long mNtbMinMeasurementTime;
+    private final long mNtbMaxMeasurementTime;
+    private final int mI2rTxLtfRepetitions;
+    private final int mR2iTxLtfRepetitions;
+    private final int mNumTxSpatialStreams;
+    private final int mNumRxSpatialStreams;
+    private List<OuiKeyedData> mVendorData;
+    private final boolean mIsRangingAuthenticated;
+    private final boolean mIsRangingFrameProtected;
+    private final boolean mIsSecureHeLtfEnabled;
+    private final int mSecureHeLtfProtocolVersion;
+    private final byte[] mPasnComebackCookie;
+    private final long mPasnComebackAfterMillis;
+    private final long mAvailabilityWindowDurationMillis;
+    private final long mNominalTimeMillis;
+    private final int mNumNtbRepetitionsPerMeasurement;
+    private final boolean mIsLmrDelayed;
+    private final int mUsdPeerId;
 
-    /** @hide */
-    public RangingResult(@RangeResultStatus int status, @NonNull MacAddress mac, int distanceMm,
-            int distanceStdDevMm, int rssi, int numAttemptedMeasurements,
-            int numSuccessfulMeasurements, byte[] lci, byte[] lcr, long timestamp) {
-        mStatus = status;
-        mMac = mac;
-        mPeerHandle = null;
-        mDistanceMm = distanceMm;
-        mDistanceStdDevMm = distanceStdDevMm;
-        mRssi = rssi;
-        mNumAttemptedMeasurements = numAttemptedMeasurements;
-        mNumSuccessfulMeasurements = numSuccessfulMeasurements;
-        mLci = lci == null ? EMPTY_BYTE_ARRAY : lci;
-        mLcr = lcr == null ? EMPTY_BYTE_ARRAY : lcr;
-        mTimestamp = timestamp;
+    /**
+     * Builder class used to construct {@link RangingResult} objects.
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public static final class Builder {
+        private @RangeResultStatus int mStatus = STATUS_FAIL;
+        private MacAddress mMac = null;
+        private PeerHandle mPeerHandle = null;
+        private int mDistanceMm = 0;
+        private int mDistanceStdDevMm = 0;
+        private int mRssi = -127;
+        private int mNumAttemptedMeasurements = 0;
+        private int mNumSuccessfulMeasurements = 0;
+        private byte[] mLci = null;
+        private byte[] mLcr = null;
+        private ResponderLocation mResponderLocation = null;
+        private long mTimestamp = 0;
+        private int mRetryAfterDurationMillis = 0;
+        private boolean mIs80211mcMeasurement = false;
+        private int mFrequencyMHz = UNSPECIFIED;
+        private int mPacketBw = UNSPECIFIED;
+        private boolean mIs80211azNtbMeasurement = false;
+        private long mNtbMinMeasurementTime = UNSPECIFIED;
+        private long mNtbMaxMeasurementTime = UNSPECIFIED;
+        private int mI2rTxLtfRepetitions = UNSPECIFIED;
+        private int mR2iTxLtfRepetitions = UNSPECIFIED;
+        private int mNumTxSpatialStreams = UNSPECIFIED;
+        private int mNumRxSpatialStreams = UNSPECIFIED;
+        private List<OuiKeyedData> mVendorData = Collections.emptyList();
+        private  boolean mIsRangingAuthenticated;
+        private  boolean mIsRangingFrameProtected;
+        private  boolean mIsSecureHeLtfEnabled;
+        private  int mSecureHeLtfProtocolVersion;
+        private byte[] mPasnComebackCookie = null;
+        private long mPasnComebackAfterMillis = UNSPECIFIED;
+        private long mAvailabilityWindowDurationMillis = UNSPECIFIED;
+        private long mNominalTimeMillis = UNSPECIFIED;
+        private int mNumNtbRepetitionsPerMeasurement = 0;
+        private boolean mIsLmrDelayed = false;
+        private int mUsdPeerId = UNSPECIFIED;
+
+
+        /**
+         * Constructs a Builder with default values (see {@link Builder}).
+         */
+        public Builder() {}
+
+        /**
+         * Constructs a Builder initialized from an existing {@link RangingResult} instance.
+         *
+         * @hide
+         */
+        public Builder(@NonNull RangingResult other) {
+            if (other == null) {
+                Log.e(TAG, "Cannot provide a null RangingResult");
+                return;
+            }
+
+            mStatus = other.mStatus;
+            mMac = other.mMac;
+            mPeerHandle = other.mPeerHandle;
+            mDistanceMm = other.mDistanceMm;
+            mDistanceStdDevMm = other.mDistanceStdDevMm;
+            mRssi = other.mRssi;
+            mNumAttemptedMeasurements = other.mNumAttemptedMeasurements;
+            mNumSuccessfulMeasurements = other.mNumSuccessfulMeasurements;
+            if (other.mLci != null) mLci = other.mLci.clone();
+            if (other.mLcr != null) mLcr = other.mLcr.clone();
+            mResponderLocation = new ResponderLocation(mLci, mLcr);
+            mTimestamp = other.mTimestamp;
+            mIs80211mcMeasurement = other.mIs80211mcMeasurement;
+            mFrequencyMHz = other.mFrequencyMHz;
+            mPacketBw = other.mPacketBw;
+            mIs80211azNtbMeasurement = other.mIs80211azNtbMeasurement;
+            mNtbMinMeasurementTime = other.mNtbMinMeasurementTime;
+            mNtbMaxMeasurementTime = other.mNtbMaxMeasurementTime;
+            mI2rTxLtfRepetitions = other.mI2rTxLtfRepetitions;
+            mR2iTxLtfRepetitions = other.mR2iTxLtfRepetitions;
+            mNumTxSpatialStreams = other.mNumTxSpatialStreams;
+            mNumRxSpatialStreams = other.mNumRxSpatialStreams;
+            mIsRangingAuthenticated = other.mIsRangingAuthenticated;
+            mIsRangingFrameProtected = other.mIsRangingFrameProtected;
+            mIsSecureHeLtfEnabled = other.mIsSecureHeLtfEnabled;
+            mSecureHeLtfProtocolVersion = other.mSecureHeLtfProtocolVersion;
+            if (other.mPasnComebackCookie != null) {
+                mPasnComebackCookie = other.mPasnComebackCookie.clone();
+                mPasnComebackAfterMillis = other.mPasnComebackAfterMillis;
+            }
+            mAvailabilityWindowDurationMillis = other.mAvailabilityWindowDurationMillis;
+            mNominalTimeMillis = other.mNominalTimeMillis;
+            mNumNtbRepetitionsPerMeasurement = other.mNumNtbRepetitionsPerMeasurement;
+            mIsLmrDelayed = other.mIsLmrDelayed;
+            mUsdPeerId = other.mUsdPeerId;
+            mVendorData = new ArrayList<>(other.mVendorData);
+        }
+
+        /**
+         * Sets the Range result status.
+         *
+         * @param status Ranging result status, if not set defaults to
+         *               {@link #STATUS_FAIL}.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setStatus(@RangeResultStatus int status) {
+            mStatus = status;
+            return this;
+        }
+
+        /**
+         * Sets the MAC address of the ranging result.
+         *
+         * @param macAddress Mac address, if not defaults to null.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setMacAddress(@Nullable MacAddress macAddress) {
+            mMac = macAddress;
+            return this;
+        }
+
+
+        /**
+         * Sets the peer handle. Applicable only for NAN Ranging.
+         *
+         * @param peerHandle Opaque object used to represent a Wi-Fi Aware peer. If not set,
+         *                   defaults to null.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setPeerHandle(@Nullable PeerHandle peerHandle) {
+            mPeerHandle = peerHandle;
+            return this;
+        }
+
+        /**
+         * Sets the distance in millimeter.
+         *
+         * @param distanceMm distance. If not set, defaults to 0.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setDistanceMm(int distanceMm) {
+            mDistanceMm = distanceMm;
+            return this;
+        }
+
+        /**
+         * Sets the standard deviation of the distance in millimeter.
+         *
+         * @param distanceStdDevMm Standard deviation of the distance measurement. If not set
+         *                         defaults to 0.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setDistanceStdDevMm(int distanceStdDevMm) {
+            mDistanceStdDevMm = distanceStdDevMm;
+            return this;
+        }
+
+        /**
+         * Sets the average RSSI.
+         *
+         * @param rssi Average RSSI. If not set, defaults to -127.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setRssi(int rssi) {
+            mRssi = rssi;
+            return this;
+        }
+
+        /**
+         * Sets the total number of RTT measurements attempted.
+         *
+         * @param numAttemptedMeasurements Number of attempted measurements. If not set, default
+         *                                 to 0.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setNumAttemptedMeasurements(int numAttemptedMeasurements) {
+            mNumAttemptedMeasurements = numAttemptedMeasurements;
+            return this;
+        }
+
+        /**
+         * Sets the total number of successful RTT measurements.
+         *
+         * @param numSuccessfulMeasurements Number of successful measurements. If not set, default
+         *                                 to 0.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setNumSuccessfulMeasurements(int numSuccessfulMeasurements) {
+            mNumSuccessfulMeasurements = numSuccessfulMeasurements;
+            return this;
+        }
+
+        /**
+         * Sets the Location Configuration Information (LCI).
+         *
+         * LCI provides data about the access point's (AP) physical location, such as its
+         * latitude, longitude, and altitude. The format is specified in the IEEE 802.11-2016
+         * specifications, section 9.4.2.22.10.
+         *
+         * @param lci Location configuration information. If not set, defaults to null.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setLci(@Nullable byte[] lci) {
+            mLci = lci;
+            return this;
+        }
+
+        /**
+         * Sets the Location Civic Report (LCR).
+         *
+         * LCR provides additional details about the AP's location in a human-readable format,
+         * such as the street address, building name, or floor number. This can be helpful for
+         * users to understand the context of their location within a building or complex.
+         *
+         * The format is
+         * specified in the IEEE 802.11-2016 specifications, section 9.4.2.22.13.
+         *
+         * @param lcr Location civic report. If not set, defaults to null.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setLcr(@Nullable byte[] lcr) {
+            mLcr = lcr;
+            return this;
+        }
+
+        /**
+         * Sets Responder Location.
+         *
+         * ResponderLocation is both a Location Configuration Information (LCI) decoder and a
+         * Location Civic Report (LCR) decoder for information received from a Wi-Fi Access Point
+         * (AP) during Wi-Fi RTT ranging process.
+         *
+         * @param responderLocation Responder location. If not set, defaults to null.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setUnverifiedResponderLocation(
+                @Nullable ResponderLocation responderLocation) {
+            mResponderLocation = responderLocation;
+            return this;
+        }
+
+        /**
+         * Sets the time stamp at which the ranging operation was performed.
+         *
+         * The timestamp is in milliseconds since boot, including time spent in sleep,
+         * corresponding to values provided by {@link android.os.SystemClock#elapsedRealtime()}.
+         *
+         * @param timestamp time stamp in milliseconds. If not set, default to 0.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setRangingTimestampMillis(@ElapsedRealtimeLong long timestamp) {
+            mTimestamp = timestamp;
+            return this;
+        }
+
+        /**
+         * Sets the duration in milliseconds after which the ranging operation may be retried.
+         * A value of 0 means an immediate retry, otherwise retry after that much time in
+         * millisec. The time offset is from the measurement time
+         * {@link #getRangingTimestampMillis()}.
+         *
+         * @param durationMs The duration in milliseconds. Must be non-negative.
+         * @return The builder to facilitate chaining.
+         * @throws IllegalArgumentException if durationMs is negative.
+         */
+        @NonNull
+        @FlaggedApi(Flags.FLAG_RTT_BUSY_TRY_LATER_API)
+        public Builder setRetryAfterDurationMillis(@IntRange(from = 0) int durationMs) {
+            if (durationMs < 0) {
+                throw new IllegalArgumentException("durationMs cannot be negative");
+            }
+            mRetryAfterDurationMillis = durationMs;
+            return this;
+        }
+
+
+        /**
+         * Sets whether the ranging measurement was performed using IEEE 802.11mc ranging method.
+         * If {@link #set80211mcMeasurement(boolean)} is set as false and
+         * {@link #set80211azNtbMeasurement(boolean)} is also set as false, ranging measurement was
+         * performed using one-side RTT. If not set, default to false.
+         *
+         * @param is80211mcMeasurement true for IEEE 802.11mc measure, otherwise false.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder set80211mcMeasurement(boolean is80211mcMeasurement) {
+            mIs80211mcMeasurement = is80211mcMeasurement;
+            return this;
+        }
+
+        /**
+         * Sets the center frequency of the primary 20 MHz frequency (in MHz) of the channel over
+         * which the measurement frames are sent. If not set, default to
+         * {@link RangingResult#UNSPECIFIED}
+         *
+         * @param frequencyMHz Frequency.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setMeasurementChannelFrequencyMHz(int frequencyMHz) {
+            mFrequencyMHz = frequencyMHz;
+            return this;
+        }
+
+        /**
+         * Sets the bandwidth used to transmit the RTT measurement frame. If not set, default to
+         * {@link RangingResult#UNSPECIFIED}.
+         *
+         * @param measurementBandwidth Measurement bandwidth.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setMeasurementBandwidth(@ChannelWidth int measurementBandwidth) {
+            mPacketBw = measurementBandwidth;
+            return this;
+        }
+
+        /**
+         * Sets whether the ranging measurement was performed using IEEE 802.11az non-trigger
+         * ranging method. If {@link #set80211azNtbMeasurement(boolean)} is set as false and
+         * {@link #set80211mcMeasurement(boolean)} is also set as false, ranging measurement was
+         * performed using one-side RTT. If not set defaults to false.
+         *
+         * @param is80211azNtbMeasurement true for IEEE 802.11az non-trigger based measurement,
+         *                                otherwise false.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder set80211azNtbMeasurement(boolean is80211azNtbMeasurement) {
+            mIs80211azNtbMeasurement = is80211azNtbMeasurement;
+            return this;
+        }
+
+        /**
+         * Sets minimum time between measurements in microseconds for IEEE 802.11az non-trigger
+         * based ranging.  If not set, defaults to {@link RangingResult#UNSPECIFIED}.
+         *
+         * @param ntbMinMeasurementTime non-trigger based ranging minimum measurement time.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setMinTimeBetweenNtbMeasurementsMicros(long ntbMinMeasurementTime) {
+            mNtbMinMeasurementTime = ntbMinMeasurementTime;
+            return this;
+        }
+
+        /**
+         * Sets maximum time between measurements in microseconds for IEEE 802.11az non-trigger
+         * based ranging. If not set, defaults to {@link RangingResult#UNSPECIFIED}.
+         *
+         * @param ntbMaxMeasurementTime non-trigger based ranging maximum measurement time.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setMaxTimeBetweenNtbMeasurementsMicros(long ntbMaxMeasurementTime) {
+            mNtbMaxMeasurementTime = ntbMaxMeasurementTime;
+            return this;
+        }
+
+        /**
+         * Sets LTF repetitions that the initiator station used in the preamble. If not set,
+         * defaults to {@link RangingResult#UNSPECIFIED}.
+         *
+         * @param i2rTxLtfRepetitions LFT repetition count.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder set80211azInitiatorTxLtfRepetitionsCount(int i2rTxLtfRepetitions) {
+            mI2rTxLtfRepetitions = i2rTxLtfRepetitions;
+            return this;
+        }
+
+        /**
+         * Sets LTF repetitions that the responder station used in the preamble. If not set,
+         * defaults to {@link RangingResult#UNSPECIFIED}.
+         *
+         * @param r2iTxLtfRepetitions LFT repetition count.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder set80211azResponderTxLtfRepetitionsCount(int r2iTxLtfRepetitions) {
+            mR2iTxLtfRepetitions = r2iTxLtfRepetitions;
+            return this;
+        }
+
+        /**
+         * Sets number of transmit spatial streams that the initiator station used for the
+         * ranging result. If not set, defaults to {@link RangingResult#UNSPECIFIED}.
+         *
+         * @param numTxSpatialStreams Number of transmit spatial streams.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder set80211azNumberOfTxSpatialStreams(int numTxSpatialStreams) {
+            mNumTxSpatialStreams = numTxSpatialStreams;
+            return this;
+        }
+
+        /**
+         * Sets number of receive spatial streams that the initiator station used for the ranging
+         * result. If not set, defaults to {@link RangingResult#UNSPECIFIED}.
+         *
+         * @param numRxSpatialStreams Number of receive spatial streams.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder set80211azNumberOfRxSpatialStreams(int numRxSpatialStreams) {
+            mNumRxSpatialStreams = numRxSpatialStreams;
+            return this;
+        }
+
+        /**
+         * Set additional vendor-provided configuration data.
+         *
+         * @param vendorData List of {@link android.net.wifi.OuiKeyedData} containing the
+         *                   vendor-provided configuration data. Note that multiple elements with
+         *                   the same OUI are allowed.
+         * @hide
+         */
+        @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @SystemApi
+        @NonNull
+        public Builder setVendorData(@NonNull List<OuiKeyedData> vendorData) {
+            if (!SdkLevel.isAtLeastV()) {
+                throw new UnsupportedOperationException();
+            }
+            if (vendorData == null) {
+                throw new IllegalArgumentException("setVendorData received a null value");
+            }
+            mVendorData = vendorData;
+            return this;
+        }
+
+        /**
+         * Set whether mutual authentication is done for the ranging. Authentication of ranging
+         * enables frame protection also. See {@link #setRangingFrameProtected(boolean)}.
+         *
+         * @param isRangingAuthenticated true if ranging is mutually authenticated, otherwise false.
+         * @return The builder to facilitate chaining.
+         */
+        @NonNull
+        @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+        public Builder setRangingAuthenticated(boolean isRangingAuthenticated) {
+            mIsRangingAuthenticated = isRangingAuthenticated;
+            return this;
+        }
+
+        /**
+         * Set whether ranging frames are protected. Frame protection provides both encryption and
+         * integrity protection to the ranging frames.
+         *
+         * @param isRangingFrameProtected true if ranging frames are protected, otherwise false.
+         * @return The builder to facilitate chaining.
+         */
+        @NonNull
+        @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+        public Builder setRangingFrameProtected(boolean isRangingFrameProtected) {
+            mIsRangingFrameProtected = isRangingFrameProtected;
+            return this;
+        }
+
+        /**
+         * Set whether secure HE-LTF is used for this ranging.
+         *
+         * @param isSecureHeLtfEnabled true if secure HE-LTF is enabled, otherwise false.
+         * @return The builder to facilitate chaining.
+         */
+        @NonNull
+        @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+        public Builder setSecureHeLtfEnabled(boolean isSecureHeLtfEnabled) {
+            mIsSecureHeLtfEnabled = isSecureHeLtfEnabled;
+            return this;
+        }
+
+        /**
+         * Set secure HE-LTF protocol version used for this ranging.
+         *
+         * The secure HE-LTF negotiation supports negotiation of the secure HE-LTF protocol version
+         * which allows a responder and an initiator to negotiate the highest mutually supported
+         * secure HE-LTF protocol version.
+         *
+         * Refer IEEE 802.11az-2022 spec, section 9.4.2.298 Ranging Parameters element.
+         *
+         * @param secureHeLtfProtocolVersion Secure HE-LTF protocol version.
+         * @return The builder to facilitate chaining.
+         */
+        @NonNull
+        @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+        public Builder setSecureHeLtfProtocolVersion(
+                @IntRange(from = 0, to = 7) int secureHeLtfProtocolVersion) {
+            mSecureHeLtfProtocolVersion = secureHeLtfProtocolVersion;
+            return  this;
+        }
+
+        /**
+         * Set comeback cookie. See {@link #getPasnComebackCookie()}. If not set, default value
+         * is null.
+         *
+         * @param pasnComebackCookie an opaque  sequence of octets
+         * @return The builder to facilitate chaining.
+         */
+        @NonNull
+        @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+        public Builder setPasnComebackCookie(@NonNull byte[] pasnComebackCookie) {
+            mPasnComebackCookie = pasnComebackCookie;
+            return  this;
+        }
+
+        /**
+         * Set comeback after time. See {@link #getPasnComebackAfterMillis()}. If not set default
+         * value is {@link RangingResult#UNSPECIFIED}.
+         *
+         * @param comebackAfterMillis the ranging initiator (STA) must wait for the specified
+         *                            time before retrying secure ranging
+         * @return The builder to facilitate chaining.
+         */
+        @NonNull
+        @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+        public Builder setPasnComebackAfterMillis(long comebackAfterMillis) {
+            mPasnComebackAfterMillis = comebackAfterMillis;
+            return  this;
+        }
+
+        /**
+         * Sets the availability window duration in milliseconds for proximity detection.
+         * See {@link #getAvailabilityWindowDurationMillis()}. If not set, the default
+         * value is {@link RangingResult#UNSPECIFIED}.
+         *
+         * @param availabilityWindowDurationMillis The duration of the availability window in ms.
+         *                                         Must be a positive value.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_PROXIMITY_RANGING)
+        @NonNull
+        public Builder setAvailabilityWindowDurationMillis(
+                @IntRange(from = 0) long availabilityWindowDurationMillis) {
+            if (availabilityWindowDurationMillis < 0
+                    && availabilityWindowDurationMillis != UNSPECIFIED) {
+                throw new IllegalArgumentException(
+                        "Availability window duration must be a non-negative value");
+            }
+            mAvailabilityWindowDurationMillis = availabilityWindowDurationMillis;
+            return this;
+        }
+
+        /**
+         * Sets the nominal time between availability windows in milliseconds for proximity
+         * detection. See {@link #getNominalTimeMillis()}. If not set, the default
+         * value is {@link RangingResult#UNSPECIFIED}.
+         *
+         * @param nominalTimeMillis The nominal time between windows in ms. Must be a
+         *                          positive value.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_PROXIMITY_RANGING)
+        @NonNull
+        public Builder setNominalTimeMillis(@IntRange(from = 0) long nominalTimeMillis) {
+            if (nominalTimeMillis < 0 && nominalTimeMillis != UNSPECIFIED) {
+                throw new IllegalArgumentException(
+                        "Nominal time between windows must be a non-negative value");
+            }
+            mNominalTimeMillis = nominalTimeMillis;
+            return this;
+        }
+
+        /**
+         * Sets the number of range repetitions carried out for distance calculation in
+         * IEEE 802.11az Non Trigger Based (NTB) ranging.
+         *
+         * <p>This corresponds to the value set in
+         * {@link RangingRequest.Builder#setRttBurstSize(int)} for IEEE 802.11az ranging.
+         * See {@link #getNumNtbRepetitionsPerMeasurement()}.
+         * The default value is zero.
+         *
+         * @param numNtbRepetitionsPerMeasurement The number of repetitions.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_PROXIMITY_RANGING)
+        @NonNull
+        public Builder setNumNtbRepetitionsPerMeasurement(
+                @IntRange(from = 0) int numNtbRepetitionsPerMeasurement) {
+            if (numNtbRepetitionsPerMeasurement < 0) {
+                throw new IllegalArgumentException(
+                        "The number of NTB repetitions must be a non-negative value");
+            }
+            mNumNtbRepetitionsPerMeasurement = numNtbRepetitionsPerMeasurement;
+            return this;
+        }
+
+        /**
+         * Sets whether the device delayed sending the Location Measurement Report (LMR),
+         * as defined in the IEEE 802.11az standard.
+         *
+         * <p> The decision on whether the Location Measurement Report (LMR) feedback will be
+         * immediate or delayed is negotiated during the initial Fine Time Measurement (FTM)
+         * negotiation.
+         * See {@link #isLmrDelayed()}.
+         *
+         * @param isLmrDelayed true if LMR is delayed, false otherwise.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_PROXIMITY_RANGING)
+        @NonNull
+        public Builder setLmrDelayed(boolean isLmrDelayed) {
+            mIsLmrDelayed = isLmrDelayed;
+            return this;
+        }
+
+        /**
+         * Sets the USD peer identifier for the ranging result.
+         *
+         * @param usdPeerId The peer ID of the USD responder.
+         * @return The builder to facilitate chaining.
+         */
+        @FlaggedApi(Flags.FLAG_PROXIMITY_RANGING)
+        @NonNull
+        public Builder setUsdPeerId(int usdPeerId) {
+            if (usdPeerId < 0 && usdPeerId != UNSPECIFIED) {
+                throw new IllegalArgumentException("Peer ID must be non-negative or UNSPECIFIED");
+            }
+            mUsdPeerId = usdPeerId;
+            return this;
+        }
+
+        /**
+         * Build {@link RangingResult}
+         * @return an instance of {@link RangingResult}
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public RangingResult build() {
+            validatePeerIdentifier();
+            if (mIs80211azNtbMeasurement && mIs80211mcMeasurement) {
+                throw new IllegalArgumentException(
+                        "A ranging result cannot use both IEEE 802.11mc and IEEE 802.11az "
+                                + "measurements simultaneously");
+            }
+            return new RangingResult(this);
+        }
+
+        private void validatePeerIdentifier() {
+            if (mMac == null && mPeerHandle == null && mUsdPeerId == UNSPECIFIED) {
+                throw new IllegalArgumentException(
+                        "Either MAC address, Peer handle, or USD Peer ID is needed");
+            }
+        }
     }
 
     /** @hide */
-    public RangingResult(@RangeResultStatus int status, PeerHandle peerHandle, int distanceMm,
-            int distanceStdDevMm, int rssi, int numAttemptedMeasurements,
-            int numSuccessfulMeasurements, byte[] lci, byte[] lcr, long timestamp) {
-        mStatus = status;
-        mMac = null;
-        mPeerHandle = peerHandle;
-        mDistanceMm = distanceMm;
-        mDistanceStdDevMm = distanceStdDevMm;
-        mRssi = rssi;
-        mNumAttemptedMeasurements = numAttemptedMeasurements;
-        mNumSuccessfulMeasurements = numSuccessfulMeasurements;
-        mLci = lci == null ? EMPTY_BYTE_ARRAY : lci;
-        mLcr = lcr == null ? EMPTY_BYTE_ARRAY : lcr;
-        mTimestamp = timestamp;
+    private RangingResult(Builder builder) {
+        mStatus = builder.mStatus;
+        mMac = builder.mMac;
+        mPeerHandle = builder.mPeerHandle;
+        mDistanceMm = builder.mDistanceMm;
+        mDistanceStdDevMm = builder.mDistanceStdDevMm;
+        mRssi = builder.mRssi;
+        mNumAttemptedMeasurements = builder.mNumAttemptedMeasurements;
+        mNumSuccessfulMeasurements = builder.mNumSuccessfulMeasurements;
+        mLci = (builder.mLci == null) ? EMPTY_BYTE_ARRAY : builder.mLci;
+        mLcr = (builder.mLcr == null) ? EMPTY_BYTE_ARRAY : builder.mLcr;
+        mResponderLocation = builder.mResponderLocation;
+        mTimestamp = builder.mTimestamp;
+        mRetryAfterDurationMillis = builder.mRetryAfterDurationMillis;
+        mIs80211mcMeasurement = builder.mIs80211mcMeasurement;
+        mFrequencyMHz = builder.mFrequencyMHz;
+        mPacketBw = builder.mPacketBw;
+        mIs80211azNtbMeasurement = builder.mIs80211azNtbMeasurement;
+        mNtbMinMeasurementTime = builder.mNtbMinMeasurementTime;
+        mNtbMaxMeasurementTime = builder.mNtbMaxMeasurementTime;
+        mI2rTxLtfRepetitions = builder.mI2rTxLtfRepetitions;
+        mR2iTxLtfRepetitions = builder.mR2iTxLtfRepetitions;
+        mNumRxSpatialStreams = builder.mNumRxSpatialStreams;
+        mNumTxSpatialStreams = builder.mNumTxSpatialStreams;
+        mVendorData = builder.mVendorData;
+        mIsRangingAuthenticated = builder.mIsRangingAuthenticated;
+        mIsRangingFrameProtected = builder.mIsRangingFrameProtected;
+        mIsSecureHeLtfEnabled = builder.mIsSecureHeLtfEnabled;
+        mSecureHeLtfProtocolVersion = builder.mSecureHeLtfProtocolVersion;
+        mPasnComebackCookie = builder.mPasnComebackCookie;
+        mPasnComebackAfterMillis = builder.mPasnComebackAfterMillis;
+        mAvailabilityWindowDurationMillis = builder.mAvailabilityWindowDurationMillis;
+        mNominalTimeMillis = builder.mNominalTimeMillis;
+        mNumNtbRepetitionsPerMeasurement = builder.mNumNtbRepetitionsPerMeasurement;
+        mIsLmrDelayed = builder.mIsLmrDelayed;
+        mUsdPeerId = builder.mUsdPeerId;
     }
 
     /**
@@ -140,7 +883,7 @@ public final class RangingResult implements Parcelable {
     }
 
     /**
-     * @return The PeerHandle of the device whose reange measurement was requested. Will correspond
+     * @return The PeerHandle of the device whose range measurement was requested. Will correspond
      * to the PeerHandle of the devices requested using
      * {@link RangingRequest.Builder#addWifiAwarePeer(PeerHandle)}.
      * <p>
@@ -148,6 +891,23 @@ public final class RangingResult implements Parcelable {
      */
     @Nullable public PeerHandle getPeerHandle() {
         return mPeerHandle;
+    }
+
+    /**
+     * Returns the USD peer identifier of the device whose range measurement was requested.
+     * <p>
+     * This value is non-negative if the responder is a USD peer and the range request was placed
+     * using {@link RangingRequest.Builder#addWifiUsdPeer(DiscoveryResult, ProximityDetectionConfig,
+     * SecureRangingConfig)}.
+     * The peer ID is an opaque identifier for a specific USD peer discovered
+     * during USD discovery operations and obtained from the {@link DiscoveryResult#getPeerId()}
+     *
+     * @return Will return a positive peer ID for results corresponding to requests issued using
+     * a USD peer ID, otherwise {@link #UNSPECIFIED} is returned.
+     */
+    @FlaggedApi(Flags.FLAG_PROXIMITY_RANGING)
+    public int getUsdPeerId() {
+        return mUsdPeerId;
     }
 
     /**
@@ -202,11 +962,13 @@ public final class RangingResult implements Parcelable {
     /**
      * @return The number of attempted measurements used in the RTT exchange resulting in this set
      * of results. The number of successful measurements is returned by
-     * {@link #getNumSuccessfulMeasurements()} which at most, if there are no errors, will be 1 less
-     * that the number of attempted measurements.
+     * {@link #getNumSuccessfulMeasurements()} which at most, if there are no errors, will be 1
+     * less than the number of attempted measurements.
      * <p>
      * Only valid if {@link #getStatus()} returns {@link #STATUS_SUCCESS}, otherwise will throw an
-     * exception.
+     * exception. If the value is 0, it should be interpreted as no information available, which may
+     * occur for one-sided RTT measurements. Instead {@link RangingRequest#getRttBurstSize()}
+     * should be used instead.
      */
     public int getNumAttemptedMeasurements() {
         if (mStatus != STATUS_SUCCESS) {
@@ -240,15 +1002,34 @@ public final class RangingResult implements Parcelable {
     }
 
     /**
+     * @return The unverified responder location represented as {@link ResponderLocation} which
+     * captures location information the responder is programmed to broadcast. The responder
+     * location is referred to as unverified, because we are relying on the device/site
+     * administrator to correctly configure its location data.
+     * <p>
+     * Will return a {@code null} when the location information cannot be parsed.
+     * <p>
+     * Only valid if {@link #getStatus()} returns {@link #STATUS_SUCCESS}, otherwise will throw an
+     * exception.
+     */
+    @Nullable
+    public ResponderLocation getUnverifiedResponderLocation() {
+        if (mStatus != STATUS_SUCCESS) {
+            throw new IllegalStateException(
+                    "getUnverifiedResponderLocation(): invoked on an invalid result: getStatus()="
+                            + mStatus);
+        }
+        return mResponderLocation;
+    }
+
+    /**
      * @return The Location Configuration Information (LCI) as self-reported by the peer. The format
      * is specified in the IEEE 802.11-2016 specifications, section 9.4.2.22.10.
      * <p>
      * Note: the information is NOT validated - use with caution. Consider validating it with
      * other sources of information before using it.
-     *
-     * @hide
      */
-    @SystemApi
+    @SuppressLint("UnflaggedApi") // Flagging API promotion from @SystemApi to public not supported
     @NonNull
     public byte[] getLci() {
         if (mStatus != STATUS_SUCCESS) {
@@ -264,10 +1045,8 @@ public final class RangingResult implements Parcelable {
      * <p>
      * Note: the information is NOT validated - use with caution. Consider validating it with
      * other sources of information before using it.
-     *
-     * @hide
      */
-    @SystemApi
+    @SuppressLint("UnflaggedApi") // Flagging API promotion from @SystemApi to public not supported
     @NonNull
     public byte[] getLcr() {
         if (mStatus != STATUS_SUCCESS) {
@@ -293,6 +1072,318 @@ public final class RangingResult implements Parcelable {
                             + mStatus);
         }
         return mTimestamp;
+    }
+
+    /**
+     * @return The duration in milliseconds after which the ranging operation may be retried.
+     * A value of 0 means an immediate retry, otherwise retry after that much time in
+     * millisec. The time offset is from the measurement time
+     * {@link #getRangingTimestampMillis()}.
+     * <p>
+     * @throws IllegalStateException if {@link #getStatus()} does not return
+     * {@link #STATUS_BUSY_TRY_LATER}.
+     */
+    @FlaggedApi(Flags.FLAG_RTT_BUSY_TRY_LATER_API)
+    @IntRange(from = 0)
+    public int getRetryAfterDurationMillis() {
+        if (mStatus != STATUS_BUSY_TRY_LATER) {
+            throw new IllegalStateException(
+                    "getRetryAfterDurationMillis(): invoked on an invalid result: getStatus()="
+                            + mStatus);
+        }
+        return mRetryAfterDurationMillis;
+    }
+
+    /**
+     * @return The result is true if the IEEE 802.11mc protocol was used. If the result is false,
+     * and {@link #is80211azNtbMeasurement()} is also false a one-side RTT result is provided
+     * which does not subtract the turnaround time at the responder.
+     * <p>
+     * Only valid if {@link #getStatus()} returns {@link #STATUS_SUCCESS}, otherwise will throw an
+     * exception.
+     */
+    public boolean is80211mcMeasurement() {
+        if (mStatus != STATUS_SUCCESS) {
+            throw new IllegalStateException(
+                    "is80211mcMeasurementResult(): invoked on an invalid result: getStatus()="
+                            + mStatus);
+        }
+        return mIs80211mcMeasurement;
+    }
+
+    /**
+     * @return The result is true if the IEEE 802.11az non-trigger based protocol was used. If the
+     * result is false, and {@link #is80211mcMeasurement()} is also false a one-side RTT result
+     * is provided which does not subtract the turnaround time at the responder.
+     * <p>.
+     * Only valid if {@link #getStatus()} returns {@link #STATUS_SUCCESS}, otherwise will throw an
+     * exception.
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public boolean is80211azNtbMeasurement() {
+        if (mStatus != STATUS_SUCCESS) {
+            throw new IllegalStateException(
+                    "is80211azNtbMeasurement(): invoked on an invalid result: getStatus()="
+                            + mStatus);
+        }
+        return mIs80211azNtbMeasurement;
+    }
+
+    /**
+     * Gets minimum time between measurements in microseconds for IEEE 802.11az non-trigger based
+     * ranging.
+     *
+     * The next 11az ranging measurement request must be invoked after the minimum time from the
+     * last measurement time {@link #getRangingTimestampMillis()} for the peer. Otherwise, cached
+     * ranging result will be returned for the peer.
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public long getMinTimeBetweenNtbMeasurementsMicros() {
+        return mNtbMinMeasurementTime;
+    }
+
+    /**
+     * Gets maximum time between measurements in microseconds for IEEE 802.11az non-trigger based
+     * ranging.
+     *
+     * The next 11az ranging request needs to be invoked before the maximum time from the last
+     * measurement time {@link #getRangingTimestampMillis()}. Otherwise, the non-trigger based
+     * ranging session will be terminated and a new ranging negotiation will happen with
+     * the responding station.
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public long getMaxTimeBetweenNtbMeasurementsMicros() {
+        return mNtbMaxMeasurementTime;
+    }
+
+    /**
+     * Gets LTF repetitions that the responder station (RSTA) used in the preamble of the
+     * responder to initiator (I2R) null data PPDU (NDP) for this result.
+     *
+     * LTF repetitions is the multiple transmissions of HE-LTF symbols in an HE ranging NDP. An
+     * HE-LTF repetition value of 1 indicates no repetitions.
+     *
+     * @return LTF repetitions count
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public int get80211azResponderTxLtfRepetitionsCount() {
+        return mR2iTxLtfRepetitions;
+    }
+
+    /**
+     * Gets LTF repetitions that the initiator station (ISTA) used in the preamble of the
+     * initiator to responder (I2R) null data PPDU (NDP) for this result.
+     *
+     * LTF repetitions is the multiple transmissions of HE-LTF symbols in an HE ranging NDP. An
+     * HE-LTF repetition value of 1 indicates no repetitions.
+     *
+     * @return LTF repetitions count
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public int get80211azInitiatorTxLtfRepetitionsCount() {
+        return mI2rTxLtfRepetitions;
+    }
+
+    /**
+     * Gets number of transmit spatial streams that the initiator station (ISTA) used for the
+     * initiator to responder (I2R) null data PPDU (NDP) for this result.
+     *
+     * @return Number of spatial streams
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public int get80211azNumberOfTxSpatialStreams() {
+        return mNumTxSpatialStreams;
+    }
+
+    /**
+     * Gets number of receive spatial streams that the initiator station (ISTA) used for the
+     * initiator to responder (I2R) null data PPDU (NDP) for this result.
+     *
+     * @return Number of spatial streams
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public int get80211azNumberOfRxSpatialStreams() {
+        return mNumRxSpatialStreams;
+    }
+
+    /**
+     * The center frequency of the primary 20 MHz frequency (in MHz) of the channel over
+     * which the measurement frames are sent.
+     * @return center frequency in Mhz of the channel if available, otherwise {@link #UNSPECIFIED}
+     * is returned.
+     * <p>
+     * @throws IllegalStateException if {@link #getStatus()} does not return
+     * {@link #STATUS_SUCCESS}.
+     */
+    public int getMeasurementChannelFrequencyMHz() {
+        if (mStatus != STATUS_SUCCESS) {
+            throw new IllegalStateException(
+                    "getMeasurementChannelFrequencyMHz():"
+                    + " invoked on an invalid result: getStatus()= " + mStatus);
+        }
+        return mFrequencyMHz;
+    }
+
+    /**
+     * The bandwidth used to transmit the RTT measurement frame.
+     * @return one of {@link ScanResult#CHANNEL_WIDTH_20MHZ},
+     * {@link ScanResult#CHANNEL_WIDTH_40MHZ},
+     * {@link ScanResult#CHANNEL_WIDTH_80MHZ}, {@link ScanResult#CHANNEL_WIDTH_160MHZ},
+     * {@link ScanResult #CHANNEL_WIDTH_80MHZ_PLUS_MHZ} or {@link ScanResult #CHANNEL_WIDTH_320MHZ}
+     * if available, otherwise {@link #UNSPECIFIED} is returned.
+     * <p>
+     * @throws IllegalStateException if {@link #getStatus()} does not return
+     * {@link #STATUS_SUCCESS}.
+     */
+    public @ChannelWidth int getMeasurementBandwidth() {
+        if (mStatus != STATUS_SUCCESS) {
+            throw new IllegalStateException(
+                    "getMeasurementBandwidth(): invoked on an invalid result: getStatus()="
+                            + mStatus);
+        }
+        return mPacketBw;
+    }
+
+    /**
+     * Get the vendor-provided configuration data, if it exists.
+     *
+     * @return Vendor configuration data, or empty list if it does not exist.
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    @SystemApi
+    @NonNull
+    public List<OuiKeyedData> getVendorData() {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        return mVendorData;
+    }
+
+    /**
+     * @return whether the ranging is authenticated or not.
+     *
+     * Refer IEEE 802.11az-2022 spec, section 12 Security.
+     */
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    public boolean isRangingAuthenticated() {
+        return mIsRangingAuthenticated;
+    }
+
+    /**
+     * @return whether the ranging frames are protected or not.
+     *
+     * Refer IEEE 802.11az-2022 spec, section 12 Security.
+     */
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    public boolean isRangingFrameProtected() {
+        return mIsRangingFrameProtected;
+    }
+
+    /**
+     * @return whether the secure HE-LTF is enabled or not.
+     *
+     * Refer IEEE 802.11az-2022 spec, section 9.4.2.298 Ranging Parameters element.
+     */
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    public boolean isSecureHeLtfEnabled() {
+        return mIsSecureHeLtfEnabled;
+    }
+
+    /**
+     * Get Secure HE-LTF protocol version used.
+     *
+     * The secure HE-LTF negotiation supports negotiation of the secure HE-LTF protocol version
+     * which allows a responder and an initiator to negotiate the highest mutually supported
+     * secure HE-LTF protocol version.
+     *
+     * Refer IEEE 802.11az-2022 spec, section 9.4.2.298 Ranging Parameters element.
+     */
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    @IntRange(from = 0, to = 7)
+    public int getSecureHeLtfProtocolVersion() {
+        return mSecureHeLtfProtocolVersion;
+    }
+
+    /**
+     * Get PASN comeback cookie. PASN authentication allows an AP to indicate the deferral time
+     * and optionally a Cookie. See {@link #getPasnComebackAfterMillis()}
+     * <p>
+     * When an AP receives a large volume of initial PASN Authentication frames, it can use
+     * the comeback after field in the PASN Parameters element to indicate a deferral time
+     * and optionally provide a comeback cookie which is an opaque sequence of octets. Upon
+     * receiving this response, the ranging initiator (STA) must wait for the specified time
+     * before retrying secure authentication, presenting the received cookie to the AP.
+     **/
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    @Nullable
+    public byte[] getPasnComebackCookie() {
+        return mPasnComebackCookie;
+    }
+
+    /**
+     * Get Comeback after time in milliseconds. See {@link #getPasnComebackCookie()}. A value 0
+     * indicates the ranging request operation can be tried immediately with the cookie.
+     */
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    public long getPasnComebackAfterMillis() {
+        return mPasnComebackAfterMillis;
+    }
+
+    /**
+     * Gets availability window between measurements in milliseconds for
+     * proximity detection measurements.
+     * P2P Proximity Ranging uses two additional time parameters to
+     * coordinate availability duration called Availability Windows
+     * (AW). These are the Nominal Time and AW Duration that coordinate
+     * the time window period, and the start time of the time window
+     * period respectively. During AWs the ISTA and RSTA devices shall
+     * be available to exchange N successful FTM measurements instances
+     * where N equal the negotiated Meas Per AW. The ISTA indicates its
+     * preference for an AW duration and nominal time interval in the
+     * P2P Proximity Ranging Availability subelement, and the RSTA
+     * assigns the values used during the FTM session.
+     * The start of an AW duration is Nominal Time from the 1st
+     * successful measurement instance of the previous AW. The 1st AW
+     * occurs Nominal Time from the beginning of the 1st measurement
+     * instance following the initial FTM negotiation.
+     */
+    @FlaggedApi(Flags.FLAG_PROXIMITY_RANGING)
+    public long getAvailabilityWindowDurationMillis() {
+        return mAvailabilityWindowDurationMillis;
+    }
+
+    /**
+     * Get the nominal duration between adjacent availability window in
+     * milliseconds for proximity detection measurements.
+     */
+    @FlaggedApi(Flags.FLAG_PROXIMITY_RANGING)
+    public long getNominalTimeMillis() {
+        return mNominalTimeMillis;
+    }
+
+    /**
+     * Get the number of range repetitions carried out for distance calculation in
+     * Non Trigger Based (NTB) ranging.
+     * Note: Only applicable for IEEE 802.11az result.
+     *
+     * @return The number of repetitions.
+     */
+    @FlaggedApi(Flags.FLAG_PROXIMITY_RANGING)
+    public int getNumNtbRepetitionsPerMeasurement() {
+        return mNumNtbRepetitionsPerMeasurement;
+    }
+
+    /**
+     * Returns whether the Location Measurement Report (LMR) feedback is delayed.
+     * Note: Only applicable for IEEE 802.11az result.
+     *
+     * @return {@code true} if LMR is delayed, {@code false} otherwise.
+     */
+    @FlaggedApi(Flags.FLAG_PROXIMITY_RANGING)
+    public boolean isLmrDelayed() {
+        return mIsLmrDelayed;
     }
 
     @Override
@@ -322,57 +1413,131 @@ public final class RangingResult implements Parcelable {
         dest.writeInt(mNumSuccessfulMeasurements);
         dest.writeByteArray(mLci);
         dest.writeByteArray(mLcr);
+        dest.writeParcelable(mResponderLocation, flags);
         dest.writeLong(mTimestamp);
+        dest.writeInt(mRetryAfterDurationMillis);
+        dest.writeBoolean(mIs80211mcMeasurement);
+        dest.writeInt(mFrequencyMHz);
+        dest.writeInt(mPacketBw);
+        dest.writeBoolean(mIs80211azNtbMeasurement);
+        dest.writeLong(mNtbMinMeasurementTime);
+        dest.writeLong(mNtbMaxMeasurementTime);
+        dest.writeInt(mI2rTxLtfRepetitions);
+        dest.writeInt(mR2iTxLtfRepetitions);
+        dest.writeInt(mNumTxSpatialStreams);
+        dest.writeInt(mNumRxSpatialStreams);
+        if (SdkLevel.isAtLeastV()) {
+            dest.writeList(mVendorData);
+        }
+        dest.writeBoolean(mIsRangingAuthenticated);
+        dest.writeBoolean(mIsRangingFrameProtected);
+        dest.writeBoolean(mIsSecureHeLtfEnabled);
+        dest.writeLong(mPasnComebackAfterMillis);
+        dest.writeByteArray(mPasnComebackCookie);
+        dest.writeInt(mSecureHeLtfProtocolVersion);
+        dest.writeLong(mAvailabilityWindowDurationMillis);
+        dest.writeLong(mNominalTimeMillis);
+        dest.writeInt(mNumNtbRepetitionsPerMeasurement);
+        dest.writeBoolean(mIsLmrDelayed);
+        dest.writeInt(mUsdPeerId);
     }
 
-    public static final Creator<RangingResult> CREATOR = new Creator<RangingResult>() {
-        @Override
-        public RangingResult[] newArray(int size) {
-            return new RangingResult[size];
-        }
+    public static final @android.annotation.NonNull Creator<RangingResult> CREATOR =
+            new Creator<RangingResult>() {
+                @Override
+                public RangingResult[] newArray(int size) {
+                    return new RangingResult[size];
+                }
 
-        @Override
-        public RangingResult createFromParcel(Parcel in) {
-            int status = in.readInt();
-            boolean macAddressPresent = in.readBoolean();
-            MacAddress mac = null;
-            if (macAddressPresent) {
-                mac = MacAddress.CREATOR.createFromParcel(in);
-            }
-            boolean peerHandlePresent = in.readBoolean();
-            PeerHandle peerHandle = null;
-            if (peerHandlePresent) {
-                peerHandle = new PeerHandle(in.readInt());
-            }
-            int distanceMm = in.readInt();
-            int distanceStdDevMm = in.readInt();
-            int rssi = in.readInt();
-            int numAttemptedMeasurements = in.readInt();
-            int numSuccessfulMeasurements = in.readInt();
-            byte[] lci = in.createByteArray();
-            byte[] lcr = in.createByteArray();
-            long timestamp = in.readLong();
-            if (peerHandlePresent) {
-                return new RangingResult(status, peerHandle, distanceMm, distanceStdDevMm, rssi,
-                        numAttemptedMeasurements, numSuccessfulMeasurements, lci, lcr, timestamp);
-            } else {
-                return new RangingResult(status, mac, distanceMm, distanceStdDevMm, rssi,
-                        numAttemptedMeasurements, numSuccessfulMeasurements, lci, lcr, timestamp);
-            }
-        }
-    };
+                @Override
+                public RangingResult createFromParcel(Parcel in) {
+                    RangingResult.Builder builder = new Builder()
+                            .setStatus(in.readInt())
+                            .setMacAddress(
+                                    in.readBoolean() ? MacAddress.CREATOR.createFromParcel(in)
+                                            : null)
+                            .setPeerHandle(in.readBoolean() ? new PeerHandle(in.readInt()) : null)
+                            .setDistanceMm(in.readInt())
+                            .setDistanceStdDevMm(in.readInt())
+                            .setRssi(in.readInt())
+                            .setNumAttemptedMeasurements(in.readInt())
+                            .setNumSuccessfulMeasurements(in.readInt())
+                            .setLci(in.createByteArray())
+                            .setLcr(in.createByteArray())
+                            .setUnverifiedResponderLocation(
+                                    in.readParcelable(this.getClass().getClassLoader()))
+                            .setRangingTimestampMillis(in.readLong())
+                            .setRetryAfterDurationMillis(in.readInt())
+                            .set80211mcMeasurement(in.readBoolean())
+                            .setMeasurementChannelFrequencyMHz(in.readInt())
+                            .setMeasurementBandwidth(in.readInt())
+                            .set80211azNtbMeasurement(in.readBoolean())
+                            .setMinTimeBetweenNtbMeasurementsMicros(in.readLong())
+                            .setMaxTimeBetweenNtbMeasurementsMicros(in.readLong())
+                            .set80211azInitiatorTxLtfRepetitionsCount(in.readInt())
+                            .set80211azResponderTxLtfRepetitionsCount(in.readInt())
+                            .set80211azNumberOfTxSpatialStreams(in.readInt())
+                            .set80211azNumberOfRxSpatialStreams(in.readInt());
+                    if (SdkLevel.isAtLeastV()) {
+                        builder.setVendorData(ParcelUtil.readOuiKeyedDataList(in));
+                    }
+                    builder.setRangingAuthenticated(in.readBoolean())
+                            .setRangingFrameProtected(in.readBoolean())
+                            .setSecureHeLtfEnabled(in.readBoolean())
+                            .setPasnComebackAfterMillis(in.readLong())
+                            .setPasnComebackCookie(in.createByteArray())
+                            .setSecureHeLtfProtocolVersion(in.readInt());
+                    builder.setAvailabilityWindowDurationMillis(in.readLong())
+                            .setNominalTimeMillis(in.readLong())
+                            .setNumNtbRepetitionsPerMeasurement(in.readInt())
+                            .setLmrDelayed(in.readBoolean())
+                            .setUsdPeerId(in.readInt());
+                    return builder.build();
+                }
+            };
 
     /** @hide */
     @Override
     public String toString() {
-        return new StringBuilder("RangingResult: [status=").append(mStatus).append(", mac=").append(
-                mMac).append(", peerHandle=").append(
-                mPeerHandle == null ? "<null>" : mPeerHandle.peerId).append(", distanceMm=").append(
-                mDistanceMm).append(", distanceStdDevMm=").append(mDistanceStdDevMm).append(
-                ", rssi=").append(mRssi).append(", numAttemptedMeasurements=").append(
-                mNumAttemptedMeasurements).append(", numSuccessfulMeasurements=").append(
-                mNumSuccessfulMeasurements).append(", lci=").append(mLci).append(", lcr=").append(
-                mLcr).append(", timestamp=").append(mTimestamp).append("]").toString();
+        return new StringBuilder("RangingResult: [status=").append(mStatus)
+                .append(", mac=").append(mMac)
+                .append(", peerHandle=").append(
+                        mPeerHandle == null ? "<null>" : mPeerHandle.peerId).append(
+                        ", usdPeerId=").append(mUsdPeerId)
+                .append(", distanceMm=").append(mDistanceMm)
+                .append(", distanceStdDevMm=").append(mDistanceStdDevMm)
+                .append(", rssi=").append(mRssi)
+                .append(", numAttemptedMeasurements=").append(mNumAttemptedMeasurements)
+                .append(", numSuccessfulMeasurements=").append(mNumSuccessfulMeasurements)
+                .append(", lci=").append(Arrays.toString(mLci))
+                .append(", lcr=").append(Arrays.toString(mLcr))
+                .append(", responderLocation=").append(mResponderLocation)
+                .append(", timestamp=").append(mTimestamp)
+                .append(", retryAfterDurationMillis=").append(mRetryAfterDurationMillis)
+                .append(", is80211mcMeasurement=")
+                .append(mIs80211mcMeasurement)
+                .append(", frequencyMHz=").append(mFrequencyMHz)
+                .append(", packetBw=").append(mPacketBw)
+                .append(", is80211azNtbMeasurement=").append(mIs80211azNtbMeasurement)
+                .append(", ntbMinMeasurementTimeMicros=").append(mNtbMinMeasurementTime)
+                .append(", ntbMaxMeasurementTimeMicros=").append(mNtbMaxMeasurementTime)
+                .append(", i2rTxLtfRepetitions=").append(mI2rTxLtfRepetitions)
+                .append(", r2iTxLtfRepetitions=").append(mR2iTxLtfRepetitions)
+                .append(", numTxSpatialStreams=").append(mNumTxSpatialStreams)
+                .append(", numRxSpatialStreams=").append(mNumRxSpatialStreams)
+                .append(", vendorData=").append(mVendorData)
+                .append(", isRangingAuthenticated=").append(mIsRangingAuthenticated)
+                .append(", isRangingFrameProtected=").append(mIsRangingFrameProtected)
+                .append(", isSecureHeLtfEnabled=").append(mIsSecureHeLtfEnabled)
+                .append(", pasnComebackCookie=").append(Arrays.toString(mPasnComebackCookie))
+                .append(", pasnComebackAfterMillis=").append(mPasnComebackAfterMillis)
+                .append(", availabilityWindowDurationMillis=")
+                .append(mAvailabilityWindowDurationMillis)
+                .append(", nominalTimeMillis=").append(mNominalTimeMillis)
+                .append(", numNtbRepetitionsPerMeasurement=")
+                .append(mNumNtbRepetitionsPerMeasurement)
+                .append(", isLmrDelayed=").append(mIsLmrDelayed)
+                .append("]").toString();
     }
 
     @Override
@@ -393,12 +1558,44 @@ public final class RangingResult implements Parcelable {
                 && mNumAttemptedMeasurements == lhs.mNumAttemptedMeasurements
                 && mNumSuccessfulMeasurements == lhs.mNumSuccessfulMeasurements
                 && Arrays.equals(mLci, lhs.mLci) && Arrays.equals(mLcr, lhs.mLcr)
-                && mTimestamp == lhs.mTimestamp;
+                && mTimestamp == lhs.mTimestamp
+                && mRetryAfterDurationMillis == lhs.mRetryAfterDurationMillis
+                && mIs80211mcMeasurement == lhs.mIs80211mcMeasurement
+                && Objects.equals(mResponderLocation, lhs.mResponderLocation)
+                && mFrequencyMHz == lhs.mFrequencyMHz
+                && mPacketBw == lhs.mPacketBw
+                && mIs80211azNtbMeasurement == lhs.mIs80211azNtbMeasurement
+                && mNtbMinMeasurementTime == lhs.mNtbMinMeasurementTime
+                && mNtbMaxMeasurementTime == lhs.mNtbMaxMeasurementTime
+                && mI2rTxLtfRepetitions == lhs.mI2rTxLtfRepetitions
+                && mR2iTxLtfRepetitions == lhs.mR2iTxLtfRepetitions
+                && mNumTxSpatialStreams == lhs.mNumTxSpatialStreams
+                && mNumRxSpatialStreams == lhs.mNumRxSpatialStreams
+                && Objects.equals(mVendorData, lhs.mVendorData)
+                && mIsRangingAuthenticated == lhs.mIsRangingAuthenticated
+                && mIsRangingFrameProtected == lhs.mIsRangingFrameProtected
+                && mIsSecureHeLtfEnabled == lhs.isSecureHeLtfEnabled()
+                && mPasnComebackAfterMillis == lhs.mPasnComebackAfterMillis
+                && Arrays.equals(mPasnComebackCookie, lhs.mPasnComebackCookie)
+                && mAvailabilityWindowDurationMillis == lhs.mAvailabilityWindowDurationMillis
+                && mNominalTimeMillis == lhs.mNominalTimeMillis
+                && mNumNtbRepetitionsPerMeasurement == lhs.mNumNtbRepetitionsPerMeasurement
+                && mIsLmrDelayed == lhs.mIsLmrDelayed
+                && mUsdPeerId == lhs.mUsdPeerId;
+
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(mStatus, mMac, mPeerHandle, mDistanceMm, mDistanceStdDevMm, mRssi,
-                mNumAttemptedMeasurements, mNumSuccessfulMeasurements, mLci, mLcr, mTimestamp);
+                mNumAttemptedMeasurements, mNumSuccessfulMeasurements, Arrays.hashCode(mLci),
+                Arrays.hashCode(mLcr), mResponderLocation, mTimestamp, mRetryAfterDurationMillis,
+                mIs80211mcMeasurement, mFrequencyMHz, mPacketBw, mIs80211azNtbMeasurement,
+                mNtbMinMeasurementTime, mNtbMaxMeasurementTime, mI2rTxLtfRepetitions,
+                mR2iTxLtfRepetitions, mNumTxSpatialStreams, mNumRxSpatialStreams, mVendorData,
+                mIsRangingAuthenticated, mIsRangingFrameProtected, mIsSecureHeLtfEnabled,
+                mPasnComebackAfterMillis, Arrays.hashCode(mPasnComebackCookie),
+                mAvailabilityWindowDurationMillis, mNominalTimeMillis,
+                mNumNtbRepetitionsPerMeasurement, mIsLmrDelayed, mUsdPeerId);
     }
 }

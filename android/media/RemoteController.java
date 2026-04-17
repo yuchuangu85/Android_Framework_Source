@@ -17,15 +17,16 @@
 package android.media;
 
 import android.app.ActivityManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
 import android.graphics.Bitmap;
 import android.media.session.MediaController;
 import android.media.session.MediaSession;
 import android.media.session.MediaSessionLegacyHelper;
 import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -35,7 +36,6 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.KeyEvent;
 
-import java.lang.ref.WeakReference;
 import java.util.List;
 
 /**
@@ -79,6 +79,7 @@ import java.util.List;
     private int mArtworkHeight = -1;
     private boolean mEnabled = true;
     // synchronized on mInfoLock, for USE_SESSION apis.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private MediaController mCurrentSession;
 
     /**
@@ -219,36 +220,24 @@ import java.util.List;
         return -1;
     }
 
-
     /**
-     * Send a simulated key event for a media button to be received by the current client.
-     * To simulate a key press, you must first send a KeyEvent built with
-     * a {@link KeyEvent#ACTION_DOWN} action, then another event with the {@link KeyEvent#ACTION_UP}
-     * action.
-     * <p>The key event will be sent to the registered receiver
-     * (see {@link AudioManager#registerMediaButtonEventReceiver(PendingIntent)}) whose associated
-     * {@link RemoteControlClient}'s metadata and playback state is published (there may be
-     * none under some circumstances).
-     * @param keyEvent a {@link KeyEvent} instance whose key code is one of
-     *     {@link KeyEvent#KEYCODE_MUTE},
-     *     {@link KeyEvent#KEYCODE_HEADSETHOOK},
-     *     {@link KeyEvent#KEYCODE_MEDIA_PLAY},
-     *     {@link KeyEvent#KEYCODE_MEDIA_PAUSE},
-     *     {@link KeyEvent#KEYCODE_MEDIA_PLAY_PAUSE},
-     *     {@link KeyEvent#KEYCODE_MEDIA_STOP},
-     *     {@link KeyEvent#KEYCODE_MEDIA_NEXT},
-     *     {@link KeyEvent#KEYCODE_MEDIA_PREVIOUS},
-     *     {@link KeyEvent#KEYCODE_MEDIA_REWIND},
-     *     {@link KeyEvent#KEYCODE_MEDIA_RECORD},
-     *     {@link KeyEvent#KEYCODE_MEDIA_FAST_FORWARD},
-     *     {@link KeyEvent#KEYCODE_MEDIA_CLOSE},
-     *     {@link KeyEvent#KEYCODE_MEDIA_EJECT},
-     *     or {@link KeyEvent#KEYCODE_MEDIA_AUDIO_TRACK}.
+     * Send a simulated key event for a media button to be received by the current client. To
+     * simulate a key press, you must first send a KeyEvent built with a {@link
+     * KeyEvent#ACTION_DOWN} action, then another event with the {@link KeyEvent#ACTION_UP} action.
+     *
+     * <p>The key event will be sent to the registered receiver (see {@link
+     * AudioManager#registerMediaButtonEventReceiver(PendingIntent)}) whose associated {@link
+     * RemoteControlClient}'s metadata and playback state is published (there may be none under some
+     * circumstances).
+     *
+     * @param keyEvent a media session {@link KeyEvent}, as defined by {@link
+     *     KeyEvent#isMediaSessionKey}.
      * @return true if the event was successfully sent, false otherwise.
-     * @throws IllegalArgumentException
+     * @throws IllegalArgumentException If the provided {@link KeyEvent} is not a media session key,
+     *     as defined by {@link KeyEvent#isMediaSessionKey}.
      */
     public boolean sendMediaKeyEvent(KeyEvent keyEvent) throws IllegalArgumentException {
-        if (!KeyEvent.isMediaKey(keyEvent.getKeyCode())) {
+        if (!KeyEvent.isMediaSessionKey(keyEvent.getKeyCode())) {
             throw new IllegalArgumentException("not a media key event");
         }
         synchronized (mInfoLock) {
@@ -292,6 +281,7 @@ import java.util.List;
      * @return true if successful
      * @throws IllegalArgumentException
      */
+    @UnsupportedAppUsage
     public boolean setArtworkConfiguration(boolean wantBitmap, int width, int height)
             throws IllegalArgumentException {
         synchronized (mInfoLock) {
@@ -405,7 +395,7 @@ import java.util.List;
             mEditableKeys = editableKeys;
 
             mEditorArtwork = (Bitmap) metadata.getParcelable(
-                    String.valueOf(MediaMetadataEditor.BITMAP_KEY_ARTWORK));
+                    String.valueOf(MediaMetadataEditor.BITMAP_KEY_ARTWORK), android.graphics.Bitmap.class);
             if (mEditorArtwork != null) {
                 cleanupBitmapFromBundle(MediaMetadataEditor.BITMAP_KEY_ARTWORK);
             }
@@ -537,7 +527,7 @@ import java.util.List;
             handler = new Handler(Looper.getMainLooper());
         }
         mSessionManager.addOnActiveSessionsChangedListener(mSessionListener, listenerComponent,
-                UserHandle.myUserId(), handler);
+                handler);
         mSessionListener.onActiveSessionsChanged(mSessionManager
                 .getActiveSessions(listenerComponent));
         if (DEBUG) {
@@ -631,8 +621,8 @@ import java.util.List;
             l = this.mOnClientUpdateListener;
         }
         if (l != null) {
-            int playstate = state == null ? RemoteControlClient.PLAYSTATE_NONE : PlaybackState
-                    .getRccStateFromState(state.getState());
+            int playstate = state == null ? RemoteControlClient.PLAYSTATE_NONE
+                    : RemoteControlClient.getRccStateFromState(state.getState());
             if (state == null || state.getPosition() == PlaybackState.PLAYBACK_POSITION_UNKNOWN) {
                 l.onClientPlaybackStateUpdate(playstate);
             } else {
@@ -641,7 +631,7 @@ import java.util.List;
             }
             if (state != null) {
                 l.onClientTransportControlUpdate(
-                        PlaybackState.getRccControlFlagsFromActions(state.getActions()));
+                        RemoteControlClient.getRccControlFlagsFromActions(state.getActions()));
             }
         }
     }
@@ -689,6 +679,7 @@ import java.util.List;
      * Used by AudioManager to access user listener receiving the client update notifications
      * @return
      */
+    @UnsupportedAppUsage
     OnClientUpdateListener getUpdateListener() {
         return mOnClientUpdateListener;
     }

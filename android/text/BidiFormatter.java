@@ -31,7 +31,7 @@ import java.util.Locale;
  * directionality of the text can be either estimated or passed in when known.
  *
  * <p>To support versions lower than {@link android.os.Build.VERSION_CODES#JELLY_BEAN_MR2},
- * you can use the support library's {@link android.support.v4.text.BidiFormatter} class.
+ * you can use the support library's {@link androidx.core.text.BidiFormatter} class.
  *
  * <p>These APIs provides the following functionality:
  * <p>
@@ -82,6 +82,7 @@ import java.util.Locale;
  * first-strong estimation algorithm. It can also be configured to use a custom directionality
  * estimation object.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public final class BidiFormatter {
 
     /**
@@ -604,15 +605,10 @@ public final class BidiFormatter {
 
         /**
          * Return Character directionality. Same as {@link Character#getDirectionality(int)} except
-         * it overrides values for newest emoji that are not covered by ICU.
+         * it can override values for newest emoji that are not covered by ICU.
          */
         public static byte getDirectionality(int codePoint) {
-            if (Emoji.isNewEmoji(codePoint)) {
-                // TODO: Fix or remove once emoji-data.text 5.0 is in ICU or update to 6.0.
-                return Character.DIRECTIONALITY_OTHER_NEUTRALS;
-            } else {
-                return Character.getDirectionality(codePoint);
-            }
+            return Character.getDirectionality(codePoint);
         }
 
         // Internal instance variables.

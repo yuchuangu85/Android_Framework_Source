@@ -16,8 +16,6 @@
 
 package com.android.internal.view.menu;
 
-import com.android.internal.R;
-
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Rect;

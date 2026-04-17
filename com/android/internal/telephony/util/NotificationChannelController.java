@@ -15,6 +15,7 @@
  */
 package com.android.internal.telephony.util;
 
+import android.annotation.NonNull;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
@@ -22,7 +23,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.media.AudioAttributes;
-import android.net.Uri;
 import android.provider.Settings;
 import android.telephony.SubscriptionManager;
 
@@ -37,15 +37,25 @@ public class NotificationChannelController {
      * list of {@link android.app.NotificationChannel} for telephony service.
      */
     public static final String CHANNEL_ID_ALERT = "alert";
-    public static final String CHANNEL_ID_CALL_FORWARD = "callForward";
+    public static final String CHANNEL_ID_CALL_FORWARD = "callForwardNew";
     public static final String CHANNEL_ID_MOBILE_DATA_STATUS = "mobileDataAlertNew";
     public static final String CHANNEL_ID_SIM = "sim";
     public static final String CHANNEL_ID_SMS = "sms";
     public static final String CHANNEL_ID_VOICE_MAIL = "voiceMail";
     public static final String CHANNEL_ID_WFC = "wfc";
+    /**
+     * This channel is for sim related notifications similar as CHANNEL_ID_SIM except that this is
+     * high priority while CHANNEL_ID_SIM is low priority.
+     */
+    public static final String CHANNEL_ID_SIM_HIGH_PRIORITY = "simHighPriority";
 
     /** deprecated channel, replaced with @see #CHANNEL_ID_MOBILE_DATA_STATUS */
     private static final String CHANNEL_ID_MOBILE_DATA_ALERT_DEPRECATED = "mobileDataAlert";
+    /**
+     * deprecated channel, replaced with @see #CHANNEL_ID_CALL_FORWARD
+     * change the importance to default to make sure notification icon shown in the status bar.
+     */
+    private static final String CHANNEL_ID_CALL_FORWARD_DEPRECATED = "callForward";
 
     /**
      * Creates all notification channels and registers with NotificationManager. If a channel
@@ -59,46 +69,56 @@ public class NotificationChannelController {
         alertChannel.setSound(Settings.System.DEFAULT_NOTIFICATION_URI,
                 new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).build());
         // allow users to block notifications from system
-        alertChannel.setBlockableSystem(true);
+        alertChannel.setBlockable(true);
 
         final NotificationChannel mobileDataStatusChannel = new NotificationChannel(
                 CHANNEL_ID_MOBILE_DATA_STATUS,
                 context.getText(R.string.notification_channel_mobile_data_status),
                 NotificationManager.IMPORTANCE_LOW);
         // allow users to block notifications from system
-        mobileDataStatusChannel.setBlockableSystem(true);
+        mobileDataStatusChannel.setBlockable(true);
 
         final NotificationChannel simChannel = new NotificationChannel(
                 CHANNEL_ID_SIM,
                 context.getText(R.string.notification_channel_sim),
                 NotificationManager.IMPORTANCE_LOW
         );
-
         simChannel.setSound(null, null);
+
+        final NotificationChannel callforwardChannel = new NotificationChannel(
+                CHANNEL_ID_CALL_FORWARD,
+                context.getText(R.string.notification_channel_call_forward),
+                NotificationManager.IMPORTANCE_DEFAULT);
+        migrateCallFowardNotificationChannel(context, callforwardChannel);
 
         context.getSystemService(NotificationManager.class)
                 .createNotificationChannels(Arrays.asList(
-                new NotificationChannel(CHANNEL_ID_CALL_FORWARD,
-                        context.getText(R.string.notification_channel_call_forward),
-                        NotificationManager.IMPORTANCE_LOW),
                 new NotificationChannel(CHANNEL_ID_SMS,
                         context.getText(R.string.notification_channel_sms),
                         NotificationManager.IMPORTANCE_HIGH),
                 new NotificationChannel(CHANNEL_ID_WFC,
                         context.getText(R.string.notification_channel_wfc),
                         NotificationManager.IMPORTANCE_LOW),
-                alertChannel,
-                mobileDataStatusChannel,
-                simChannel));
+                new NotificationChannel(CHANNEL_ID_SIM_HIGH_PRIORITY,
+                        context.getText(R.string.notification_channel_sim_high_prio),
+                        NotificationManager.IMPORTANCE_HIGH),
+                alertChannel, mobileDataStatusChannel,
+                simChannel, callforwardChannel));
+
         // only for update
         if (getChannel(CHANNEL_ID_VOICE_MAIL, context) != null) {
             migrateVoicemailNotificationSettings(context);
         }
+
         // after channel has been created there is no way to change the channel setting
         // programmatically. delete the old channel and create a new one with a new ID.
         if (getChannel(CHANNEL_ID_MOBILE_DATA_ALERT_DEPRECATED, context) != null) {
             context.getSystemService(NotificationManager.class)
                     .deleteNotificationChannel(CHANNEL_ID_MOBILE_DATA_ALERT_DEPRECATED);
+        }
+        if (getChannel(CHANNEL_ID_CALL_FORWARD_DEPRECATED, context) != null) {
+            context.getSystemService(NotificationManager.class)
+                    .deleteNotificationChannel(CHANNEL_ID_CALL_FORWARD_DEPRECATED);
         }
     }
 
@@ -117,7 +137,6 @@ public class NotificationChannelController {
 
     /**
      * migrate deprecated voicemail notification settings to initial notification channel settings
-     * {@link VoicemailNotificationSettingsUtil#getRingTonePreference(Context)}}
      * {@link VoicemailNotificationSettingsUtil#getVibrationPreference(Context)}
      * notification settings are based on subId, only migrate if sub id matches.
      * otherwise fallback to predefined voicemail channel settings.
@@ -130,12 +149,33 @@ public class NotificationChannelController {
                 NotificationManager.IMPORTANCE_DEFAULT);
         voiceMailChannel.enableVibration(
                 VoicemailNotificationSettingsUtil.getVibrationPreference(context));
-        Uri sound = VoicemailNotificationSettingsUtil.getRingTonePreference(context);
+        // Use the default notification sound when migrating to a notification channel.
+        // This also gets called when the SIM is loaded, which could be a while after the device is
+        // first booted.  Note that the behavior of createNotificationChannel is such that if the
+        // channel already exists, it will update the existing channel, rather than creating a new
+        // one; any existing overridden sound or vibration setting made by the user is retained by
+        // NotificationManager.
         voiceMailChannel.setSound(
-                (sound == null) ? Settings.System.DEFAULT_NOTIFICATION_URI : sound,
+                Settings.System.DEFAULT_NOTIFICATION_URI,
                 new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).build());
         context.getSystemService(NotificationManager.class)
                 .createNotificationChannel(voiceMailChannel);
+    }
+
+    /**
+     * migrate deprecated call forward notification channel.
+     * @param context
+     */
+    private static void migrateCallFowardNotificationChannel(
+            Context context, @NonNull NotificationChannel callforwardChannel) {
+        final NotificationChannel deprecatedChannel =
+                getChannel(CHANNEL_ID_CALL_FORWARD_DEPRECATED, context);
+        if (deprecatedChannel != null) {
+            callforwardChannel.setSound(deprecatedChannel.getSound(),
+                    deprecatedChannel.getAudioAttributes());
+            callforwardChannel.setVibrationPattern(deprecatedChannel.getVibrationPattern());
+            callforwardChannel.enableVibration(deprecatedChannel.shouldVibrate());
+        }
     }
 
     private final BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {

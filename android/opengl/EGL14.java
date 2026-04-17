@@ -18,10 +18,12 @@
 
 package android.opengl;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.SurfaceTexture;
+import android.os.Build;
 import android.view.Surface;
-import android.view.SurfaceView;
 import android.view.SurfaceHolder;
+import android.view.SurfaceView;
 
 /**
  * EGL 1.4
@@ -30,9 +32,10 @@ import android.view.SurfaceHolder;
 public class EGL14 {
 
 public static final int EGL_DEFAULT_DISPLAY            = 0;
-public static EGLContext EGL_NO_CONTEXT                = null;
-public static EGLDisplay EGL_NO_DISPLAY                = null;
-public static EGLSurface EGL_NO_SURFACE                = null;
+
+public static EGLContext EGL_NO_CONTEXT                = new EGLContext(0L);
+public static EGLDisplay EGL_NO_DISPLAY                = new EGLDisplay(0L);
+public static EGLSurface EGL_NO_SURFACE                = new EGLSurface(0L);
 
 public static final int EGL_FALSE                          = 0;
 public static final int EGL_TRUE                           = 1;
@@ -161,8 +164,9 @@ public static final int EGL_CORE_NATIVE_ENGINE             = 0x305B;
     );
 
     /**
-     * {@hide}
+     * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static native EGLDisplay eglGetDisplay(
         long display_id
     );
@@ -343,7 +347,7 @@ public static final int EGL_CORE_NATIVE_ENGINE             = 0x305B;
     );
     // TODO Unhide the below method
     /**
-     * {@hide}
+     * @hide
      */
     public static native EGLSurface eglCreatePbufferFromClientBuffer(
         EGLDisplay dpy,

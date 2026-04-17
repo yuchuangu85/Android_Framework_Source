@@ -16,6 +16,9 @@
 
 package android.net.wifi.aware;
 
+import static com.android.wifi.flags.Flags.FLAG_MULTI_PEER_AWARE_DATAPATH;
+
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.util.Log;
 
@@ -65,4 +68,55 @@ public class PublishDiscoverySession extends DiscoverySession {
             mgr.updatePublish(mClientId, mSessionId, publishConfig);
         }
     }
+
+    /**
+     * Accept a Wi-Fi Aware data path request to create a connection with the target peer.
+     * The Aware data path request should be done in the context of a discovery session -
+     * after a {@link DiscoverySessionCallback#onDataPathRequestReceived(PeerHandle)} event
+     * is received.
+     * When the Aware data path setup succeeds, both side will receive
+     * {@link DiscoverySessionCallback#onDataPathConnected(PeerHandle, WifiAwareNetworkInfo)}.
+     * Otherwise {@link DiscoverySessionCallback#onDataPathRequestFailed(PeerHandle, int)} will be
+     * called.
+     * @param peerHandle The peer's handle for the data path request.
+     * @param request The data path request.
+     * @return true if framework accept the data path request successfully and start negotiation,
+     *         false otherwise.
+     */
+    @FlaggedApi(FLAG_MULTI_PEER_AWARE_DATAPATH)
+    public boolean acceptDataPathRequest(@NonNull PeerHandle peerHandle,
+            @NonNull AwareDataPathRequest request) {
+        if (mTerminated) {
+            return false;
+        }
+
+        WifiAwareManager mgr = mMgr.get();
+        if (mgr == null) {
+            return false;
+        }
+        mgr.respondToDataPath(mClientId, mSessionId, peerHandle, request, true);
+        return true;
+    }
+
+    /**
+     * Reject a Wi-Fi Aware data path request received from peer. This is the
+     * response to the
+     * {@link DiscoverySessionCallback#onDataPathRequestReceived(PeerHandle)}
+     *
+     * @param peerHandle The peer's handle for the data path request.
+     * @return true if the data path is rejected successfully, false otherwise.
+     */
+    @FlaggedApi(FLAG_MULTI_PEER_AWARE_DATAPATH)
+    public boolean rejectDataPathRequest(@NonNull PeerHandle peerHandle) {
+        if (mTerminated) {
+            return false;
+        }
+        WifiAwareManager mgr = mMgr.get();
+        if (mgr == null) {
+            return false;
+        }
+        mgr.respondToDataPath(mClientId, mSessionId, peerHandle, null, false);
+        return true;
+    }
+
 }

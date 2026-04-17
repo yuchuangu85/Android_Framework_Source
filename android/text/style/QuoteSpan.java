@@ -57,6 +57,7 @@ import android.text.TextUtils;
  * <img src="{@docRoot}reference/android/images/text/style/customquotespan.png" />
  * <figcaption>Customized <code>QuoteSpan</code>.</figcaption>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class QuoteSpan implements LeadingMarginSpan, ParcelableSpan {
     /**
      * Default stripe width in pixels.
@@ -202,5 +203,14 @@ public class QuoteSpan implements LeadingMarginSpan, ParcelableSpan {
 
         p.setStyle(style);
         p.setColor(color);
+    }
+
+    @Override
+    public String toString() {
+        return "QuoteSpan{"
+                + "color=" + String.format("#%08X", getColor())
+                + ", stripeWidth=" + getStripeWidth()
+                + ", gapWidth=" + getGapWidth()
+                + '}';
     }
 }

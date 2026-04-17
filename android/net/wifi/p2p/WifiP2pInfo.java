@@ -16,8 +16,8 @@
 
 package android.net.wifi.p2p;
 
-import android.os.Parcelable;
 import android.os.Parcel;
+import android.os.Parcelable;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -25,7 +25,7 @@ import java.net.UnknownHostException;
 /**
  * A class representing connection information about a Wi-Fi p2p group
  *
- * {@see WifiP2pManager}
+ * @see WifiP2pManager
  */
 public class WifiP2pInfo implements Parcelable {
 
@@ -45,7 +45,8 @@ public class WifiP2pInfo implements Parcelable {
         StringBuffer sbuf = new StringBuffer();
         sbuf.append("groupFormed: ").append(groupFormed)
             .append(" isGroupOwner: ").append(isGroupOwner)
-            .append(" groupOwnerAddress: ").append(groupOwnerAddress);
+                .append(" groupOwnerIpAddress: ")
+                .append(groupOwnerAddress == null ? "none" : groupOwnerAddress.getHostAddress());
         return sbuf.toString();
     }
 
@@ -77,7 +78,7 @@ public class WifiP2pInfo implements Parcelable {
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<WifiP2pInfo> CREATOR =
+    public static final @android.annotation.NonNull Creator<WifiP2pInfo> CREATOR =
         new Creator<WifiP2pInfo>() {
             public WifiP2pInfo createFromParcel(Parcel in) {
                 WifiP2pInfo info = new WifiP2pInfo();

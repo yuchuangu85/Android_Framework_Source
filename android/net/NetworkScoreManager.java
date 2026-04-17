@@ -17,7 +17,9 @@
 package android.net;
 
 import android.Manifest.permission;
+import android.annotation.CallbackExecutor;
 import android.annotation.IntDef;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
@@ -25,13 +27,17 @@ import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.content.Context;
+import android.os.Binder;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.ServiceManager.ServiceNotFoundException;
+import android.util.Log;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 /**
  * Class that manages communication between network subsystems and a network scorer.
@@ -45,24 +51,34 @@ import java.util.List;
  *     permission.
  * </ul>
  *
+ * @deprecated No longer functional on {@link android.os.Build.VERSION_CODES#TIRAMISU} and above.
+ * See <a href="{@docRoot}guide/topics/connectivity/wifi-suggest">Wi-Fi Suggestion API</a> for
+ * alternative APIs to suggest/configure Wi-Fi networks.
  * @hide
  */
 @SystemApi
+@Deprecated
 @SystemService(Context.NETWORK_SCORE_SERVICE)
 public class NetworkScoreManager {
+    private static final String TAG = "NetworkScoreManager";
+
     /**
      * Activity action: ask the user to change the active network scorer. This will show a dialog
      * that asks the user whether they want to replace the current active scorer with the one
      * specified in {@link #EXTRA_PACKAGE_NAME}. The activity will finish with RESULT_OK if the
      * active scorer was changed or RESULT_CANCELED if it failed for any reason.
+     * @deprecated No longer sent.
      */
+    @Deprecated
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_CHANGE_ACTIVE = "android.net.scoring.CHANGE_ACTIVE";
 
     /**
      * Extra used with {@link #ACTION_CHANGE_ACTIVE} to specify the new scorer package. Set with
      * {@link android.content.Intent#putExtra(String, String)}.
+     * @deprecated No longer sent.
      */
+    @Deprecated
     public static final String EXTRA_PACKAGE_NAME = "packageName";
 
     /**
@@ -73,7 +89,9 @@ public class NetworkScoreManager {
      * configured by the user as well as any open networks.
      *
      * <p class="note">This is a protected intent that can only be sent by the system.
+     * @deprecated Use {@link #ACTION_RECOMMEND_NETWORKS} to bind scorer app instead.
      */
+    @Deprecated
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_SCORE_NETWORKS = "android.net.scoring.SCORE_NETWORKS";
 
@@ -81,7 +99,9 @@ public class NetworkScoreManager {
      * Extra used with {@link #ACTION_SCORE_NETWORKS} to specify the networks to be scored, as an
      * array of {@link NetworkKey}s. Can be obtained with
      * {@link android.content.Intent#getParcelableArrayExtra(String)}}.
+     * @deprecated Use {@link #ACTION_RECOMMEND_NETWORKS} to bind scorer app instead.
      */
+    @Deprecated
     public static final String EXTRA_NETWORKS_TO_SCORE = "networksToScore";
 
     /**
@@ -148,27 +168,26 @@ public class NetworkScoreManager {
     public static final String EXTRA_NEW_SCORER = "newScorer";
 
     /** @hide */
-    @IntDef({CACHE_FILTER_NONE, CACHE_FILTER_CURRENT_NETWORK, CACHE_FILTER_SCAN_RESULTS})
+    @IntDef({SCORE_FILTER_NONE, SCORE_FILTER_CURRENT_NETWORK, SCORE_FILTER_SCAN_RESULTS})
     @Retention(RetentionPolicy.SOURCE)
-    public @interface CacheUpdateFilter {}
+    public @interface ScoreUpdateFilter {}
 
     /**
-     * Do not filter updates sent to the cache.
-     * @hide
+     * Do not filter updates sent to the {@link NetworkScoreCallback}].
      */
-    public static final int CACHE_FILTER_NONE = 0;
+    public static final int SCORE_FILTER_NONE = 0;
 
     /**
-     * Only send cache updates when the network matches the connected network.
-     * @hide
+     * Only send updates to the {@link NetworkScoreCallback} when the network matches the connected
+     * network.
      */
-    public static final int CACHE_FILTER_CURRENT_NETWORK = 1;
+    public static final int SCORE_FILTER_CURRENT_NETWORK = 1;
 
     /**
-     * Only send cache updates when the network is part of the current scan result set.
-     * @hide
+     * Only send updates to the {@link NetworkScoreCallback} when the network is part of the
+     * current scan result set.
      */
-    public static final int CACHE_FILTER_SCAN_RESULTS = 2;
+    public static final int SCORE_FILTER_SCAN_RESULTS = 2;
 
     /** @hide */
     @IntDef({RECOMMENDATIONS_ENABLED_FORCED_OFF, RECOMMENDATIONS_ENABLED_OFF,
@@ -230,7 +249,7 @@ public class NetworkScoreManager {
      *                           or {@link permission#REQUEST_NETWORK_SCORES} permissions.
      */
     @RequiresPermission(anyOf = {android.Manifest.permission.SCORE_NETWORKS,
-                                 android.Manifest.permission.REQUEST_NETWORK_SCORES})
+            android.Manifest.permission.REQUEST_NETWORK_SCORES})
     public String getActiveScorerPackage() {
         try {
             return mService.getActiveScorerPackage();
@@ -285,7 +304,7 @@ public class NetworkScoreManager {
      * @throws SecurityException if the caller is not the active scorer.
      */
     @RequiresPermission(android.Manifest.permission.SCORE_NETWORKS)
-    public boolean updateScores(ScoredNetwork[] networks) throws SecurityException {
+    public boolean updateScores(@NonNull ScoredNetwork[] networks) throws SecurityException {
         try {
             return mService.updateScores(networks);
         } catch (RemoteException e) {
@@ -307,7 +326,7 @@ public class NetworkScoreManager {
      *                           hold the {@link permission#REQUEST_NETWORK_SCORES} permission.
      */
     @RequiresPermission(anyOf = {android.Manifest.permission.SCORE_NETWORKS,
-                                 android.Manifest.permission.REQUEST_NETWORK_SCORES})
+            android.Manifest.permission.REQUEST_NETWORK_SCORES})
     public boolean clearScores() throws SecurityException {
         try {
             return mService.clearScores();
@@ -329,7 +348,7 @@ public class NetworkScoreManager {
      */
     @SystemApi
     @RequiresPermission(anyOf = {android.Manifest.permission.SCORE_NETWORKS,
-                                 android.Manifest.permission.REQUEST_NETWORK_SCORES})
+            android.Manifest.permission.REQUEST_NETWORK_SCORES})
     public boolean setActiveScorer(String packageName) throws SecurityException {
         try {
             return mService.setActiveScorer(packageName);
@@ -347,7 +366,7 @@ public class NetworkScoreManager {
      *                           hold the {@link permission#REQUEST_NETWORK_SCORES} permission.
      */
     @RequiresPermission(anyOf = {android.Manifest.permission.SCORE_NETWORKS,
-                                 android.Manifest.permission.REQUEST_NETWORK_SCORES})
+            android.Manifest.permission.REQUEST_NETWORK_SCORES})
     public void disableScoring() throws SecurityException {
         try {
             mService.disableScoring();
@@ -359,18 +378,47 @@ public class NetworkScoreManager {
     /**
      * Request scoring for networks.
      *
-     * @return true if the broadcast was sent, or false if there is no active scorer.
+     * <p>
+     * Note: The results (i.e scores) for these networks, when available will be provided via the
+     * callback registered with {@link #registerNetworkScoreCallback(int, int, Executor,
+     * NetworkScoreCallback)}. The calling module is responsible for registering a callback to
+     * receive the results before requesting new scores via this API.
+     *
+     * @return true if the request was successfully sent, or false if there is no active scorer.
      * @throws SecurityException if the caller does not hold the
      *         {@link permission#REQUEST_NETWORK_SCORES} permission.
+     *
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
-    public boolean requestScores(NetworkKey[] networks) throws SecurityException {
+    public boolean requestScores(@NonNull NetworkKey[] networks) throws SecurityException {
         try {
             return mService.requestScores(networks);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
+    }
+
+    /**
+     * Request scoring for networks.
+     *
+     * <p>
+     * Note: The results (i.e scores) for these networks, when available will be provided via the
+     * callback registered with {@link #registerNetworkScoreCallback(int, int, Executor,
+     * NetworkScoreCallback)}. The calling module is responsible for registering a callback to
+     * receive the results before requesting new scores via this API.
+     *
+     * @return true if the request was successfully sent, or false if there is no active scorer.
+     * @throws SecurityException if the caller does not hold the
+     *         {@link permission#REQUEST_NETWORK_SCORES} permission.
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
+    public boolean requestScores(@NonNull Collection<NetworkKey> networks)
+            throws SecurityException {
+        return requestScores(networks.toArray(new NetworkKey[0]));
     }
 
     /**
@@ -381,13 +429,13 @@ public class NetworkScoreManager {
      * @throws SecurityException if the caller does not hold the
      *         {@link permission#REQUEST_NETWORK_SCORES} permission.
      * @throws IllegalArgumentException if a score cache is already registered for this type.
-     * @deprecated equivalent to registering for cache updates with CACHE_FILTER_NONE.
+     * @deprecated equivalent to registering for cache updates with {@link #SCORE_FILTER_NONE}.
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
     @Deprecated // migrate to registerNetworkScoreCache(int, INetworkScoreCache, int)
     public void registerNetworkScoreCache(int networkType, INetworkScoreCache scoreCache) {
-        registerNetworkScoreCache(networkType, scoreCache, CACHE_FILTER_NONE);
+        registerNetworkScoreCache(networkType, scoreCache, SCORE_FILTER_NONE);
     }
 
     /**
@@ -395,7 +443,7 @@ public class NetworkScoreManager {
      *
      * @param networkType the type of network this cache can handle. See {@link NetworkKey#type}
      * @param scoreCache implementation of {@link INetworkScoreCache} to store the scores
-     * @param filterType the {@link CacheUpdateFilter} to apply
+     * @param filterType the {@link ScoreUpdateFilter} to apply
      * @throws SecurityException if the caller does not hold the
      *         {@link permission#REQUEST_NETWORK_SCORES} permission.
      * @throws IllegalArgumentException if a score cache is already registered for this type.
@@ -403,7 +451,7 @@ public class NetworkScoreManager {
      */
     @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
     public void registerNetworkScoreCache(int networkType, INetworkScoreCache scoreCache,
-            @CacheUpdateFilter int filterType) {
+            @ScoreUpdateFilter int filterType) {
         try {
             mService.registerNetworkScoreCache(networkType, scoreCache, filterType);
         } catch (RemoteException e) {
@@ -428,6 +476,95 @@ public class NetworkScoreManager {
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
+    }
+
+    /**
+     * Base class for network score cache callback. Should be extended by applications and set
+     * when calling {@link #registerNetworkScoreCallback(int, int, Executor, NetworkScoreCallback)}.
+     *
+     * @hide
+     */
+    @SystemApi
+    public abstract static class NetworkScoreCallback {
+        /**
+         * Called when a new set of network scores are available.
+         * This is triggered in response when the client invokes
+         * {@link #requestScores(Collection)} to score a new set of networks.
+         *
+         * @param networks List of {@link ScoredNetwork} containing updated scores.
+         */
+        public abstract void onScoresUpdated(@NonNull Collection<ScoredNetwork> networks);
+
+        /**
+         * Invokes when all the previously provided scores are no longer valid.
+         */
+        public abstract void onScoresInvalidated();
+    }
+
+    /**
+     * Callback proxy for {@link NetworkScoreCallback} objects.
+     */
+    private class NetworkScoreCallbackProxy extends INetworkScoreCache.Stub {
+        private final Executor mExecutor;
+        private final NetworkScoreCallback mCallback;
+
+        NetworkScoreCallbackProxy(Executor executor, NetworkScoreCallback callback) {
+            mExecutor = executor;
+            mCallback = callback;
+        }
+
+        @Override
+        public void updateScores(@NonNull List<ScoredNetwork> networks) {
+            final long token = Binder.clearCallingIdentity();
+            try {
+                mExecutor.execute(() -> {
+                    mCallback.onScoresUpdated(networks);
+                });
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+
+        @Override
+        public void clearScores() {
+            final long token = Binder.clearCallingIdentity();
+            try {
+                mExecutor.execute(() -> {
+                    mCallback.onScoresInvalidated();
+                });
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+        }
+    }
+
+    /**
+     * Register a network score callback.
+     *
+     * @param networkType the type of network this cache can handle. See {@link NetworkKey#type}
+     * @param filterType the {@link ScoreUpdateFilter} to apply
+     * @param callback implementation of {@link NetworkScoreCallback} that will be invoked when the
+     *                 scores change.
+     * @param executor The executor on which to execute the callbacks.
+     * @throws SecurityException if the caller does not hold the
+     *         {@link permission#REQUEST_NETWORK_SCORES} permission.
+     * @throws IllegalArgumentException if a callback is already registered for this type.
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(android.Manifest.permission.REQUEST_NETWORK_SCORES)
+    public void registerNetworkScoreCallback(@NetworkKey.NetworkType int networkType,
+            @ScoreUpdateFilter int filterType,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull NetworkScoreCallback callback) throws SecurityException {
+        if (callback == null || executor == null) {
+            throw new IllegalArgumentException("callback / executor cannot be null");
+        }
+        Log.v(TAG, "registerNetworkScoreCallback: callback=" + callback + ", executor="
+                + executor);
+        // Use the @hide method.
+        registerNetworkScoreCache(
+                networkType, new NetworkScoreCallbackProxy(executor, callback), filterType);
     }
 
     /**

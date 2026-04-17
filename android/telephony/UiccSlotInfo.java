@@ -15,14 +15,26 @@
  */
 package android.telephony;
 
+import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.content.pm.PackageManager;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.telephony.TelephonyManager.SimType;
+
+import com.android.internal.telephony.flags.Flags;
+
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
-
-import android.annotation.IntDef;
 
 /**
  * Class for the information of a UICC slot.
@@ -61,8 +73,14 @@ public class UiccSlotInfo implements Parcelable {
     private final @CardStateInfo int mCardStateInfo;
     private final int mLogicalSlotIdx;
     private final boolean mIsExtendedApduSupported;
+    private final boolean mIsRemovable;
+    private final List<UiccPortInfo> mPortList;
+    private boolean mLogicalSlotAccessRestricted = false;
+    private final @SimType int mSimType;
+    private final @SimType int[] mSupportedSimTypes;
 
-    public static final Creator<UiccSlotInfo> CREATOR = new Creator<UiccSlotInfo>() {
+
+    public static final @NonNull Creator<UiccSlotInfo> CREATOR = new Creator<UiccSlotInfo>() {
         @Override
         public UiccSlotInfo createFromParcel(Parcel in) {
             return new UiccSlotInfo(in);
@@ -75,22 +93,33 @@ public class UiccSlotInfo implements Parcelable {
     };
 
     private UiccSlotInfo(Parcel in) {
-        mIsActive = in.readByte() != 0;
-        mIsEuicc = in.readByte() != 0;
-        mCardId = in.readString();
+        mIsActive = in.readBoolean();
+        mIsEuicc = in.readBoolean();
+        mCardId = in.readString8();
         mCardStateInfo = in.readInt();
         mLogicalSlotIdx = in.readInt();
-        mIsExtendedApduSupported = in.readByte() != 0;
+        mIsExtendedApduSupported = in.readBoolean();
+        mIsRemovable = in.readBoolean();
+        mPortList = new ArrayList<UiccPortInfo>();
+        in.readTypedList(mPortList, UiccPortInfo.CREATOR);
+        mLogicalSlotAccessRestricted = in.readBoolean();
+        mSimType = in.readInt();
+        mSupportedSimTypes = in.createIntArray();
     }
 
     @Override
     public void writeToParcel(Parcel dest, int flags) {
-        dest.writeByte((byte) (mIsActive ? 1 : 0));
-        dest.writeByte((byte) (mIsEuicc ? 1 : 0));
-        dest.writeString(mCardId);
+        dest.writeBoolean(mIsActive);
+        dest.writeBoolean(mIsEuicc);
+        dest.writeString8(mCardId);
         dest.writeInt(mCardStateInfo);
         dest.writeInt(mLogicalSlotIdx);
-        dest.writeByte((byte) (mIsExtendedApduSupported ? 1 : 0));
+        dest.writeBoolean(mIsExtendedApduSupported);
+        dest.writeBoolean(mIsRemovable);
+        dest.writeTypedList(mPortList, flags);
+        dest.writeBoolean(mLogicalSlotAccessRestricted);
+        dest.writeInt(mSimType);
+        dest.writeIntArray(mSupportedSimTypes);
     }
 
     @Override
@@ -98,6 +127,11 @@ public class UiccSlotInfo implements Parcelable {
         return 0;
     }
 
+    /**
+     * Construct a UiccSlotInfo.
+     * @deprecated apps should not be constructing UiccSlotInfo objects
+     */
+    @Deprecated
     public UiccSlotInfo(boolean isActive, boolean isEuicc, String cardId,
             @CardStateInfo int cardStateInfo, int logicalSlotIdx, boolean isExtendedApduSupported) {
         this.mIsActive = isActive;
@@ -106,9 +140,71 @@ public class UiccSlotInfo implements Parcelable {
         this.mCardStateInfo = cardStateInfo;
         this.mLogicalSlotIdx = logicalSlotIdx;
         this.mIsExtendedApduSupported = isExtendedApduSupported;
+        this.mIsRemovable = false;
+        this.mPortList = new ArrayList<UiccPortInfo>();
+        this.mSimType = TelephonyManager.SIM_TYPE_UNKNOWN;
+        this.mSupportedSimTypes = new int[] {TelephonyManager.SIM_TYPE_UNKNOWN};
     }
 
+    /**
+     * Construct a UiccSlotInfo.
+     * @hide
+     */
+    public UiccSlotInfo(boolean isEuicc, String cardId,
+            @CardStateInfo int cardStateInfo, boolean isExtendedApduSupported,
+            boolean isRemovable, @NonNull List<UiccPortInfo> portList) {
+        this.mIsEuicc = isEuicc;
+        this.mCardId = cardId;
+        this.mCardStateInfo = cardStateInfo;
+        this.mIsExtendedApduSupported = isExtendedApduSupported;
+        this.mIsRemovable = isRemovable;
+        this.mPortList = portList;
+        this.mIsActive = !portList.isEmpty() && portList.get(0).isActive();
+        this.mLogicalSlotIdx = portList.isEmpty()
+                ? SubscriptionManager.INVALID_PHONE_INDEX
+                : portList.get(0).getLogicalSlotIndex();
+        this.mSimType = TelephonyManager.SIM_TYPE_UNKNOWN;
+        this.mSupportedSimTypes = new int[] {TelephonyManager.SIM_TYPE_UNKNOWN};
+    }
+
+    /**
+     * Construct a UiccSlotInfo.
+     * @hide
+     */
+    public UiccSlotInfo(boolean isEuicc, String cardId,
+            @CardStateInfo int cardStateInfo, boolean isExtendedApduSupported,
+            boolean isRemovable, @NonNull List<UiccPortInfo> portList,
+            @SimType int simType, @NonNull @SimType int[] supportedSimTypes) {
+        // TODO(b/428312829): Instead of multiple constructors, migrate to builder.
+        this.mIsEuicc = isEuicc;
+        this.mCardId = cardId;
+        this.mCardStateInfo = cardStateInfo;
+        this.mIsExtendedApduSupported = isExtendedApduSupported;
+        this.mIsRemovable = isRemovable;
+        this.mPortList = portList;
+        this.mIsActive = !portList.isEmpty() && portList.get(0).isActive();
+        this.mLogicalSlotIdx = portList.isEmpty()
+                ? SubscriptionManager.INVALID_PHONE_INDEX
+                : portList.get(0).getLogicalSlotIndex();
+        this.mSimType = simType;
+        this.mSupportedSimTypes = supportedSimTypes;
+    }
+
+    /**
+     * @deprecated There is no longer isActive state for each slot because ports belonging
+     * to the physical slot could have different states
+     * we instead use {@link UiccPortInfo#isActive()}
+     * To get UiccPortInfo use {@link UiccSlotInfo#getPorts()}
+     *
+     * @return {@code true} if status is active.
+     * @throws UnsupportedOperationException if the calling app's target SDK is T and beyond.
+     */
+    @Deprecated
     public boolean getIsActive() {
+        if (mLogicalSlotAccessRestricted) {
+            throw new UnsupportedOperationException("getIsActive() is not supported by "
+            + "UiccSlotInfo. Please Use UiccPortInfo API instead");
+        }
         return mIsActive;
     }
 
@@ -116,6 +212,14 @@ public class UiccSlotInfo implements Parcelable {
         return mIsEuicc;
     }
 
+    /**
+     * Returns the ICCID of the card in the slot, or the EID of an active eUICC.
+     * <p>
+     * If the UICC slot is for an active eUICC, returns the EID.
+     * If the UICC slot is for an inactive eUICC, returns the ICCID of the enabled profile, or the
+     * root profile if all other profiles are disabled.
+     * If the UICC slot is not an eUICC, returns the ICCID.
+     */
     public String getCardId() {
         return mCardId;
     }
@@ -125,7 +229,19 @@ public class UiccSlotInfo implements Parcelable {
         return mCardStateInfo;
     }
 
+    /**
+     * @deprecated There is no longer getLogicalSlotIndex
+     * There is no longer getLogicalSlotIdx as each port belonging to this physical slot could have
+     * different logical slot index. Use {@link UiccPortInfo#getLogicalSlotIndex()} instead
+     *
+     * @throws UnsupportedOperationException if the calling app's target SDK is T and beyond.
+     */
+    @Deprecated
     public int getLogicalSlotIdx() {
+        if (mLogicalSlotAccessRestricted) {
+            throw new UnsupportedOperationException("getLogicalSlotIdx() is not supported by "
+                + "UiccSlotInfo. Please use UiccPortInfo API instead");
+        }
         return mLogicalSlotIdx;
     }
 
@@ -136,8 +252,58 @@ public class UiccSlotInfo implements Parcelable {
         return mIsExtendedApduSupported;
     }
 
+    /**
+     * Return whether the UICC slot is for a removable UICC.
+     * <p>
+     * UICCs are generally removable, but eUICCs may be removable or built in to the device.
+     *
+     * @return true if the slot is for removable UICCs
+     */
+    public boolean isRemovable() {
+        return mIsRemovable;
+    }
+
+    /**
+     * Get Information regarding port, iccid and its active status.
+     *
+     * For device which support {@link PackageManager#FEATURE_TELEPHONY_EUICC_MEP}, it should return
+     * more than one {@link UiccPortInfo} object if the card is eUICC.
+     *
+     * @return Collection of {@link UiccPortInfo}
+     */
+    public @NonNull Collection<UiccPortInfo> getPorts() {
+        return Collections.unmodifiableList(mPortList);
+    }
+
+    /**
+     * Set the flag to check compatibility of the calling app's target SDK is T and beyond.
+     *
+     * @param logicalSlotAccessRestricted is the flag to check compatibility.
+     *
+     * @hide
+     */
+    public void setLogicalSlotAccessRestricted(boolean logicalSlotAccessRestricted) {
+        this.mLogicalSlotAccessRestricted = logicalSlotAccessRestricted;
+    }
+
+    /**
+     * Returns the currently active sim type on the physical slot.
+     */
+    @FlaggedApi(Flags.FLAG_SUPPORT_SLOT_SWITCHING_2PSIM_1ESIM_CONFIG)
+    public @SimType int getSimType() {
+        return mSimType;
+    }
+
+    /**
+     * Returns an array of the supported sim types on the physical slot.
+     */
+    @FlaggedApi(Flags.FLAG_SUPPORT_SLOT_SWITCHING_2PSIM_1ESIM_CONFIG)
+    public @NonNull @SimType int[] getSupportedSimTypes() {
+        return mSupportedSimTypes;
+    }
+
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) {
             return true;
         }
@@ -151,35 +317,43 @@ public class UiccSlotInfo implements Parcelable {
                 && (Objects.equals(mCardId, that.mCardId))
                 && (mCardStateInfo == that.mCardStateInfo)
                 && (mLogicalSlotIdx == that.mLogicalSlotIdx)
-                && (mIsExtendedApduSupported == that.mIsExtendedApduSupported);
+                && (mIsExtendedApduSupported == that.mIsExtendedApduSupported)
+                && (mIsRemovable == that.mIsRemovable)
+                && (Objects.equals(mPortList, that.mPortList))
+                && (mSimType == that.mSimType)
+                && (Arrays.equals(mSupportedSimTypes, that.mSupportedSimTypes));
     }
 
     @Override
     public int hashCode() {
-        int result = 1;
-        result = 31 * result + (mIsActive ? 1 : 0);
-        result = 31 * result + (mIsEuicc ? 1 : 0);
-        result = 31 * result + Objects.hashCode(mCardId);
-        result = 31 * result + mCardStateInfo;
-        result = 31 * result + mLogicalSlotIdx;
-        result = 31 * result + (mIsExtendedApduSupported ? 1 : 0);
-        return result;
+        return Objects.hash(mIsActive, mIsEuicc, mCardId, mCardStateInfo, mLogicalSlotIdx,
+                mIsExtendedApduSupported, mIsRemovable, mPortList, mSimType,
+                Arrays.hashCode(mSupportedSimTypes));
     }
 
+    @NonNull
     @Override
     public String toString() {
-        return "UiccSlotInfo (mIsActive="
-                + mIsActive
-                + ", mIsEuicc="
+        StringBuilder sb = new StringBuilder("UiccSlotInfo ("
+                + "mIsEuicc="
                 + mIsEuicc
                 + ", mCardId="
-                + mCardId
+                + SubscriptionInfo.getPrintableId(mCardId)
                 + ", cardState="
                 + mCardStateInfo
-                + ", phoneId="
-                + mLogicalSlotIdx
                 + ", mIsExtendedApduSupported="
                 + mIsExtendedApduSupported
-                + ")";
+                + ", mIsRemovable="
+                + mIsRemovable
+                + ", mPortList="
+                + mPortList
+                + ", mLogicalSlotAccessRestricted="
+                + mLogicalSlotAccessRestricted);
+        if (Flags.supportSlotSwitching2psim1esimConfig()) {
+            sb.append(", mSimType=").append(mSimType)
+                    .append(", mSupportedSimTypes=").append(Arrays.toString(mSupportedSimTypes));
+        }
+        sb.append(")");
+        return sb.toString();
     }
 }

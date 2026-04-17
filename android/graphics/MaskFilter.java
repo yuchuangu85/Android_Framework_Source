@@ -21,6 +21,7 @@ package android.graphics;
  * an alpha-channel mask before drawing it. A subclass of MaskFilter may be
  * installed into a Paint. Blur and emboss are implemented as subclasses of MaskFilter.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class MaskFilter {
 
     protected void finalize() throws Throwable {

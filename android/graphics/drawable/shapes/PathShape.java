@@ -21,6 +21,8 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
 
+import java.util.Objects;
+
 /**
  * Creates geometric paths, utilizing the {@link android.graphics.Path} class.
  * <p>
@@ -28,6 +30,7 @@ import android.graphics.Path;
  * but more graphical control is available if you instead pass
  * the PathShape to a {@link android.graphics.drawable.ShapeDrawable}.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class PathShape extends Shape {
     private final float mStdWidth;
     private final float mStdHeight;
@@ -73,6 +76,31 @@ public class PathShape extends Shape {
         final PathShape shape = (PathShape) super.clone();
         shape.mPath = new Path(mPath);
         return shape;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        PathShape pathShape = (PathShape) o;
+        return Float.compare(pathShape.mStdWidth, mStdWidth) == 0
+            && Float.compare(pathShape.mStdHeight, mStdHeight) == 0
+            && Float.compare(pathShape.mScaleX, mScaleX) == 0
+            && Float.compare(pathShape.mScaleY, mScaleY) == 0
+            // Path does not have equals implementation but in case it gains one, use it here
+            && Objects.equals(mPath, pathShape.mPath);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), mStdWidth, mStdHeight, mPath, mScaleX, mScaleY);
     }
 }
 

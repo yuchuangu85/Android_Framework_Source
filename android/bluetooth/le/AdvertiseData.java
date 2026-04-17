@@ -16,7 +16,9 @@
 
 package android.bluetooth.le;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresNoPermission;
 import android.os.Parcel;
 import android.os.ParcelUuid;
 import android.os.Parcelable;
@@ -24,6 +26,7 @@ import android.util.ArrayMap;
 import android.util.SparseArray;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -31,8 +34,8 @@ import java.util.Objects;
 /**
  * Advertise data packet container for Bluetooth LE advertising. This represents the data to be
  * advertised as well as the scan response data for active scans.
- * <p>
- * Use {@link AdvertiseData.Builder} to create an instance of {@link AdvertiseData} to be
+ *
+ * <p>Use {@link AdvertiseData.Builder} to create an instance of {@link AdvertiseData} to be
  * advertised.
  *
  * @see BluetoothLeAdvertiser
@@ -40,20 +43,28 @@ import java.util.Objects;
  */
 public final class AdvertiseData implements Parcelable {
 
-    @Nullable
-    private final List<ParcelUuid> mServiceUuids;
+    @Nullable private final List<ParcelUuid> mServiceUuids;
+
+    @NonNull private final List<ParcelUuid> mServiceSolicitationUuids;
+
+    @Nullable private final List<TransportDiscoveryData> mTransportDiscoveryData;
 
     private final SparseArray<byte[]> mManufacturerSpecificData;
     private final Map<ParcelUuid, byte[]> mServiceData;
     private final boolean mIncludeTxPowerLevel;
     private final boolean mIncludeDeviceName;
 
-    private AdvertiseData(List<ParcelUuid> serviceUuids,
+    private AdvertiseData(
+            List<ParcelUuid> serviceUuids,
+            List<ParcelUuid> serviceSolicitationUuids,
+            List<TransportDiscoveryData> transportDiscoveryData,
             SparseArray<byte[]> manufacturerData,
             Map<ParcelUuid, byte[]> serviceData,
             boolean includeTxPowerLevel,
             boolean includeDeviceName) {
         mServiceUuids = serviceUuids;
+        mServiceSolicitationUuids = serviceSolicitationUuids;
+        mTransportDiscoveryData = transportDiscoveryData;
         mManufacturerSpecificData = manufacturerData;
         mServiceData = serviceData;
         mIncludeTxPowerLevel = includeTxPowerLevel;
@@ -64,53 +75,70 @@ public final class AdvertiseData implements Parcelable {
      * Returns a list of service UUIDs within the advertisement that are used to identify the
      * Bluetooth GATT services.
      */
+    @RequiresNoPermission
     public List<ParcelUuid> getServiceUuids() {
         return mServiceUuids;
+    }
+
+    /**
+     * Returns a list of service solicitation UUIDs within the advertisement that we invite to
+     * connect.
+     */
+    @RequiresNoPermission
+    public @NonNull List<ParcelUuid> getServiceSolicitationUuids() {
+        return mServiceSolicitationUuids;
+    }
+
+    /** Returns a list of {@link TransportDiscoveryData} within the advertisement. */
+    @RequiresNoPermission
+    public @NonNull List<TransportDiscoveryData> getTransportDiscoveryData() {
+        if (mTransportDiscoveryData == null) {
+            return Collections.emptyList();
+        }
+        return mTransportDiscoveryData;
     }
 
     /**
      * Returns an array of manufacturer Id and the corresponding manufacturer specific data. The
      * manufacturer id is a non-negative number assigned by Bluetooth SIG.
      */
+    @RequiresNoPermission
     public SparseArray<byte[]> getManufacturerSpecificData() {
         return mManufacturerSpecificData;
     }
 
-    /**
-     * Returns a map of 16-bit UUID and its corresponding service data.
-     */
+    /** Returns a map of 16-bit UUID and its corresponding service data. */
+    @RequiresNoPermission
     public Map<ParcelUuid, byte[]> getServiceData() {
         return mServiceData;
     }
 
-    /**
-     * Whether the transmission power level will be included in the advertisement packet.
-     */
+    /** Whether the transmission power level will be included in the advertisement packet. */
+    @RequiresNoPermission
     public boolean getIncludeTxPowerLevel() {
         return mIncludeTxPowerLevel;
     }
 
-    /**
-     * Whether the device name will be included in the advertisement packet.
-     */
+    /** Whether the device name will be included in the advertisement packet. */
+    @RequiresNoPermission
     public boolean getIncludeDeviceName() {
         return mIncludeDeviceName;
     }
 
-    /**
-     * @hide
-     */
     @Override
     public int hashCode() {
-        return Objects.hash(mServiceUuids, mManufacturerSpecificData, mServiceData,
-                mIncludeDeviceName, mIncludeTxPowerLevel);
+        return Objects.hash(
+                mServiceUuids,
+                mServiceSolicitationUuids,
+                mTransportDiscoveryData,
+                mManufacturerSpecificData,
+                mServiceData,
+                mIncludeDeviceName,
+                mIncludeTxPowerLevel);
     }
 
-    /**
-     * @hide
-     */
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) {
             return true;
         }
@@ -119,8 +147,10 @@ public final class AdvertiseData implements Parcelable {
         }
         AdvertiseData other = (AdvertiseData) obj;
         return Objects.equals(mServiceUuids, other.mServiceUuids)
-                && BluetoothLeUtils.equals(mManufacturerSpecificData,
-                    other.mManufacturerSpecificData)
+                && Objects.equals(mServiceSolicitationUuids, other.mServiceSolicitationUuids)
+                && Objects.equals(mTransportDiscoveryData, other.mTransportDiscoveryData)
+                && BluetoothLeUtils.equals(
+                        mManufacturerSpecificData, other.mManufacturerSpecificData)
                 && BluetoothLeUtils.equals(mServiceData, other.mServiceData)
                 && mIncludeDeviceName == other.mIncludeDeviceName
                 && mIncludeTxPowerLevel == other.mIncludeTxPowerLevel;
@@ -128,11 +158,14 @@ public final class AdvertiseData implements Parcelable {
 
     @Override
     public String toString() {
-        return "AdvertiseData [mServiceUuids=" + mServiceUuids + ", mManufacturerSpecificData="
-                + BluetoothLeUtils.toString(mManufacturerSpecificData) + ", mServiceData="
-                + BluetoothLeUtils.toString(mServiceData)
-                + ", mIncludeTxPowerLevel=" + mIncludeTxPowerLevel + ", mIncludeDeviceName="
-                + mIncludeDeviceName + "]";
+        return ("AdvertiseData [mServiceUuids=" + mServiceUuids)
+                + (", mServiceSolicitationUuids=" + mServiceSolicitationUuids)
+                + (", mTransportDiscoveryData=" + mTransportDiscoveryData)
+                + (", mManufacturerSpecificData="
+                        + BluetoothLeUtils.toString(mManufacturerSpecificData))
+                + (", mServiceData=" + BluetoothLeUtils.toString(mServiceData))
+                + (", mIncludeTxPowerLevel=" + mIncludeTxPowerLevel)
+                + (", mIncludeDeviceName=" + mIncludeDeviceName + "]");
     }
 
     @Override
@@ -143,6 +176,11 @@ public final class AdvertiseData implements Parcelable {
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeTypedArray(mServiceUuids.toArray(new ParcelUuid[mServiceUuids.size()]), flags);
+        dest.writeTypedArray(
+                mServiceSolicitationUuids.toArray(new ParcelUuid[mServiceSolicitationUuids.size()]),
+                flags);
+
+        dest.writeTypedList(mTransportDiscoveryData);
 
         // mManufacturerSpecificData could not be null.
         dest.writeInt(mManufacturerSpecificData.size());
@@ -159,7 +197,7 @@ public final class AdvertiseData implements Parcelable {
         dest.writeByte((byte) (getIncludeDeviceName() ? 1 : 0));
     }
 
-    public static final Parcelable.Creator<AdvertiseData> CREATOR =
+    public static final @NonNull Parcelable.Creator<AdvertiseData> CREATOR =
             new Creator<AdvertiseData>() {
                 @Override
                 public AdvertiseData[] newArray(int size) {
@@ -172,6 +210,18 @@ public final class AdvertiseData implements Parcelable {
                     ArrayList<ParcelUuid> uuids = in.createTypedArrayList(ParcelUuid.CREATOR);
                     for (ParcelUuid uuid : uuids) {
                         builder.addServiceUuid(uuid);
+                    }
+
+                    ArrayList<ParcelUuid> solicitationUuids =
+                            in.createTypedArrayList(ParcelUuid.CREATOR);
+                    for (ParcelUuid uuid : solicitationUuids) {
+                        builder.addServiceSolicitationUuid(uuid);
+                    }
+
+                    List<TransportDiscoveryData> transportDiscoveryData =
+                            in.createTypedArrayList(TransportDiscoveryData.CREATOR);
+                    for (TransportDiscoveryData tdd : transportDiscoveryData) {
+                        builder.addTransportDiscoveryData(tdd);
                     }
 
                     int manufacturerSize = in.readInt();
@@ -192,14 +242,16 @@ public final class AdvertiseData implements Parcelable {
                 }
             };
 
-    /**
-     * Builder for {@link AdvertiseData}.
-     */
+    /** Builder for {@link AdvertiseData}. */
     public static final class Builder {
-        @Nullable
-        private List<ParcelUuid> mServiceUuids = new ArrayList<ParcelUuid>();
-        private SparseArray<byte[]> mManufacturerSpecificData = new SparseArray<byte[]>();
-        private Map<ParcelUuid, byte[]> mServiceData = new ArrayMap<ParcelUuid, byte[]>();
+        private final List<ParcelUuid> mServiceUuids = new ArrayList<ParcelUuid>();
+        private final List<ParcelUuid> mServiceSolicitationUuids = new ArrayList<ParcelUuid>();
+
+        private final List<TransportDiscoveryData> mTransportDiscoveryData =
+                new ArrayList<TransportDiscoveryData>();
+
+        private final SparseArray<byte[]> mManufacturerSpecificData = new SparseArray<byte[]>();
+        private final Map<ParcelUuid, byte[]> mServiceData = new ArrayMap<ParcelUuid, byte[]>();
         private boolean mIncludeTxPowerLevel;
         private boolean mIncludeDeviceName;
 
@@ -207,13 +259,30 @@ public final class AdvertiseData implements Parcelable {
          * Add a service UUID to advertise data.
          *
          * @param serviceUuid A service UUID to be advertised.
-         * @throws IllegalArgumentException If the {@code serviceUuids} are null.
+         * @throws IllegalArgumentException If the {@code serviceUuid} is null.
          */
+        @RequiresNoPermission
         public Builder addServiceUuid(ParcelUuid serviceUuid) {
             if (serviceUuid == null) {
-                throw new IllegalArgumentException("serivceUuids are null");
+                throw new IllegalArgumentException("serviceUuid is null");
             }
             mServiceUuids.add(serviceUuid);
+            return this;
+        }
+
+        /**
+         * Add a service solicitation UUID to advertise data.
+         *
+         * @param serviceSolicitationUuid A service solicitation UUID to be advertised.
+         * @throws IllegalArgumentException If the {@code serviceSolicitationUuid} is null.
+         */
+        @RequiresNoPermission
+        public @NonNull Builder addServiceSolicitationUuid(
+                @NonNull ParcelUuid serviceSolicitationUuid) {
+            if (serviceSolicitationUuid == null) {
+                throw new IllegalArgumentException("serviceSolicitationUuid is null");
+            }
+            mServiceSolicitationUuids.add(serviceSolicitationUuid);
             return this;
         }
 
@@ -223,33 +292,50 @@ public final class AdvertiseData implements Parcelable {
          * @param serviceDataUuid 16-bit UUID of the service the data is associated with
          * @param serviceData Service data
          * @throws IllegalArgumentException If the {@code serviceDataUuid} or {@code serviceData} is
-         * empty.
+         *     empty.
          */
+        @RequiresNoPermission
         public Builder addServiceData(ParcelUuid serviceDataUuid, byte[] serviceData) {
             if (serviceDataUuid == null || serviceData == null) {
-                throw new IllegalArgumentException(
-                        "serviceDataUuid or serviceDataUuid is null");
+                throw new IllegalArgumentException("serviceDataUuid or serviceDataUuid is null");
             }
             mServiceData.put(serviceDataUuid, serviceData);
             return this;
         }
 
         /**
+         * Add Transport Discovery Data to advertise data.
+         *
+         * @param transportDiscoveryData Transport Discovery Data, consisting of one or more
+         *     Transport Blocks. Transport Discovery Data AD Type Code is already included.
+         * @throws IllegalArgumentException If the {@code transportDiscoveryData} is empty
+         */
+        @RequiresNoPermission
+        public @NonNull Builder addTransportDiscoveryData(
+                @NonNull TransportDiscoveryData transportDiscoveryData) {
+            if (transportDiscoveryData == null) {
+                throw new IllegalArgumentException("transportDiscoveryData is null");
+            }
+            mTransportDiscoveryData.add(transportDiscoveryData);
+            return this;
+        }
+
+        /**
          * Add manufacturer specific data.
-         * <p>
-         * Please refer to the Bluetooth Assigned Numbers document provided by the <a
+         *
+         * <p>Please refer to the Bluetooth Assigned Numbers document provided by the <a
          * href="https://www.bluetooth.org">Bluetooth SIG</a> for a list of existing company
          * identifiers.
          *
          * @param manufacturerId Manufacturer ID assigned by Bluetooth SIG.
          * @param manufacturerSpecificData Manufacturer specific data
          * @throws IllegalArgumentException If the {@code manufacturerId} is negative or {@code
-         * manufacturerSpecificData} is null.
+         *     manufacturerSpecificData} is null.
          */
+        @RequiresNoPermission
         public Builder addManufacturerData(int manufacturerId, byte[] manufacturerSpecificData) {
             if (manufacturerId < 0) {
-                throw new IllegalArgumentException(
-                        "invalid manufacturerId - " + manufacturerId);
+                throw new IllegalArgumentException("invalid manufacturerId - " + manufacturerId);
             }
             if (manufacturerSpecificData == null) {
                 throw new IllegalArgumentException("manufacturerSpecificData is null");
@@ -262,25 +348,30 @@ public final class AdvertiseData implements Parcelable {
          * Whether the transmission power level should be included in the advertise packet. Tx power
          * level field takes 3 bytes in advertise packet.
          */
+        @RequiresNoPermission
         public Builder setIncludeTxPowerLevel(boolean includeTxPowerLevel) {
             mIncludeTxPowerLevel = includeTxPowerLevel;
             return this;
         }
 
-        /**
-         * Set whether the device name should be included in advertise packet.
-         */
+        /** Set whether the device name should be included in advertise packet. */
+        @RequiresNoPermission
         public Builder setIncludeDeviceName(boolean includeDeviceName) {
             mIncludeDeviceName = includeDeviceName;
             return this;
         }
 
-        /**
-         * Build the {@link AdvertiseData}.
-         */
+        /** Build the {@link AdvertiseData}. */
+        @RequiresNoPermission
         public AdvertiseData build() {
-            return new AdvertiseData(mServiceUuids, mManufacturerSpecificData, mServiceData,
-                    mIncludeTxPowerLevel, mIncludeDeviceName);
+            return new AdvertiseData(
+                    mServiceUuids,
+                    mServiceSolicitationUuids,
+                    mTransportDiscoveryData,
+                    mManufacturerSpecificData,
+                    mServiceData,
+                    mIncludeTxPowerLevel,
+                    mIncludeDeviceName);
         }
     }
 }

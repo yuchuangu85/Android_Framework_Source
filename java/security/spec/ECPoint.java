@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,7 +57,7 @@ public class ECPoint {
      * {@code x} and affine y-coordinate {@code y}.
      * @param x the affine x-coordinate.
      * @param y the affine y-coordinate.
-     * @exception NullPointerException if {@code x} or
+     * @throws    NullPointerException if {@code x} or
      * {@code y} is null.
      */
     public ECPoint(BigInteger x, BigInteger y) {
@@ -96,11 +96,10 @@ public class ECPoint {
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (this == POINT_INFINITY) return false;
-        if (obj instanceof ECPoint) {
-            return ((x.equals(((ECPoint)obj).x)) &&
-                    (y.equals(((ECPoint)obj).y)));
-        }
-        return false;
+
+        return obj instanceof ECPoint other
+                && ((x.equals(other.x))
+                && (y.equals(other.y)));
     }
 
     /**

@@ -16,17 +16,28 @@
 
 package android.bluetooth;
 
+import static android.Manifest.permission.BLUETOOTH_CONNECT;
+import static android.Manifest.permission.BLUETOOTH_PRIVILEGED;
+import static android.bluetooth.BluetoothUtils.executeFromBinder;
+import static android.bluetooth.BluetoothUtils.isValidDevice;
+
+import android.annotation.Hide;
+import android.annotation.NonNull;
+import android.annotation.RequiresNoPermission;
+import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
-import android.content.ComponentName;
+import android.annotation.SystemApi;
+import android.bluetooth.annotations.RequiresBluetoothConnectPermission;
+import android.bluetooth.annotations.RequiresLegacyBluetoothPermission;
+import android.content.AttributionSource;
 import android.content.Context;
-import android.content.Intent;
-import android.content.ServiceConnection;
 import android.os.IBinder;
+import android.os.Process;
 import android.os.RemoteException;
 import android.util.Log;
 
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Executor;
 
@@ -38,6 +49,8 @@ import java.util.concurrent.Executor;
  */
 public final class BluetoothHidDevice implements BluetoothProfile {
     private static final String TAG = BluetoothHidDevice.class.getSimpleName();
+
+    private static final boolean DBG = Log.isLoggable("bluetooth", Log.DEBUG);
 
     /**
      * Intent used to broadcast the change in connection state of the Input Host profile.
@@ -53,9 +66,10 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      * <p>{@link #EXTRA_STATE} or {@link #EXTRA_PREVIOUS_STATE} can be any of {@link
      * #STATE_DISCONNECTED}, {@link #STATE_CONNECTING}, {@link #STATE_CONNECTED}, {@link
      * #STATE_DISCONNECTING}.
-     *
-     * <p>Requires {@link android.Manifest.permission#BLUETOOTH} permission to receive.
      */
+    @RequiresLegacyBluetoothPermission
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_CONNECTION_STATE_CHANGED =
             "android.bluetooth.hiddevice.profile.action.CONNECTION_STATE_CHANGED";
@@ -67,6 +81,7 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      *     BluetoothHidDeviceAppQosSettings, Executor, Callback)
      */
     public static final byte SUBCLASS1_NONE = (byte) 0x00;
+
     /**
      * Constant representing keyboard subclass.
      *
@@ -74,6 +89,7 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      *     BluetoothHidDeviceAppQosSettings, Executor, Callback)
      */
     public static final byte SUBCLASS1_KEYBOARD = (byte) 0x40;
+
     /**
      * Constant representing mouse subclass.
      *
@@ -81,6 +97,7 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      *     BluetoothHidDeviceAppQosSettings, Executor, Callback)
      */
     public static final byte SUBCLASS1_MOUSE = (byte) 0x80;
+
     /**
      * Constant representing combo keyboard and mouse subclass.
      *
@@ -96,6 +113,7 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      *     BluetoothHidDeviceAppQosSettings, Executor, Callback)
      */
     public static final byte SUBCLASS2_UNCATEGORIZED = (byte) 0x00;
+
     /**
      * Constant representing joystick subclass.
      *
@@ -103,6 +121,7 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      *     BluetoothHidDeviceAppQosSettings, Executor, Callback)
      */
     public static final byte SUBCLASS2_JOYSTICK = (byte) 0x01;
+
     /**
      * Constant representing gamepad subclass.
      *
@@ -110,6 +129,7 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      *     BluetoothHidDeviceAppQosSettings, Executor, Callback)
      */
     public static final byte SUBCLASS2_GAMEPAD = (byte) 0x02;
+
     /**
      * Constant representing remote control subclass.
      *
@@ -117,6 +137,7 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      *     BluetoothHidDeviceAppQosSettings, Executor, Callback)
      */
     public static final byte SUBCLASS2_REMOTE_CONTROL = (byte) 0x03;
+
     /**
      * Constant representing sensing device subclass.
      *
@@ -124,6 +145,7 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      *     BluetoothHidDeviceAppQosSettings, Executor, Callback)
      */
     public static final byte SUBCLASS2_SENSING_DEVICE = (byte) 0x04;
+
     /**
      * Constant representing digitizer tablet subclass.
      *
@@ -131,6 +153,7 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      *     BluetoothHidDeviceAppQosSettings, Executor, Callback)
      */
     public static final byte SUBCLASS2_DIGITIZER_TABLET = (byte) 0x05;
+
     /**
      * Constant representing card reader subclass.
      *
@@ -147,6 +170,7 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      * @see Callback#onInterruptData(BluetoothDevice, byte, byte[])
      */
     public static final byte REPORT_TYPE_INPUT = (byte) 1;
+
     /**
      * Constant representing HID Output Report type.
      *
@@ -155,6 +179,7 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      * @see Callback#onInterruptData(BluetoothDevice, byte, byte[])
      */
     public static final byte REPORT_TYPE_OUTPUT = (byte) 2;
+
     /**
      * Constant representing HID Feature Report type.
      *
@@ -170,30 +195,35 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      * @see Callback#onSetReport(BluetoothDevice, byte, byte, byte[])
      */
     public static final byte ERROR_RSP_SUCCESS = (byte) 0;
+
     /**
      * Constant representing error response for Set Report due to "not ready".
      *
      * @see Callback#onSetReport(BluetoothDevice, byte, byte, byte[])
      */
     public static final byte ERROR_RSP_NOT_READY = (byte) 1;
+
     /**
      * Constant representing error response for Set Report due to "invalid report ID".
      *
      * @see Callback#onSetReport(BluetoothDevice, byte, byte, byte[])
      */
     public static final byte ERROR_RSP_INVALID_RPT_ID = (byte) 2;
+
     /**
      * Constant representing error response for Set Report due to "unsupported request".
      *
      * @see Callback#onSetReport(BluetoothDevice, byte, byte, byte[])
      */
     public static final byte ERROR_RSP_UNSUPPORTED_REQ = (byte) 3;
+
     /**
      * Constant representing error response for Set Report due to "invalid parameter".
      *
      * @see Callback#onSetReport(BluetoothDevice, byte, byte, byte[])
      */
     public static final byte ERROR_RSP_INVALID_PARAM = (byte) 4;
+
     /**
      * Constant representing error response for Set Report with unknown reason.
      *
@@ -208,6 +238,7 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      * @see Callback#onSetProtocol(BluetoothDevice, byte)
      */
     public static final byte PROTOCOL_BOOT_MODE = (byte) 0;
+
     /**
      * Constant representing report protocol mode used set by host. Default is always {@link
      * #PROTOCOL_REPORT_MODE} unless notified otherwise.
@@ -222,8 +253,8 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      * during app registration.
      */
     public abstract static class Callback {
-
-        private static final String TAG = "BluetoothHidDevCallback";
+        private static final String TAG =
+                BluetoothHidDevice.TAG + "." + Callback.class.getSimpleName();
 
         /**
          * Callback called when application registration state changes. Usually it's called due to
@@ -327,216 +358,157 @@ public final class BluetoothHidDevice implements BluetoothProfile {
         }
     }
 
-    private Context mContext;
-    private ServiceListener mServiceListener;
-    private volatile IBluetoothHidDevice mService;
-    private BluetoothAdapter mAdapter;
-
     private static class CallbackWrapper extends IBluetoothHidDeviceCallback.Stub {
 
         private final Executor mExecutor;
         private final Callback mCallback;
+        private final AttributionSource mAttributionSource;
 
-        CallbackWrapper(Executor executor, Callback callback) {
+        CallbackWrapper(Executor executor, Callback callback, AttributionSource source) {
             mExecutor = executor;
             mCallback = callback;
+            mAttributionSource = source;
         }
 
         @Override
         public void onAppStatusChanged(BluetoothDevice pluggedDevice, boolean registered) {
-            clearCallingIdentity();
-            mExecutor.execute(() -> mCallback.onAppStatusChanged(pluggedDevice, registered));
+            Attributable.setAttributionSource(pluggedDevice, mAttributionSource);
+            executeFromBinder(
+                    mExecutor, () -> mCallback.onAppStatusChanged(pluggedDevice, registered));
         }
 
         @Override
         public void onConnectionStateChanged(BluetoothDevice device, int state) {
-            clearCallingIdentity();
-            mExecutor.execute(() -> mCallback.onConnectionStateChanged(device, state));
+            Attributable.setAttributionSource(device, mAttributionSource);
+            executeFromBinder(mExecutor, () -> mCallback.onConnectionStateChanged(device, state));
         }
 
         @Override
         public void onGetReport(BluetoothDevice device, byte type, byte id, int bufferSize) {
-            clearCallingIdentity();
-            mExecutor.execute(() -> mCallback.onGetReport(device, type, id, bufferSize));
+            Attributable.setAttributionSource(device, mAttributionSource);
+            executeFromBinder(mExecutor, () -> mCallback.onGetReport(device, type, id, bufferSize));
         }
 
         @Override
         public void onSetReport(BluetoothDevice device, byte type, byte id, byte[] data) {
-            clearCallingIdentity();
-            mExecutor.execute(() -> mCallback.onSetReport(device, type, id, data));
+            Attributable.setAttributionSource(device, mAttributionSource);
+            executeFromBinder(mExecutor, () -> mCallback.onSetReport(device, type, id, data));
         }
 
         @Override
         public void onSetProtocol(BluetoothDevice device, byte protocol) {
-            clearCallingIdentity();
-            mExecutor.execute(() -> mCallback.onSetProtocol(device, protocol));
+            Attributable.setAttributionSource(device, mAttributionSource);
+            executeFromBinder(mExecutor, () -> mCallback.onSetProtocol(device, protocol));
         }
 
         @Override
         public void onInterruptData(BluetoothDevice device, byte reportId, byte[] data) {
-            clearCallingIdentity();
-            mExecutor.execute(() -> mCallback.onInterruptData(device, reportId, data));
+            Attributable.setAttributionSource(device, mAttributionSource);
+            executeFromBinder(mExecutor, () -> mCallback.onInterruptData(device, reportId, data));
         }
 
         @Override
         public void onVirtualCableUnplug(BluetoothDevice device) {
-            clearCallingIdentity();
-            mExecutor.execute(() -> mCallback.onVirtualCableUnplug(device));
+            Attributable.setAttributionSource(device, mAttributionSource);
+            executeFromBinder(mExecutor, () -> mCallback.onVirtualCableUnplug(device));
         }
     }
 
-    private final IBluetoothStateChangeCallback mBluetoothStateChangeCallback =
-            new IBluetoothStateChangeCallback.Stub() {
+    private final BluetoothAdapter mAdapter;
+    private final Context mContext;
+    private final AttributionSource mAttributionSource;
 
-                public void onBluetoothStateChange(boolean up) {
-                    Log.d(TAG, "onBluetoothStateChange: up=" + up);
-                    synchronized (mConnection) {
-                        if (up) {
-                            try {
-                                if (mService == null) {
-                                    Log.d(TAG, "Binding HID Device service...");
-                                    doBind();
-                                }
-                            } catch (IllegalStateException e) {
-                                Log.e(TAG, "onBluetoothStateChange: could not bind to HID Dev "
-                                        + "service: ", e);
-                            } catch (SecurityException e) {
-                                Log.e(TAG, "onBluetoothStateChange: could not bind to HID Dev "
-                                        + "service: ", e);
-                            }
-                        } else {
-                            Log.d(TAG, "Unbinding service...");
-                            doUnbind();
-                        }
-                    }
-                }
-            };
+    private IBluetoothHidDevice mService;
 
-    private final ServiceConnection mConnection =
-            new ServiceConnection() {
-                public void onServiceConnected(ComponentName className, IBinder service) {
-                    Log.d(TAG, "onServiceConnected()");
-                    mService = IBluetoothHidDevice.Stub.asInterface(service);
-                    if (mServiceListener != null) {
-                        mServiceListener.onServiceConnected(
-                                BluetoothProfile.HID_DEVICE, BluetoothHidDevice.this);
-                    }
-                }
-
-                public void onServiceDisconnected(ComponentName className) {
-                    Log.d(TAG, "onServiceDisconnected()");
-                    mService = null;
-                    if (mServiceListener != null) {
-                        mServiceListener.onServiceDisconnected(BluetoothProfile.HID_DEVICE);
-                    }
-                }
-            };
-
-    BluetoothHidDevice(Context context, ServiceListener listener) {
+    BluetoothHidDevice(Context context, BluetoothAdapter adapter) {
         mContext = context;
-        mServiceListener = listener;
-        mAdapter = BluetoothAdapter.getDefaultAdapter();
-
-        IBluetoothManager mgr = mAdapter.getBluetoothManager();
-        if (mgr != null) {
-            try {
-                mgr.registerStateChangeCallback(mBluetoothStateChangeCallback);
-            } catch (RemoteException e) {
-                e.printStackTrace();
-            }
-        }
-
-        doBind();
+        mAdapter = adapter;
+        mAttributionSource = adapter.getAttributionSource();
+        mService = null;
     }
 
-    boolean doBind() {
-        Intent intent = new Intent(IBluetoothHidDevice.class.getName());
-        ComponentName comp = intent.resolveSystemService(mContext.getPackageManager(), 0);
-        intent.setComponent(comp);
-        if (comp == null || !mContext.bindServiceAsUser(intent, mConnection, 0,
-                mContext.getUser())) {
-            Log.e(TAG, "Could not bind to Bluetooth HID Device Service with " + intent);
-            return false;
-        }
-        Log.d(TAG, "Bound to HID Device Service");
-        return true;
+    @Hide
+    @Override
+    @RequiresNoPermission
+    public void onServiceConnected(IBinder service) {
+        mService = IBluetoothHidDevice.Stub.asInterface(service);
     }
 
-    void doUnbind() {
-        if (mService != null) {
-            mService = null;
-            try {
-                mContext.unbindService(mConnection);
-            } catch (IllegalArgumentException e) {
-                Log.e(TAG, "Unable to unbind HidDevService", e);
-            }
-        }
+    @Hide
+    @Override
+    @RequiresNoPermission
+    public void onServiceDisconnected() {
+        mService = null;
     }
 
-    void close() {
-        IBluetoothManager mgr = mAdapter.getBluetoothManager();
-        if (mgr != null) {
-            try {
-                mgr.unregisterStateChangeCallback(mBluetoothStateChangeCallback);
-            } catch (RemoteException e) {
-                e.printStackTrace();
-            }
-        }
+    private IBluetoothHidDevice getService() {
+        return mService;
+    }
 
-        synchronized (mConnection) {
-            doUnbind();
-        }
-        mServiceListener = null;
+    @Hide
+    @Override
+    @RequiresNoPermission
+    public BluetoothAdapter getAdapter() {
+        return mAdapter;
     }
 
     /** {@inheritDoc} */
     @Override
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public List<BluetoothDevice> getConnectedDevices() {
-        final IBluetoothHidDevice service = mService;
-        if (service != null) {
-            try {
-                return service.getConnectedDevices();
-            } catch (RemoteException e) {
-                Log.e(TAG, e.toString());
-            }
-        } else {
+        final IBluetoothHidDevice service = getService();
+        if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (isEnabled()) {
+            try {
+                return Attributable.setAttributionSource(
+                        service.getConnectedDevices(mAttributionSource), mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
         }
-
-        return new ArrayList<>();
+        return Collections.emptyList();
     }
 
     /** {@inheritDoc} */
     @Override
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states) {
-        final IBluetoothHidDevice service = mService;
-        if (service != null) {
-            try {
-                return service.getDevicesMatchingConnectionStates(states);
-            } catch (RemoteException e) {
-                Log.e(TAG, e.toString());
-            }
-        } else {
+        final IBluetoothHidDevice service = getService();
+        if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (isEnabled()) {
+            try {
+                return Attributable.setAttributionSource(
+                        service.getDevicesMatchingConnectionStates(states, mAttributionSource),
+                        mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
         }
-
-        return new ArrayList<>();
+        return Collections.emptyList();
     }
 
     /** {@inheritDoc} */
     @Override
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public int getConnectionState(BluetoothDevice device) {
-        final IBluetoothHidDevice service = mService;
-        if (service != null) {
-            try {
-                return service.getConnectionState(device);
-            } catch (RemoteException e) {
-                Log.e(TAG, e.toString());
-            }
-        } else {
+        final IBluetoothHidDevice service = getService();
+        if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (isEnabled()) {
+            try {
+                return service.getConnectionState(device, mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
         }
-
         return STATE_DISCONNECTED;
     }
 
@@ -563,14 +535,14 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      *     object is required.
      * @return true if the command is successfully sent; otherwise false.
      */
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public boolean registerApp(
             BluetoothHidDeviceAppSdpSettings sdp,
             BluetoothHidDeviceAppQosSettings inQos,
             BluetoothHidDeviceAppQosSettings outQos,
             Executor executor,
             Callback callback) {
-        boolean result = false;
-
         if (sdp == null) {
             throw new IllegalArgumentException("sdp parameter cannot be null");
         }
@@ -583,19 +555,19 @@ public final class BluetoothHidDevice implements BluetoothProfile {
             throw new IllegalArgumentException("callback parameter cannot be null");
         }
 
-        final IBluetoothHidDevice service = mService;
-        if (service != null) {
-            try {
-                CallbackWrapper cbw = new CallbackWrapper(executor, callback);
-                result = service.registerApp(sdp, inQos, outQos, cbw);
-            } catch (RemoteException e) {
-                Log.e(TAG, e.toString());
-            }
-        } else {
+        final IBluetoothHidDevice service = getService();
+        if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (isEnabled()) {
+            try {
+                CallbackWrapper cbw = new CallbackWrapper(executor, callback, mAttributionSource);
+                return service.registerApp(sdp, inQos, outQos, cbw, mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
         }
-
-        return result;
+        return false;
     }
 
     /**
@@ -608,21 +580,21 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      *
      * @return true if the command is successfully sent; otherwise false.
      */
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public boolean unregisterApp() {
-        boolean result = false;
-
-        final IBluetoothHidDevice service = mService;
-        if (service != null) {
-            try {
-                result = service.unregisterApp();
-            } catch (RemoteException e) {
-                Log.e(TAG, e.toString());
-            }
-        } else {
+        final IBluetoothHidDevice service = getService();
+        if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (isEnabled()) {
+            try {
+                return service.unregisterApp(mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
         }
-
-        return result;
+        return false;
     }
 
     /**
@@ -633,21 +605,21 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      * @param data Report data, not including Report Id.
      * @return true if the command is successfully sent; otherwise false.
      */
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public boolean sendReport(BluetoothDevice device, int id, byte[] data) {
-        boolean result = false;
-
-        final IBluetoothHidDevice service = mService;
-        if (service != null) {
-            try {
-                result = service.sendReport(device, id, data);
-            } catch (RemoteException e) {
-                Log.e(TAG, e.toString());
-            }
-        } else {
+        final IBluetoothHidDevice service = getService();
+        if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (isEnabled()) {
+            try {
+                return service.sendReport(device, id, data, mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
         }
-
-        return result;
+        return false;
     }
 
     /**
@@ -659,21 +631,21 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      * @param data Report data, not including Report Id.
      * @return true if the command is successfully sent; otherwise false.
      */
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public boolean replyReport(BluetoothDevice device, byte type, byte id, byte[] data) {
-        boolean result = false;
-
-        final IBluetoothHidDevice service = mService;
-        if (service != null) {
-            try {
-                result = service.replyReport(device, type, id, data);
-            } catch (RemoteException e) {
-                Log.e(TAG, e.toString());
-            }
-        } else {
+        final IBluetoothHidDevice service = getService();
+        if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (isEnabled()) {
+            try {
+                return service.replyReport(device, type, id, data, mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
         }
-
-        return result;
+        return false;
     }
 
     /**
@@ -683,42 +655,43 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      * @param error Error to be sent for SET_REPORT via HANDSHAKE.
      * @return true if the command is successfully sent; otherwise false.
      */
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public boolean reportError(BluetoothDevice device, byte error) {
-        boolean result = false;
-
-        final IBluetoothHidDevice service = mService;
-        if (service != null) {
-            try {
-                result = service.reportError(device, error);
-            } catch (RemoteException e) {
-                Log.e(TAG, e.toString());
-            }
-        } else {
+        final IBluetoothHidDevice service = getService();
+        if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (isEnabled()) {
+            try {
+                return service.reportError(device, error, mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
         }
-
-        return result;
+        return false;
     }
 
     /**
      * Gets the application name of the current HidDeviceService user.
      *
      * @return the current user name, or empty string if cannot get the name
-     * {@hide}
      */
+    @Hide
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public String getUserAppName() {
-        final IBluetoothHidDevice service = mService;
-
-        if (service != null) {
-            try {
-                return service.getUserAppName();
-            } catch (RemoteException e) {
-                Log.e(TAG, e.toString());
-            }
-        } else {
+        final IBluetoothHidDevice service = getService();
+        if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (isEnabled()) {
+            try {
+                return service.getUserAppName(mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
         }
-
         return "";
     }
 
@@ -730,21 +703,21 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      *
      * @return true if the command is successfully sent; otherwise false.
      */
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public boolean connect(BluetoothDevice device) {
-        boolean result = false;
-
-        final IBluetoothHidDevice service = mService;
-        if (service != null) {
-            try {
-                result = service.connect(device);
-            } catch (RemoteException e) {
-                Log.e(TAG, e.toString());
-            }
-        } else {
+        final IBluetoothHidDevice service = getService();
+        if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (isEnabled() && isValidDevice(device)) {
+            try {
+                return service.connect(device, mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
         }
-
-        return result;
+        return false;
     }
 
     /**
@@ -754,20 +727,60 @@ public final class BluetoothHidDevice implements BluetoothProfile {
      *
      * @return true if the command is successfully sent; otherwise false.
      */
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public boolean disconnect(BluetoothDevice device) {
-        boolean result = false;
-
-        final IBluetoothHidDevice service = mService;
-        if (service != null) {
-            try {
-                result = service.disconnect(device);
-            } catch (RemoteException e) {
-                Log.e(TAG, e.toString());
-            }
-        } else {
+        final IBluetoothHidDevice service = getService();
+        if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (isEnabled()) {
+            try {
+                return service.disconnect(device, mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
+        }
+        return false;
+    }
+
+    /**
+     * This method is non-functional. For managing connections, use {@link #connect} and {@link
+     * #disconnect}.
+     *
+     * <p>By design, the HID device profile requires an active application to request a connection
+     * every time. It is not possible to store a persistent connection policy that would be set
+     * automatically. Because of this limitation, this API has never worked and will always return
+     * {@code false}
+     */
+    @Hide
+    @SystemApi
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
+    public boolean setConnectionPolicy(
+            @NonNull BluetoothDevice device, @ConnectionPolicy int connectionPolicy) {
+        if (DBG) log("setConnectionPolicy(" + device + ", " + connectionPolicy + ")");
+        final IBluetoothHidDevice service = getService();
+        if (service == null
+                || !isEnabled()
+                || !isValidDevice(device)
+                || !BluetoothProfile.isValidConnectionPolicy(connectionPolicy)) {
+            return false;
         }
 
-        return result;
+        mContext.enforcePermission(BLUETOOTH_PRIVILEGED, Process.myPid(), Process.myUid(), null);
+        mContext.enforcePermission(BLUETOOTH_CONNECT, Process.myPid(), Process.myUid(), null);
+        throw new IllegalArgumentException(TAG + " cannot set the connection policy");
+    }
+
+    private boolean isEnabled() {
+        if (mAdapter.getState() == BluetoothAdapter.STATE_ON) return true;
+        return false;
+    }
+
+    private static void log(String msg) {
+        if (DBG) {
+            Log.d(TAG, msg);
+        }
     }
 }

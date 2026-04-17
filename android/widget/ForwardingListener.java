@@ -16,6 +16,7 @@
 
 package android.widget;
 
+import android.companion.virtualdevice.flags.Flags;
 import android.os.SystemClock;
 import android.view.MotionEvent;
 import android.view.View;
@@ -61,11 +62,21 @@ public abstract class ForwardingListener
         src.setLongClickable(true);
         src.addOnAttachStateChangeListener(this);
 
-        mScaledTouchSlop = ViewConfiguration.get(src.getContext()).getScaledTouchSlop();
-        mTapTimeout = ViewConfiguration.getTapTimeout();
+        final ViewConfiguration viewConfiguration = ViewConfiguration.get(src.getContext());
+        mScaledTouchSlop = viewConfiguration.getScaledTouchSlop();
+        final int longPressTimeout;
+        if (Flags.viewconfigurationApis()) {
+            mTapTimeout = Flags.viewconfigurationApis()
+                    ? viewConfiguration.getTapTimeoutMillis() : ViewConfiguration.getTapTimeout();
+            longPressTimeout = viewConfiguration.getLongPressTimeoutMillis();
+        } else {
+            mTapTimeout = Flags.viewconfigurationApis()
+                    ? viewConfiguration.getTapTimeoutMillis() : ViewConfiguration.getTapTimeout();
+            longPressTimeout = ViewConfiguration.getLongPressTimeout();
+        }
 
         // Use a medium-press timeout. Halfway between tap and long-press.
-        mLongPressTimeout = (mTapTimeout + ViewConfiguration.getLongPressTimeout()) / 2;
+        mLongPressTimeout = (mTapTimeout + longPressTimeout) / 2;
     }
 
     /**

@@ -27,13 +27,14 @@ import android.os.Registrant;
 import android.os.RegistrantList;
 import android.provider.Settings;
 import android.provider.Telephony;
-import android.telephony.Rlog;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.util.LocalLog;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.IndentingPrintWriter;
+import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -73,15 +74,17 @@ public class CarrierActionAgent extends Handler {
     private RegistrantList mRadioEnableRegistrants = new RegistrantList();
     private RegistrantList mDefaultNetworkReportRegistrants = new RegistrantList();
     /** local log for carrier actions */
-    private LocalLog mMeteredApnEnabledLog = new LocalLog(10);
-    private LocalLog mRadioEnabledLog = new LocalLog(10);
-    private LocalLog mReportDefaultNetworkStatusLog = new LocalLog(10);
+    private LocalLog mMeteredApnEnabledLog = new LocalLog(8);
+    private LocalLog mRadioEnabledLog = new LocalLog(8);
+    private LocalLog mReportDefaultNetworkStatusLog = new LocalLog(8);
     /** carrier actions */
     private Boolean mCarrierActionOnMeteredApnEnabled = true;
     private Boolean mCarrierActionOnRadioEnabled = true;
     private Boolean mCarrierActionReportDefaultNetworkStatus = false;
     /** content observer for APM change */
     private final SettingsObserver mSettingsObserver;
+    /** tracks for EVENT_DATA_ROAMING_OFF registration status */
+    private boolean mIsDataRoamingOffRegistered = false;
 
     private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
         @Override
@@ -89,11 +92,15 @@ public class CarrierActionAgent extends Handler {
             final String action = intent.getAction();
             final String iccState = intent.getStringExtra(IccCardConstants.INTENT_KEY_ICC_STATE);
             if (TelephonyIntents.ACTION_SIM_STATE_CHANGED.equals(action)){
-                if (intent.getBooleanExtra(TelephonyIntents.EXTRA_REBROADCAST_ON_UNLOCK, false)) {
+                if (intent.getBooleanExtra(Intent.EXTRA_REBROADCAST_ON_UNLOCK, false)) {
                     // ignore rebroadcast since carrier apps are direct boot aware.
                     return;
                 }
-                sendMessage(obtainMessage(EVENT_SIM_STATE_CHANGED, iccState));
+                final int phoneId = intent.getIntExtra(PhoneConstants.PHONE_KEY,
+                        SubscriptionManager.INVALID_PHONE_INDEX);
+                if (mPhone.getPhoneId() == phoneId) {
+                    sendMessage(obtainMessage(EVENT_SIM_STATE_CHANGED, iccState));
+                }
             }
         }
     };
@@ -159,6 +166,7 @@ public class CarrierActionAgent extends Handler {
                 break;
             case EVENT_SIM_STATE_CHANGED:
                 String iccState = (String) msg.obj;
+                ServiceStateTracker serviceStateTracker = mPhone.getServiceStateTracker();
                 if (IccCardConstants.INTENT_VALUE_ICC_LOADED.equals(iccState)) {
                     log("EVENT_SIM_STATE_CHANGED status: " + iccState);
                     carrierActionReset();
@@ -173,16 +181,20 @@ public class CarrierActionAgent extends Handler {
                             EVENT_APM_SETTINGS_CHANGED);
                     mSettingsObserver.observe(
                             Telephony.Carriers.CONTENT_URI, EVENT_APN_SETTINGS_CHANGED);
-                    if (mPhone.getServiceStateTracker() != null) {
-                        mPhone.getServiceStateTracker().registerForDataRoamingOff(
+                    if (serviceStateTracker != null && !mIsDataRoamingOffRegistered) {
+                        serviceStateTracker.registerForDataRoamingOff(
                                 this, EVENT_DATA_ROAMING_OFF, null, false);
+                        mIsDataRoamingOffRegistered = true;
                     }
-                } else if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(iccState)) {
+                } else if (IccCardConstants.INTENT_VALUE_ICC_ABSENT.equals(iccState)
+                        || IccCardConstants.INTENT_VALUE_ICC_NOT_READY.equals(iccState)
+                        || IccCardConstants.INTENT_VALUE_ICC_UNKNOWN.equals(iccState)) {
                     log("EVENT_SIM_STATE_CHANGED status: " + iccState);
                     carrierActionReset();
                     mSettingsObserver.unobserve();
-                    if (mPhone.getServiceStateTracker() != null) {
-                        mPhone.getServiceStateTracker().unregisterForDataRoamingOff(this);
+                    if (serviceStateTracker != null && mIsDataRoamingOffRegistered) {
+                        serviceStateTracker.unregisterForDataRoamingOff(this);
+                        mIsDataRoamingOffRegistered = false;
                     }
                 }
                 break;
@@ -217,13 +229,13 @@ public class CarrierActionAgent extends Handler {
         sendMessage(obtainMessage(CARRIER_ACTION_REPORT_DEFAULT_NETWORK_STATUS, report));
     }
 
-    private void carrierActionReset() {
+    public void carrierActionReset() {
         carrierActionReportDefaultNetworkStatus(false);
         carrierActionSetMeteredApnsEnabled(true);
         carrierActionSetRadioEnabled(true);
         // notify configured carrier apps for reset
         mPhone.getCarrierSignalAgent().notifyCarrierSignalReceivers(
-                new Intent(TelephonyIntents.ACTION_CARRIER_SIGNAL_RESET));
+                new Intent(TelephonyManager.ACTION_CARRIER_SIGNAL_RESET));
     }
 
     private RegistrantList getRegistrantsFromAction(int action) {
@@ -248,6 +260,8 @@ public class CarrierActionAgent extends Handler {
                 return mCarrierActionOnRadioEnabled;
             case CARRIER_ACTION_REPORT_DEFAULT_NETWORK_STATUS:
                 return mCarrierActionReportDefaultNetworkStatus;
+            case EVENT_APN_SETTINGS_CHANGED:
+                return null;  // we don't know if it's enabled, but this is not "unsupported" action
             default:
                 loge("Unsupported action: " + action);
                 return null;

@@ -15,12 +15,11 @@
  */
 package android.security;
 
+import android.annotation.SuppressLint;
 import android.annotation.Nullable;
+import android.annotation.FlaggedApi;
 
-/**
- * The KeyChainAliasCallback is the callback for {@link
- * KeyChain#choosePrivateKeyAlias}.
- */
+/** The KeyChainAliasCallback is the callback for {@link KeyChain#choosePrivateKeyAlias}. */
 public interface KeyChainAliasCallback {
 
     /**
@@ -28,4 +27,10 @@ public interface KeyChainAliasCallback {
      * null if no value was chosen.
      */
     public void alias(@Nullable String alias);
+
+    /** Called with the error code of the certificate selection. */
+    @FlaggedApi(android.app.admin.flags.Flags.FLAG_KEYCHAIN_SUPPRESS_CERTIFICATE_SELECTIONS)
+    default void onError(@KeyChain.SelectionError int errorCode) {
+        alias(null);
+    }
 }

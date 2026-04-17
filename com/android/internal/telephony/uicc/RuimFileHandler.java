@@ -17,12 +17,12 @@
 package com.android.internal.telephony.uicc;
 
 import android.os.*;
-import android.telephony.Rlog;
 
 import com.android.internal.telephony.CommandsInterface;
+import com.android.telephony.Rlog;
 
 /**
- * {@hide}
+ * @hide
  */
 public final class RuimFileHandler extends IccFileHandler {
     static final String LOG_TAG = "RuimFH";
@@ -64,8 +64,12 @@ public final class RuimFileHandler extends IccFileHandler {
         case EF_CSIM_IMSIM:
         case EF_CSIM_CDMAHOME:
         case EF_CSIM_EPRL:
+        case EF_CSIM_PRL:
         case EF_CSIM_MIPUPP:
             return MF_SIM + DF_CDMA;
+        case EF_CSIM_MSPL:
+        case EF_CSIM_MLPL:
+            return MF_SIM + DF_TELECOM + DF_MMSS;
         }
         return getCommonIccEFPath(efid);
     }

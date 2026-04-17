@@ -16,15 +16,26 @@
 
 package com.android.internal.telephony;
 
-import android.telephony.Rlog;
+import android.annotation.NonNull;
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.os.Build;
+import android.os.SystemProperties;
 
-import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.flags.FeatureFlags;
+import com.android.internal.telephony.flags.Flags;
+import com.android.telephony.Rlog;
 
 /**
  * Utilities that check if the phone supports specified capabilities.
  */
 public class TelephonyCapabilities {
     private static final String LOG_TAG = "TelephonyCapabilities";
+    // Non-final: overwritten in TelephonyCapabilitiesTest.
+    private static int VENDOR_API_LEVEL = SystemProperties.getInt(
+            "ro.vendor.api_level", Build.VERSION.DEVICE_INITIAL_SDK_INT);
+    private static int BOARD_API_LEVEL = SystemProperties.getInt(
+            "ro.board.api_level", VENDOR_API_LEVEL);
 
     /** This class is never instantiated. */
     private TelephonyCapabilities() {
@@ -47,29 +58,8 @@ public class TelephonyCapabilities {
     public static boolean supportsEcm(Phone phone) {
         Rlog.d(LOG_TAG, "supportsEcm: Phone type = " + phone.getPhoneType() +
                   " Ims Phone = " + phone.getImsPhone());
-        return (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA ||
-                phone.getImsPhone() != null);
-    }
-
-    /**
-     * Return true if the current phone supports Over The Air Service
-     * Provisioning (OTASP)
-     *
-     * Currently this is assumed to be true for CDMA phones, and false
-     * otherwise.
-     *
-     * TODO: Watch out: this is also highly carrier-specific, since the
-     * OTASP procedure is different from one carrier to the next, *and* the
-     * different carriers may want very different onscreen UI as well.
-     * The procedure may even be different for different devices with the
-     * same carrier.
-     *
-     * So we eventually will need a much more flexible, pluggable design.
-     * This method here is just a placeholder to reduce hardcoded
-     * "if (CDMA)" checks sprinkled throughout the phone app.
-     */
-    public static boolean supportsOtasp(Phone phone) {
-        return (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA);
+        return ((!Flags.deleteCdma() && phone.getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA)
+                || phone.getImsPhone() != null);
     }
 
     /**
@@ -90,7 +80,7 @@ public class TelephonyCapabilities {
      * TODO: Should CDMA phones allow this as well?
      */
     public static boolean supportsNetworkSelection(Phone phone) {
-        return (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_GSM);
+        return (Flags.deleteCdma() || phone.getPhoneType() == PhoneConstants.PHONE_TYPE_GSM);
     }
 
     /**
@@ -102,7 +92,7 @@ public class TelephonyCapabilities {
      * id is called "IMEI" on GSM phones and "MEID" on CDMA phones.
      */
     public static int getDeviceIdLabel(Phone phone) {
-        if (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_GSM) {
+        if (Flags.deleteCdma() || phone.getPhoneType() == PhoneConstants.PHONE_TYPE_GSM) {
             return com.android.internal.R.string.imei;
         } else if (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_CDMA) {
             return com.android.internal.R.string.meid;
@@ -114,82 +104,43 @@ public class TelephonyCapabilities {
     }
 
     /**
-     * Return true if the current phone supports the ability to explicitly
-     * manage the state of a conference call (i.e. view the participants,
-     * and hangup or separate individual callers.)
-     *
-     * The in-call screen's "Manage conference" UI is available only on
-     * devices that support this feature.
-     *
-     * Currently this is assumed to be true on GSM phones and false otherwise.
+     * Returns true if Calling/Data/Messaging features should be checked on this device.
      */
-    public static boolean supportsConferenceCallManagement(Phone phone) {
-        return ((phone.getPhoneType() == PhoneConstants.PHONE_TYPE_GSM)
-                || (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_SIP));
+    private static boolean minimalTelephonyCdmCheck(@NonNull FeatureFlags featureFlags) {
+        // The check for calling/data/messaging features is done using the ro.board.api_level
+        // value, which represents the API level of the current vendor partition. It is
+        // therefore assumed that a vendor partition that has been upgraded from pre-VIC
+        // to VIC must have also been updated to support the new C/D/M feature flags.
+        return BOARD_API_LEVEL >= Build.VERSION_CODES.VANILLA_ICE_CREAM;
     }
 
     /**
-     * Return true if the current phone supports explicit "Hold" and
-     * "Unhold" actions for an active call.  (If so, the in-call UI will
-     * provide onscreen "Hold" / "Unhold" buttons.)
-     *
-     * Currently this is assumed to be true on GSM phones and false
-     * otherwise.  (In particular, CDMA has no concept of "putting a call
-     * on hold.")
+     * @return true if this device supports telephony calling, false if it does not.
      */
-    public static boolean supportsHoldAndUnhold(Phone phone) {
-        return ((phone.getPhoneType() == PhoneConstants.PHONE_TYPE_GSM)
-                || (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_SIP)
-                || (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_IMS));
+    public static boolean supportsTelephonyCalling(@NonNull FeatureFlags featureFlags,
+            Context context) {
+        if (!TelephonyCapabilities.minimalTelephonyCdmCheck(featureFlags)) return true;
+        return context.getPackageManager().hasSystemFeature(
+                PackageManager.FEATURE_TELEPHONY_CALLING);
     }
 
     /**
-     * Return true if the current phone supports distinct "Answer & Hold"
-     * and "Answer & End" behaviors in the call-waiting scenario.  If so,
-     * the in-call UI may provide separate buttons or menu items for these
-     * two actions.
-     *
-     * Currently this is assumed to be true on GSM phones and false
-     * otherwise.  (In particular, CDMA has no concept of explicitly
-     * managing the background call, or "putting a call on hold.")
-     *
-     * TODO: It might be better to expose this capability in a more
-     * generic form, like maybe "supportsExplicitMultipleLineManagement()"
-     * rather than focusing specifically on call-waiting behavior.
+     * @return true if this device supports telephony messaging, false if it does not.
      */
-    public static boolean supportsAnswerAndHold(Phone phone) {
-        return ((phone.getPhoneType() == PhoneConstants.PHONE_TYPE_GSM)
-                || (phone.getPhoneType() == PhoneConstants.PHONE_TYPE_SIP));
+    public static boolean supportsTelephonyMessaging(@NonNull FeatureFlags featureFlags,
+            Context context) {
+        if (!TelephonyCapabilities.minimalTelephonyCdmCheck(featureFlags)) return true;
+        return context.getPackageManager().hasSystemFeature(
+                PackageManager.FEATURE_TELEPHONY_MESSAGING);
     }
 
     /**
-     * Return true if phones with the given phone type support ADN
-     * (Abbreviated Dialing Numbers).
-     *
-     * Currently this returns true when the phone type is GSM
-     * ({@link PhoneConstants#PHONE_TYPE_GSM}).
-     *
-     * This is using int for an argument for letting apps outside
-     * Phone process access to it, while other methods in this class is
-     * using Phone object.
-     *
-     * TODO: Theoretically phones other than GSM may have the ADN capability.
-     * Consider having better check here, or have better capability as part
-     * of public API, with which the argument should be replaced with
-     * something more appropriate.
+     * @return true if this device supports telephony data, false if it does not.
      */
-    public static boolean supportsAdn(int phoneType) {
-        return phoneType == PhoneConstants.PHONE_TYPE_GSM;
-    }
-
-    /**
-     * Returns true if the device can distinguish the phone's dialing state
-     * (Call.State.DIALING/ALERTING) and connected state (Call.State.ACTIVE).
-     *
-     * Currently this returns true for GSM phones as we cannot know when a CDMA
-     * phone has transitioned from dialing/active to connected.
-     */
-    public static boolean canDistinguishDialingAndConnected(int phoneType) {
-        return phoneType == PhoneConstants.PHONE_TYPE_GSM;
+    public static boolean supportsTelephonyData(@NonNull FeatureFlags featureFlags,
+            Context context) {
+        if (!TelephonyCapabilities.minimalTelephonyCdmCheck(featureFlags)) return true;
+        return context.getPackageManager().hasSystemFeature(
+                PackageManager.FEATURE_TELEPHONY_DATA);
     }
 }

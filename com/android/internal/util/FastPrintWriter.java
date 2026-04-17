@@ -16,6 +16,7 @@
 
 package com.android.internal.util;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.util.Log;
 import android.util.Printer;
 
@@ -31,6 +32,7 @@ import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CoderResult;
 import java.nio.charset.CodingErrorAction;
 
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class FastPrintWriter extends PrintWriter {
     private static class DummyWriter extends Writer {
         @Override
@@ -77,6 +79,7 @@ public class FastPrintWriter extends PrintWriter {
      * @throws NullPointerException
      *             if {@code out} is {@code null}.
      */
+    @UnsupportedAppUsage
     public FastPrintWriter(OutputStream out) {
         this(out, false, 8192);
     }

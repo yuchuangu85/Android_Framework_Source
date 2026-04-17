@@ -19,6 +19,7 @@ package android.text;
 /**
  * Interface for objects that use a heuristic for guessing at the paragraph direction by examining text.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface TextDirectionHeuristic {
     /**
      * Guess if a chars array is in the RTL direction or not.

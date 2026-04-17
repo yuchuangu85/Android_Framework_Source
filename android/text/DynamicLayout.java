@@ -16,12 +16,22 @@
 
 package android.text;
 
+import static com.android.text.flags.Flags.FLAG_FIX_LINE_HEIGHT_FOR_LOCALE;
+import static com.android.text.flags.Flags.FLAG_NO_BREAK_NO_HYPHENATION_SPAN;
+import static com.android.text.flags.Flags.FLAG_USE_BOUNDS_FOR_WIDTH;
+
+import android.annotation.FlaggedApi;
 import android.annotation.FloatRange;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Paint;
 import android.graphics.Rect;
+import android.graphics.text.LineBreakConfig;
+import android.os.Build;
+import android.text.method.OffsetMapping;
 import android.text.style.ReplacementSpan;
 import android.text.style.UpdateLayout;
 import android.text.style.WrapTogetherSpan;
@@ -31,6 +41,7 @@ import android.util.Pools.SynchronizedPool;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.GrowingArrayUtils;
+import com.android.text.flags.Flags;
 
 import java.lang.ref.WeakReference;
 
@@ -42,6 +53,7 @@ import java.lang.ref.WeakReference;
  * {@link android.graphics.Canvas#drawText(java.lang.CharSequence, int, int, float, float, android.graphics.Paint)
  *  Canvas.drawText()} directly.</p>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class DynamicLayout extends Layout {
     private static final int PRIORITY = 128;
     private static final int BLOCK_MINIMUM_CHARACTER_LENGTH = 400;
@@ -85,6 +97,10 @@ public class DynamicLayout extends Layout {
             b.mBreakStrategy = Layout.BREAK_STRATEGY_SIMPLE;
             b.mHyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE;
             b.mJustificationMode = Layout.JUSTIFICATION_MODE_NONE;
+            b.mLineBreakConfig = LineBreakConfig.NONE;
+            if (Flags.fixDynamicLayoutBuilderRecycle()) {
+                b.mMinimumFontMetrics = null;
+            }
             return b;
         }
 
@@ -96,6 +112,9 @@ public class DynamicLayout extends Layout {
             b.mBase = null;
             b.mDisplay = null;
             b.mPaint = null;
+            if (Flags.fixDynamicLayoutBuilderRecycle()) {
+                b.mMinimumFontMetrics = null;
+            }
             sPool.release(b);
         }
 
@@ -265,6 +284,114 @@ public class DynamicLayout extends Layout {
         }
 
         /**
+         * Set the line break configuration. The line break will be passed to native used for
+         * calculating the text wrapping. The default value of the line break style is
+         * {@link LineBreakConfig#LINE_BREAK_STYLE_NONE}
+         *
+         * @param lineBreakConfig the line break configuration for text wrapping.
+         * @return this builder, useful for chaining.
+         * @see android.widget.TextView#setLineBreakStyle
+         * @see android.widget.TextView#setLineBreakWordStyle
+         */
+        @NonNull
+        @FlaggedApi(FLAG_NO_BREAK_NO_HYPHENATION_SPAN)
+        public Builder setLineBreakConfig(@NonNull LineBreakConfig lineBreakConfig) {
+            mLineBreakConfig = lineBreakConfig;
+            return this;
+        }
+
+        /**
+         * Set true for using width of bounding box as a source of automatic line breaking and
+         * drawing.
+         *
+         * If this value is false, the Layout determines the drawing offset and automatic line
+         * breaking based on total advances. By setting true, use all joined glyph's bounding boxes
+         * as a source of text width.
+         *
+         * If the font has glyphs that have negative bearing X or its xMax is greater than advance,
+         * the glyph clipping can happen because the drawing area may be bigger. By setting this to
+         * true, the Layout will reserve more spaces for drawing.
+         *
+         * @param useBoundsForWidth True for using bounding box, false for advances.
+         * @return this builder instance
+         * @see Layout#getUseBoundsForWidth()
+         * @see Layout.Builder#setUseBoundsForWidth(boolean)
+         */
+        @SuppressLint("MissingGetterMatchingBuilder")  // The base class `Layout` has a getter.
+        @NonNull
+        @FlaggedApi(FLAG_USE_BOUNDS_FOR_WIDTH)
+        public Builder setUseBoundsForWidth(boolean useBoundsForWidth) {
+            mUseBoundsForWidth = useBoundsForWidth;
+            return this;
+        }
+
+        /**
+         * Set true for shifting the drawing x offset for showing overhang at the start position.
+         *
+         * This flag is ignored if the {@link #getUseBoundsForWidth()} is false.
+         *
+         * If this value is false, the Layout draws text from the zero even if there is a glyph
+         * stroke in a region where the x coordinate is negative.
+         *
+         * If this value is true, the Layout draws text with shifting the x coordinate of the
+         * drawing bounding box.
+         *
+         * This value is false by default.
+         *
+         * @param shiftDrawingOffsetForStartOverhang true for shifting the drawing offset for
+         *                                          showing the stroke that is in the region where
+         *                                          the x coordinate is negative.
+         * @see #setUseBoundsForWidth(boolean)
+         * @see #getUseBoundsForWidth()
+         */
+        @NonNull
+        // The corresponding getter is getShiftDrawingOffsetForStartOverhang()
+        @SuppressLint("MissingGetterMatchingBuilder")
+        @FlaggedApi(FLAG_USE_BOUNDS_FOR_WIDTH)
+        public Builder setShiftDrawingOffsetForStartOverhang(
+                boolean shiftDrawingOffsetForStartOverhang) {
+            mShiftDrawingOffsetForStartOverhang = shiftDrawingOffsetForStartOverhang;
+            return this;
+        }
+
+        /**
+         * Set the minimum font metrics used for line spacing.
+         *
+         * <p>
+         * {@code null} is the default value. If {@code null} is set or left as default, the
+         * font metrics obtained by {@link Paint#getFontMetricsForLocale(Paint.FontMetrics)} is
+         * used.
+         *
+         * <p>
+         * The minimum meaning here is the minimum value of line spacing: maximum value of
+         * {@link Paint#ascent()}, minimum value of {@link Paint#descent()}.
+         *
+         * <p>
+         * By setting this value, each line will have minimum line spacing regardless of the text
+         * rendered. For example, usually Japanese script has larger vertical metrics than Latin
+         * script. By setting the metrics obtained by
+         * {@link Paint#getFontMetricsForLocale(Paint.FontMetrics)} for Japanese or leave it
+         * {@code null} if the Paint's locale is Japanese, the line spacing for Japanese is reserved
+         * if the text is an English text. If the vertical metrics of the text is larger than
+         * Japanese, for example Burmese, the bigger font metrics is used.
+         *
+         * @param minimumFontMetrics A minimum font metrics. Passing {@code null} for using the
+         *                          value obtained by
+         *                          {@link Paint#getFontMetricsForLocale(Paint.FontMetrics)}
+         * @see android.widget.TextView#setMinimumFontMetrics(Paint.FontMetrics)
+         * @see android.widget.TextView#getMinimumFontMetrics()
+         * @see Layout#getMinimumFontMetrics()
+         * @see Layout.Builder#setMinimumFontMetrics(Paint.FontMetrics)
+         * @see StaticLayout.Builder#setMinimumFontMetrics(Paint.FontMetrics)
+         */
+        @NonNull
+        @FlaggedApi(FLAG_FIX_LINE_HEIGHT_FOR_LOCALE)
+        public Builder setMinimumFontMetrics(@Nullable Paint.FontMetrics minimumFontMetrics) {
+            mMinimumFontMetrics = minimumFontMetrics;
+            return this;
+        }
+
+        /**
          * Build the {@link DynamicLayout} after options have been set.
          *
          * <p>Note: the builder object must not be reused in any way after calling this method.
@@ -295,6 +422,10 @@ public class DynamicLayout extends Layout {
         private int mJustificationMode;
         private TextUtils.TruncateAt mEllipsize;
         private int mEllipsizedWidth;
+        private LineBreakConfig mLineBreakConfig = LineBreakConfig.NONE;
+        private boolean mUseBoundsForWidth;
+        private boolean mShiftDrawingOffsetForStartOverhang;
+        private @Nullable Paint.FontMetrics mMinimumFontMetrics;
 
         private final Paint.FontMetricsInt mFontMetricsInt = new Paint.FontMetricsInt();
 
@@ -341,7 +472,7 @@ public class DynamicLayout extends Layout {
         this(base, display, paint, width, align, TextDirectionHeuristics.FIRSTSTRONG_LTR,
                 spacingmult, spacingadd, includepad,
                 Layout.BREAK_STRATEGY_SIMPLE, Layout.HYPHENATION_FREQUENCY_NONE,
-                Layout.JUSTIFICATION_MODE_NONE, ellipsize, ellipsizedWidth);
+                Layout.JUSTIFICATION_MODE_NONE, LineBreakConfig.NONE, ellipsize, ellipsizedWidth);
     }
 
     /**
@@ -353,6 +484,7 @@ public class DynamicLayout extends Layout {
      * @deprecated Use {@link Builder} instead.
      */
     @Deprecated
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public DynamicLayout(@NonNull CharSequence base, @NonNull CharSequence display,
                          @NonNull TextPaint paint,
                          @IntRange(from = 0) int width,
@@ -361,10 +493,16 @@ public class DynamicLayout extends Layout {
                          boolean includepad, @BreakStrategy int breakStrategy,
                          @HyphenationFrequency int hyphenationFrequency,
                          @JustificationMode int justificationMode,
+                         @NonNull LineBreakConfig lineBreakConfig,
                          @Nullable TextUtils.TruncateAt ellipsize,
                          @IntRange(from = 0) int ellipsizedWidth) {
         super(createEllipsizer(ellipsize, display),
-              paint, width, align, textDir, spacingmult, spacingadd);
+              paint, width, align, textDir, spacingmult, spacingadd, includepad,
+                false /* fallbackLineSpacing */, ellipsizedWidth, ellipsize,
+                Integer.MAX_VALUE /* maxLines */, breakStrategy, hyphenationFrequency,
+                null /* leftIndents */, null /* rightIndents */, justificationMode,
+                lineBreakConfig, false /* useBoundsForWidth */, false,
+                null /* minimumFontMetrics */);
 
         final Builder b = Builder.obtain(base, paint, width)
                 .setAlignment(align)
@@ -377,6 +515,7 @@ public class DynamicLayout extends Layout {
         mBreakStrategy = breakStrategy;
         mJustificationMode = justificationMode;
         mHyphenationFrequency = hyphenationFrequency;
+        mLineBreakConfig = lineBreakConfig;
 
         generate(b);
 
@@ -385,13 +524,19 @@ public class DynamicLayout extends Layout {
 
     private DynamicLayout(@NonNull Builder b) {
         super(createEllipsizer(b.mEllipsize, b.mDisplay),
-                b.mPaint, b.mWidth, b.mAlignment, b.mTextDir, b.mSpacingMult, b.mSpacingAdd);
+                b.mPaint, b.mWidth, b.mAlignment, b.mTextDir, b.mSpacingMult, b.mSpacingAdd,
+                b.mIncludePad, b.mFallbackLineSpacing, b.mEllipsizedWidth, b.mEllipsize,
+                Integer.MAX_VALUE /* maxLines */, b.mBreakStrategy, b.mHyphenationFrequency,
+                null /* leftIndents */, null /* rightIndents */, b.mJustificationMode,
+                b.mLineBreakConfig, b.mUseBoundsForWidth, b.mShiftDrawingOffsetForStartOverhang,
+                b.mMinimumFontMetrics);
 
         mDisplay = b.mDisplay;
         mIncludePad = b.mIncludePad;
         mBreakStrategy = b.mBreakStrategy;
         mJustificationMode = b.mJustificationMode;
         mHyphenationFrequency = b.mHyphenationFrequency;
+        mLineBreakConfig = b.mLineBreakConfig;
 
         generate(b);
     }
@@ -411,6 +556,9 @@ public class DynamicLayout extends Layout {
     private void generate(@NonNull Builder b) {
         mBase = b.mBase;
         mFallbackLineSpacing = b.mFallbackLineSpacing;
+        mUseBoundsForWidth = b.mUseBoundsForWidth;
+        mShiftDrawingOffsetForStartOverhang = b.mShiftDrawingOffsetForStartOverhang;
+        mMinimumFontMetrics = b.mMinimumFontMetrics;
         if (b.mEllipsize != null) {
             mInts = new PackedIntVector(COLUMNS_ELLIPSIZE);
             mEllipsizedWidth = b.mEllipsizedWidth;
@@ -472,9 +620,8 @@ public class DynamicLayout extends Layout {
 
         mObjects.insertAt(0, dirs);
 
-        final int baseLength = mBase.length();
-        // Update from 0 characters to whatever the real text is
-        reflow(mBase, 0, 0, baseLength);
+        // Update from 0 characters to whatever the displayed text is
+        reflow(mBase, 0, 0, mDisplay.length());
 
         if (mBase instanceof Spannable) {
             if (mWatcher == null)
@@ -482,6 +629,7 @@ public class DynamicLayout extends Layout {
 
             // Strip out any watchers for other DynamicLayouts.
             final Spannable sp = (Spannable) mBase;
+            final int baseLength = mBase.length();
             final ChangeWatcher[] spans = sp.getSpans(0, baseLength, ChangeWatcher.class);
             for (int i = 0; i < spans.length; i++) {
                 sp.removeSpan(spans[i]);
@@ -588,8 +736,7 @@ public class DynamicLayout extends Layout {
             sBuilder = null;
         }
 
-        if (reflowed == null) {
-            reflowed = new StaticLayout(null);
+        if (b == null) {
             b = StaticLayout.Builder.obtain(text, where, where + after, getPaint(), getWidth());
         }
 
@@ -604,9 +751,15 @@ public class DynamicLayout extends Layout {
                 .setBreakStrategy(mBreakStrategy)
                 .setHyphenationFrequency(mHyphenationFrequency)
                 .setJustificationMode(mJustificationMode)
-                .setAddLastLineLineSpacing(!islast);
+                .setLineBreakConfig(mLineBreakConfig)
+                .setAddLastLineLineSpacing(!islast)
+                .setIncludePad(false)
+                .setUseBoundsForWidth(mUseBoundsForWidth)
+                .setShiftDrawingOffsetForStartOverhang(mShiftDrawingOffsetForStartOverhang)
+                .setMinimumFontMetrics(mMinimumFontMetrics)
+                .setCalculateBounds(true);
 
-        reflowed.generate(b, false /*includepad*/, true /*trackpad*/);
+        reflowed = b.buildPartialStaticLayoutForDynamicLayout(true /* trackpadding */, reflowed);
         int n = reflowed.getLineCount();
         // If the new layout has a blank line at the end, but it is not
         // the very end of the buffer, then we already have a line that
@@ -671,7 +824,8 @@ public class DynamicLayout extends Layout {
             objects[0] = reflowed.getLineDirections(i);
 
             final int end = (i == n - 1) ? where + after : reflowed.getLineStart(i + 1);
-            ints[HYPHEN] = reflowed.getHyphen(i) & HYPHEN_MASK;
+            ints[HYPHEN] = StaticLayout.packHyphenEdit(
+                    reflowed.getStartHyphenEdit(i), reflowed.getEndHyphenEdit(i));
             ints[MAY_PROTRUDE_FROM_TOP_OR_BOTTOM] |=
                     contentMayProtrudeFromLineTopOrBottom(text, start, end) ?
                             MAY_PROTRUDE_FROM_TOP_OR_BOTTOM_MASK : 0;
@@ -944,6 +1098,7 @@ public class DynamicLayout extends Layout {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public int[] getBlockEndLines() {
         return mBlockEndLines;
     }
@@ -951,6 +1106,7 @@ public class DynamicLayout extends Layout {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public int[] getBlockIndices() {
         return mBlockIndices;
     }
@@ -973,6 +1129,7 @@ public class DynamicLayout extends Layout {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public int getNumberOfBlocks() {
         return mNumberOfBlocks;
     }
@@ -980,6 +1137,7 @@ public class DynamicLayout extends Layout {
     /**
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getIndexFirstChangedBlock() {
         return mIndexFirstChangedBlock;
     }
@@ -987,6 +1145,7 @@ public class DynamicLayout extends Layout {
     /**
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setIndexFirstChangedBlock(int i) {
         mIndexFirstChangedBlock = i;
     }
@@ -1048,8 +1207,16 @@ public class DynamicLayout extends Layout {
      * @hide
      */
     @Override
-    public int getHyphen(int line) {
-        return mInts.getValue(line, HYPHEN) & HYPHEN_MASK;
+    public @Paint.StartHyphenEdit int getStartHyphenEdit(int line) {
+        return StaticLayout.unpackStartHyphenEdit(mInts.getValue(line, HYPHEN) & HYPHEN_MASK);
+    }
+
+    /**
+     * @hide
+     */
+    @Override
+    public @Paint.EndHyphenEdit int getEndHyphenEdit(int line) {
+        return StaticLayout.unpackEndHyphenEdit(mInts.getValue(line, HYPHEN) & HYPHEN_MASK);
     }
 
     private boolean getContentMayProtrudeFromTopOrBottom(int line) {
@@ -1078,10 +1245,48 @@ public class DynamicLayout extends Layout {
         }
 
         public void beforeTextChanged(CharSequence s, int where, int before, int after) {
-            // Intentionally empty
+            final DynamicLayout dynamicLayout = mLayout.get();
+            if (dynamicLayout != null && dynamicLayout.mDisplay instanceof OffsetMapping) {
+                final OffsetMapping transformedText = (OffsetMapping) dynamicLayout.mDisplay;
+                if (mTransformedTextUpdate == null) {
+                    mTransformedTextUpdate = new OffsetMapping.TextUpdate(where, before, after);
+                } else {
+                    mTransformedTextUpdate.where = where;
+                    mTransformedTextUpdate.before = before;
+                    mTransformedTextUpdate.after = after;
+                }
+                // When there is a transformed text, we have to reflow the DynamicLayout based on
+                // the transformed indices instead of the range in base text.
+                // For example,
+                //   base text:         abcd    >   abce
+                //   updated range:     where = 3, before = 1, after = 1
+                //   transformed text:  abxxcd  >   abxxce
+                //   updated range:     where = 5, before = 1, after = 1
+                //
+                // Because the transformedText is udapted simultaneously with the base text,
+                // the range must be transformed before the base text changes.
+                transformedText.originalToTransformed(mTransformedTextUpdate);
+            }
         }
 
         public void onTextChanged(CharSequence s, int where, int before, int after) {
+            final DynamicLayout dynamicLayout = mLayout.get();
+            if (dynamicLayout != null && dynamicLayout.mDisplay instanceof OffsetMapping) {
+                if (mTransformedTextUpdate != null && mTransformedTextUpdate.where >= 0) {
+                    where = mTransformedTextUpdate.where;
+                    before = mTransformedTextUpdate.before;
+                    after = mTransformedTextUpdate.after;
+                    // Set where to -1 so that we know if beforeTextChanged is called.
+                    mTransformedTextUpdate.where = -1;
+                } else {
+                    // onTextChanged is called without beforeTextChanged. Reflow the entire text.
+                    where = 0;
+                    // We can't get the before length from the text, use the line end of the
+                    // last line instead.
+                    before = dynamicLayout.getLineEnd(dynamicLayout.getLineCount() - 1);
+                    after = dynamicLayout.mDisplay.length();
+                }
+            }
             reflow(s, where, before, after);
         }
 
@@ -1089,14 +1294,51 @@ public class DynamicLayout extends Layout {
             // Intentionally empty
         }
 
+        /**
+         * Reflow the {@link DynamicLayout} at the given range from {@code start} to the
+         * {@code end}.
+         * If the display text in this {@link DynamicLayout} is a {@link OffsetMapping} instance
+         * (which means it's also a transformed text), it will transform the given range first and
+         * then reflow.
+         */
+        private void transformAndReflow(Spannable s, int start, int end) {
+            final DynamicLayout dynamicLayout = mLayout.get();
+            if (dynamicLayout != null && dynamicLayout.mDisplay instanceof OffsetMapping) {
+                final OffsetMapping transformedText = (OffsetMapping) dynamicLayout.mDisplay;
+                start = transformedText.originalToTransformed(start,
+                        OffsetMapping.MAP_STRATEGY_CHARACTER);
+                end = transformedText.originalToTransformed(end,
+                        OffsetMapping.MAP_STRATEGY_CHARACTER);
+            }
+            reflow(s, start, end - start, end - start);
+        }
+
         public void onSpanAdded(Spannable s, Object o, int start, int end) {
-            if (o instanceof UpdateLayout)
-                reflow(s, start, end - start, end - start);
+            if (o instanceof UpdateLayout) {
+                transformAndReflow(s, start, end);
+            }
         }
 
         public void onSpanRemoved(Spannable s, Object o, int start, int end) {
-            if (o instanceof UpdateLayout)
-                reflow(s, start, end - start, end - start);
+            if (o instanceof UpdateLayout) {
+                if (Flags.insertModeCrashWhenDelete()) {
+                    final DynamicLayout dynamicLayout = mLayout.get();
+                    if (dynamicLayout != null && dynamicLayout.mDisplay instanceof OffsetMapping) {
+                        // It's possible that a Span is removed when the text covering it is
+                        // deleted, in this case, the original start and end of the span might be
+                        // OOB. So it'll reflow the entire string instead.
+                        if (Flags.insertModeCrashUpdateLayoutSpan()) {
+                            transformAndReflow(s, 0, s.length());
+                        } else {
+                            reflow(s, 0, 0, s.length());
+                        }
+                    } else {
+                        reflow(s, start, end - start, end - start);
+                    }
+                } else {
+                    transformAndReflow(s, start, end);
+                }
+            }
         }
 
         public void onSpanChanged(Spannable s, Object o, int start, int end, int nstart, int nend) {
@@ -1106,12 +1348,30 @@ public class DynamicLayout extends Layout {
                     // instead of causing an exception
                     start = 0;
                 }
-                reflow(s, start, end - start, end - start);
-                reflow(s, nstart, nend - nstart, nend - nstart);
+                if (Flags.insertModeCrashWhenDelete()) {
+                    final DynamicLayout dynamicLayout = mLayout.get();
+                    if (dynamicLayout != null && dynamicLayout.mDisplay instanceof OffsetMapping) {
+                        // When text is changed, it'll also trigger onSpanChanged. In this case we
+                        // can't determine the updated range in the transformed text. So it'll
+                        // reflow the entire range instead.
+                        if (Flags.insertModeCrashUpdateLayoutSpan()) {
+                            transformAndReflow(s, 0, s.length());
+                        } else {
+                            reflow(s, 0, 0, s.length());
+                        }
+                    } else {
+                        reflow(s, start, end - start, end - start);
+                        reflow(s, nstart, nend - nstart, nend - nstart);
+                    }
+                } else {
+                    transformAndReflow(s, start, end);
+                    transformAndReflow(s, nstart, nend);
+                }
             }
         }
 
         private WeakReference<DynamicLayout> mLayout;
+        private OffsetMapping.TextUpdate mTransformedTextUpdate;
     }
 
     @Override
@@ -1132,6 +1392,18 @@ public class DynamicLayout extends Layout {
         return mInts.getValue(line, ELLIPSIS_COUNT);
     }
 
+    /**
+     * Gets the {@link LineBreakConfig} used in this DynamicLayout.
+     * Use this only to consult the LineBreakConfig's properties and not
+     * to change them.
+     *
+     * @return The line break config in this DynamicLayout.
+     */
+    @NonNull
+    public LineBreakConfig getLineBreakConfig() {
+        return mLineBreakConfig;
+    }
+
     private CharSequence mBase;
     private CharSequence mDisplay;
     private ChangeWatcher mWatcher;
@@ -1143,6 +1415,7 @@ public class DynamicLayout extends Layout {
     private int mBreakStrategy;
     private int mHyphenationFrequency;
     private int mJustificationMode;
+    private LineBreakConfig mLineBreakConfig;
 
     private PackedIntVector mInts;
     private PackedObjectVector<Directions> mObjects;
@@ -1169,6 +1442,11 @@ public class DynamicLayout extends Layout {
 
     private Rect mTempRect = new Rect();
 
+    private boolean mUseBoundsForWidth;
+    private boolean mShiftDrawingOffsetForStartOverhang;
+    @Nullable Paint.FontMetrics mMinimumFontMetrics;
+
+    @UnsupportedAppUsage
     private static StaticLayout sStaticLayout = null;
     private static StaticLayout.Builder sBuilder = null;
 

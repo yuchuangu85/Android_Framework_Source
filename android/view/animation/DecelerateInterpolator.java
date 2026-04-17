@@ -20,12 +20,12 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.Resources.Theme;
 import android.content.res.TypedArray;
+import android.graphics.animation.HasNativeInterpolator;
+import android.graphics.animation.NativeInterpolator;
+import android.graphics.animation.NativeInterpolatorFactory;
 import android.util.AttributeSet;
 
 import com.android.internal.R;
-import com.android.internal.view.animation.HasNativeInterpolator;
-import com.android.internal.view.animation.NativeInterpolatorFactory;
-import com.android.internal.view.animation.NativeInterpolatorFactoryHelper;
 
 /**
  * An interpolator where the rate of change starts out quickly and
@@ -33,7 +33,7 @@ import com.android.internal.view.animation.NativeInterpolatorFactoryHelper;
  *
  */
 @HasNativeInterpolator
-public class DecelerateInterpolator extends BaseInterpolator implements NativeInterpolatorFactory {
+public class DecelerateInterpolator extends BaseInterpolator implements NativeInterpolator {
     public DecelerateInterpolator() {
     }
 
@@ -41,8 +41,8 @@ public class DecelerateInterpolator extends BaseInterpolator implements NativeIn
      * Constructor
      *
      * @param factor Degree to which the animation should be eased. Setting factor to 1.0f produces
-     *        an upside-down y=x^2 parabola. Increasing factor above 1.0f makes exaggerates the
-     *        ease-out effect (i.e., it starts even faster and ends evens slower)
+     *        an upside-down y=x^2 parabola. Increasing factor above 1.0f exaggerates the
+     *        ease-out effect (i.e., it starts even faster and ends evens slower).
      */
     public DecelerateInterpolator(float factor) {
         mFactor = factor;
@@ -81,6 +81,6 @@ public class DecelerateInterpolator extends BaseInterpolator implements NativeIn
     /** @hide */
     @Override
     public long createNativeInterpolator() {
-        return NativeInterpolatorFactoryHelper.createDecelerateInterpolator(mFactor);
+        return NativeInterpolatorFactory.createDecelerateInterpolator(mFactor);
     }
 }

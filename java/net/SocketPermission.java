@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,14 +33,19 @@ import java.security.Permission;
 /**
  * Legacy security code; do not use.
  */
-
 public final class SocketPermission extends Permission
-implements java.io.Serializable
-{
+implements java.io.Serializable {
 
-    public SocketPermission(String host, String action) { super(""); }
+    public SocketPermission(String host, String action) {
+        super("");
+    }
 
-    public boolean implies(Permission p) { return true; }
+    public boolean implies(Permission p) {
+        return true;
+    }
 
-    public String getActions() { return null; }
+    public String getActions() {
+        return null;
+    }
+
 }

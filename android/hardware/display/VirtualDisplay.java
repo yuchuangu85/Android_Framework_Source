@@ -36,9 +36,8 @@ public final class VirtualDisplay {
     private final Display mDisplay;
     private IVirtualDisplayCallback mToken;
     private Surface mSurface;
-
-    VirtualDisplay(DisplayManagerGlobal global, Display display,
-            IVirtualDisplayCallback token, Surface surface) {
+    VirtualDisplay(DisplayManagerGlobal global, Display display, IVirtualDisplayCallback token,
+            Surface surface) {
         mGlobal = global;
         mDisplay = display;
         mToken = token;
@@ -57,6 +56,13 @@ public final class VirtualDisplay {
      */
     public Surface getSurface() {
         return mSurface;
+    }
+
+    /**
+     * @hide
+     */
+    public IVirtualDisplayCallback getToken() {
+        return mToken;
     }
 
     /**
@@ -99,8 +105,26 @@ public final class VirtualDisplay {
      */
     public void release() {
         if (mToken != null) {
-            mGlobal.releaseVirtualDisplay(mToken);
+            mGlobal.releaseVirtualDisplay(mToken, mDisplay.getDisplayId());
             mToken = null;
+        }
+    }
+
+    /**
+     * Sets the rotation of the virtual display.
+     *
+     * @param rotation the new rotation of the display. May be one of {@link Surface#ROTATION_0},
+     *     {@link Surface#ROTATION_90}, {@link Surface#ROTATION_180}, {@link Surface#ROTATION_270}.
+     *     Upon creation, the rotation of the virtual display is always {@link Surface#ROTATION_0}.
+     */
+    public void setRotation(@Surface.Rotation int rotation) {
+        if (rotation != Surface.ROTATION_0 && rotation != Surface.ROTATION_90
+                && rotation != Surface.ROTATION_180 && rotation != Surface.ROTATION_270) {
+            throw new IllegalArgumentException(
+                    "Invalid virtual display rotation value: " + rotation);
+        }
+        if (mToken != null && mDisplay.getRotation() != rotation) {
+            mGlobal.setVirtualDisplayRotation(mToken, rotation);
         }
     }
 

@@ -16,6 +16,12 @@
 
 package android.media;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
+import java.util.List;
+
 /**
  * The AudioMixPort is a specialized type of AudioPort
  * describing an audio mix or stream at an input or output stream of the audio
@@ -30,11 +36,25 @@ public class AudioMixPort extends AudioPort {
 
     private final int mIoHandle;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     AudioMixPort(AudioHandle handle, int ioHandle, int role, String deviceName,
             int[] samplingRates, int[] channelMasks, int[] channelIndexMasks,
             int[] formats, AudioGain[] gains) {
-        super(handle, role, deviceName, samplingRates, channelMasks, channelIndexMasks,
+        this(handle, ioHandle, role, deviceName, samplingRates,
+                new AudioFormat.ChannelMasksArray(channelMasks, channelIndexMasks),
                 formats, gains);
+    }
+
+    AudioMixPort(AudioHandle handle, int ioHandle, int role, String deviceName,
+            int[] samplingRates, AudioFormat.ChannelMasksArray channelMasks,
+            int[] formats, AudioGain[] gains) {
+        super(handle, role, deviceName, samplingRates, channelMasks, formats, gains);
+        mIoHandle = ioHandle;
+    }
+
+    AudioMixPort(AudioHandle handle, int ioHandle, int role, String deviceName,
+            List<AudioProfile> profiles, AudioGain[] gains) {
+        super(handle, role, deviceName, profiles, gains, null);
         mIoHandle = ioHandle;
     }
 
@@ -48,8 +68,19 @@ public class AudioMixPort extends AudioPort {
     }
 
     /**
+     * Build a specific configuration of this audio mix port for use by methods
+     * like AudioManager.connectAudioPatch().
+     */
+    public AudioMixPortConfig buildConfig(int samplingRate,
+                                        @NonNull AudioFormat.ChannelMasks channelMasks, int format,
+                                        AudioGainConfig gain) {
+        return new AudioMixPortConfig(this, samplingRate, channelMasks, format, gain);
+    }
+
+    /**
      * Get the device type (e.g AudioManager.DEVICE_OUT_SPEAKER)
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int ioHandle() {
         return mIoHandle;
     }

@@ -16,34 +16,32 @@
 
 package android.bluetooth;
 
+import android.annotation.Hide;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.RequiresNoPermission;
+import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.util.Arrays;
-
 /**
- * Represents a Bluetooth class, which describes general characteristics
- * and capabilities of a device. For example, a Bluetooth class will
- * specify the general device type such as a phone, a computer, or
- * headset, and whether it's capable of services such as audio or telephony.
+ * Represents a Bluetooth class, which describes general characteristics and capabilities of a
+ * device. For example, a Bluetooth class will specify the general device type such as a phone, a
+ * computer, or headset, and whether it's capable of services such as audio or telephony.
  *
- * <p>Every Bluetooth class is composed of zero or more service classes, and
- * exactly one device class. The device class is further broken down into major
- * and minor device class components.
+ * <p>Every Bluetooth class is composed of zero or more service classes, and exactly one device
+ * class. The device class is further broken down into major and minor device class components.
  *
- * <p>{@link BluetoothClass} is useful as a hint to roughly describe a device
- * (for example to show an icon in the UI), but does not reliably describe which
- * Bluetooth profiles or services are actually supported by a device. Accurate
- * service discovery is done through SDP requests, which are automatically
- * performed when creating an RFCOMM socket with {@link
+ * <p>{@link BluetoothClass} is useful as a hint to roughly describe a device (for example to show
+ * an icon in the UI), but does not reliably describe which Bluetooth profiles or services are
+ * actually supported by a device. Accurate service discovery is done through SDP requests, which
+ * are automatically performed when creating an RFCOMM socket with {@link
  * BluetoothDevice#createRfcommSocketToServiceRecord} and {@link
- * BluetoothAdapter#listenUsingRfcommWithServiceRecord}</p>
+ * BluetoothAdapter#listenUsingRfcommWithServiceRecord}
  *
- * <p>Use {@link BluetoothDevice#getBluetoothClass} to retrieve the class for
- * a remote device.
- *
+ * <p>Use {@link BluetoothDevice#getBluetoothClass} to retrieve the class for a remote device.
  * <!--
  * The Bluetooth class is a 32 bit field. The format of these bits is defined at
  * http://www.bluetooth.org/Technical/AssignedNumbers/baseband.htm
@@ -53,22 +51,19 @@ import java.util.Arrays;
  * -->
  */
 public final class BluetoothClass implements Parcelable {
-    /**
-     * Legacy error value. Applications should use null instead.
-     *
-     * @hide
-     */
-    public static final int ERROR = 0xFF000000;
+    /** Legacy error value. Applications should use null instead. */
+    @Hide public static final int ERROR = 0xFF000000;
 
     private final int mClass;
 
-    /** @hide */
+    @Hide
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public BluetoothClass(int classInt) {
         mClass = classInt;
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (o instanceof BluetoothClass) {
             return mClass == ((BluetoothClass) o).mClass;
         }
@@ -90,7 +85,7 @@ public final class BluetoothClass implements Parcelable {
         return 0;
     }
 
-    public static final Parcelable.Creator<BluetoothClass> CREATOR =
+    public static final @NonNull Parcelable.Creator<BluetoothClass> CREATOR =
             new Parcelable.Creator<BluetoothClass>() {
                 public BluetoothClass createFromParcel(Parcel in) {
                     return new BluetoothClass(in.readInt());
@@ -108,12 +103,17 @@ public final class BluetoothClass implements Parcelable {
 
     /**
      * Defines all service class constants.
+     *
      * <p>Each {@link BluetoothClass} encodes zero or more service classes.
      */
     public static final class Service {
         private static final int BITMASK = 0xFFE000;
 
         public static final int LIMITED_DISCOVERABILITY = 0x002000;
+
+        /** Represent devices LE audio service */
+        public static final int LE_AUDIO = 0x004000;
+
         public static final int POSITIONING = 0x010000;
         public static final int NETWORKING = 0x020000;
         public static final int RENDER = 0x040000;
@@ -125,27 +125,29 @@ public final class BluetoothClass implements Parcelable {
     }
 
     /**
-     * Return true if the specified service class is supported by this
-     * {@link BluetoothClass}.
-     * <p>Valid service classes are the public constants in
-     * {@link BluetoothClass.Service}. For example, {@link
-     * BluetoothClass.Service#AUDIO}.
+     * Return true if the specified service class is supported by this {@link BluetoothClass}.
+     *
+     * <p>Valid service classes are the public constants in {@link BluetoothClass.Service}. For
+     * example, {@link BluetoothClass.Service#AUDIO}.
      *
      * @param service valid service class
      * @return true if the service class is supported
      */
+    @RequiresNoPermission
     public boolean hasService(int service) {
         return ((mClass & Service.BITMASK & service) != 0);
     }
 
     /**
      * Defines all device class constants.
-     * <p>Each {@link BluetoothClass} encodes exactly one device class, with
-     * major and minor components.
-     * <p>The constants in {@link
-     * BluetoothClass.Device} represent a combination of major and minor
+     *
+     * <p>Each {@link BluetoothClass} encodes exactly one device class, with major and minor
+     * components.
+     *
+     * <p>The constants in {@link BluetoothClass.Device} represent a combination of major and minor
      * device components (the complete device class). The constants in {@link
      * BluetoothClass.Device.Major} represent only major device classes.
+     *
      * <p>See {@link BluetoothClass.Service} for service class constants.
      */
     public static class Device {
@@ -153,6 +155,7 @@ public final class BluetoothClass implements Parcelable {
 
         /**
          * Defines all major device class constants.
+         *
          * <p>See {@link BluetoothClass.Device} for minor classes.
          */
         public static class Major {
@@ -192,7 +195,7 @@ public final class BluetoothClass implements Parcelable {
         public static final int AUDIO_VIDEO_UNCATEGORIZED = 0x0400;
         public static final int AUDIO_VIDEO_WEARABLE_HEADSET = 0x0404;
         public static final int AUDIO_VIDEO_HANDSFREE = 0x0408;
-        //public static final int AUDIO_VIDEO_RESERVED              = 0x040C;
+        // public static final int AUDIO_VIDEO_RESERVED              = 0x040C;
         public static final int AUDIO_VIDEO_MICROPHONE = 0x0410;
         public static final int AUDIO_VIDEO_LOUDSPEAKER = 0x0414;
         public static final int AUDIO_VIDEO_HEADPHONES = 0x0418;
@@ -206,7 +209,7 @@ public final class BluetoothClass implements Parcelable {
         public static final int AUDIO_VIDEO_VIDEO_MONITOR = 0x0438;
         public static final int AUDIO_VIDEO_VIDEO_DISPLAY_AND_LOUDSPEAKER = 0x043C;
         public static final int AUDIO_VIDEO_VIDEO_CONFERENCING = 0x0440;
-        //public static final int AUDIO_VIDEO_RESERVED              = 0x0444;
+        // public static final int AUDIO_VIDEO_RESERVED              = 0x0444;
         public static final int AUDIO_VIDEO_VIDEO_GAMING_TOY = 0x0448;
 
         // Devices in the WEARABLE major class
@@ -236,116 +239,77 @@ public final class BluetoothClass implements Parcelable {
         public static final int HEALTH_DATA_DISPLAY = 0x091C;
 
         // Devices in PERIPHERAL major class
-        /**
-         * @hide
-         */
         public static final int PERIPHERAL_NON_KEYBOARD_NON_POINTING = 0x0500;
-        /**
-         * @hide
-         */
         public static final int PERIPHERAL_KEYBOARD = 0x0540;
-        /**
-         * @hide
-         */
         public static final int PERIPHERAL_POINTING = 0x0580;
-        /**
-         * @hide
-         */
         public static final int PERIPHERAL_KEYBOARD_POINTING = 0x05C0;
     }
 
     /**
      * Return the major device class component of this {@link BluetoothClass}.
-     * <p>Values returned from this function can be compared with the
-     * public constants in {@link BluetoothClass.Device.Major} to determine
-     * which major class is encoded in this Bluetooth class.
+     *
+     * <p>Values returned from this function can be compared with the public constants in {@link
+     * BluetoothClass.Device.Major} to determine which major class is encoded in this Bluetooth
+     * class.
      *
      * @return major device class component
      */
+    @RequiresNoPermission
     public int getMajorDeviceClass() {
         return (mClass & Device.Major.BITMASK);
     }
 
     /**
-     * Return the (major and minor) device class component of this
-     * {@link BluetoothClass}.
-     * <p>Values returned from this function can be compared with the
-     * public constants in {@link BluetoothClass.Device} to determine which
-     * device class is encoded in this Bluetooth class.
+     * Return the (major and minor) device class component of this {@link BluetoothClass}.
+     *
+     * <p>Values returned from this function can be compared with the public constants in {@link
+     * BluetoothClass.Device} to determine which device class is encoded in this Bluetooth class.
      *
      * @return device class component
      */
+    @RequiresNoPermission
     public int getDeviceClass() {
         return (mClass & Device.BITMASK);
     }
 
     /**
-     * Return the Bluetooth Class of Device (CoD) value including the
-     * {@link BluetoothClass.Service}, {@link BluetoothClass.Device.Major} and
-     * minor device fields.
+     * Return the Bluetooth Class of Device (CoD) value including the {@link
+     * BluetoothClass.Service}, {@link BluetoothClass.Device.Major} and minor device fields.
      *
-     * <p>This value is an integer representation of Bluetooth CoD as in
-     * Bluetooth specification.
+     * <p>This value is an integer representation of Bluetooth CoD as in Bluetooth specification.
      *
-     * @see <a href="Bluetooth CoD">https://www.bluetooth.com/specifications/assigned-numbers/baseband</a>
-     *
-     * @hide
+     * @see <a href="Bluetooth
+     *     CoD">https://www.bluetooth.com/specifications/assigned-numbers/baseband</a>
      */
+    @Hide
+    @RequiresNoPermission
     public int getClassOfDevice() {
         return mClass;
     }
 
-    /**
-     * Return the Bluetooth Class of Device (CoD) value including the
-     * {@link BluetoothClass.Service}, {@link BluetoothClass.Device.Major} and
-     * minor device fields.
-     *
-     * <p>This value is a byte array representation of Bluetooth CoD as in
-     * Bluetooth specification.
-     *
-     * <p>Bluetooth COD information is 3 bytes, but stored as an int. Hence the
-     * MSB is useless and needs to be thrown away. The lower 3 bytes are
-     * converted into a byte array MSB to LSB. Hence, using BIG_ENDIAN.
-     *
-     * @see <a href="Bluetooth CoD">https://www.bluetooth.com/specifications/assigned-numbers/baseband</a>
-     *
-     * @hide
-     */
-    public byte[] getClassOfDeviceBytes() {
-        byte[] bytes = ByteBuffer.allocate(4)
-                .order(ByteOrder.BIG_ENDIAN)
-                .putInt(mClass)
-                .array();
-
-        // Discard the top byte
-        return Arrays.copyOfRange(bytes, 1, bytes.length);
-    }
-
-    /** @hide */
     public static final int PROFILE_HEADSET = 0;
-    /** @hide */
+
     public static final int PROFILE_A2DP = 1;
-    /** @hide */
-    public static final int PROFILE_OPP = 2;
-    /** @hide */
+
+    @Hide @SystemApi public static final int PROFILE_OPP = 2;
+
     public static final int PROFILE_HID = 3;
-    /** @hide */
-    public static final int PROFILE_PANU = 4;
-    /** @hide */
-    public static final int PROFILE_NAP = 5;
-    /** @hide */
-    public static final int PROFILE_A2DP_SINK = 6;
+
+    @Hide @SystemApi public static final int PROFILE_PANU = 4;
+
+    @Hide @SystemApi public static final int PROFILE_NAP = 5;
+
+    @Hide @SystemApi public static final int PROFILE_A2DP_SINK = 6;
 
     /**
-     * Check class bits for possible bluetooth profile support.
-     * This is a simple heuristic that tries to guess if a device with the
-     * given class bits might support specified profile. It is not accurate for all
-     * devices. It tries to err on the side of false positives.
+     * Check class bits for possible bluetooth profile support. This is a simple heuristic that
+     * tries to guess if a device with the given class bits might support specified profile. It is
+     * not accurate for all devices. It tries to err on the side of false positives.
      *
-     * @param profile The profile to be checked
-     * @return True if this device might support specified profile.
-     * @hide
+     * @param profile the profile to be checked
+     * @return whether this device supports specified profile
      */
+    @RequiresNoPermission
     public boolean doesClassMatch(int profile) {
         if (profile == PROFILE_A2DP) {
             if (hasService(Service.RENDER)) {
@@ -354,15 +318,14 @@ public final class BluetoothClass implements Parcelable {
             // By the A2DP spec, sinks must indicate the RENDER service.
             // However we found some that do not (Chordette). So lets also
             // match on some other class bits.
-            switch (getDeviceClass()) {
-                case Device.AUDIO_VIDEO_HIFI_AUDIO:
-                case Device.AUDIO_VIDEO_HEADPHONES:
-                case Device.AUDIO_VIDEO_LOUDSPEAKER:
-                case Device.AUDIO_VIDEO_CAR_AUDIO:
-                    return true;
-                default:
-                    return false;
-            }
+            return switch (getDeviceClass()) {
+                case Device.AUDIO_VIDEO_HIFI_AUDIO,
+                        Device.AUDIO_VIDEO_HEADPHONES,
+                        Device.AUDIO_VIDEO_LOUDSPEAKER,
+                        Device.AUDIO_VIDEO_CAR_AUDIO ->
+                        true;
+                default -> false;
+            };
         } else if (profile == PROFILE_A2DP_SINK) {
             if (hasService(Service.CAPTURE)) {
                 return true;
@@ -370,14 +333,13 @@ public final class BluetoothClass implements Parcelable {
             // By the A2DP spec, srcs must indicate the CAPTURE service.
             // However if some device that do not, we try to
             // match on some other class bits.
-            switch (getDeviceClass()) {
-                case Device.AUDIO_VIDEO_HIFI_AUDIO:
-                case Device.AUDIO_VIDEO_SET_TOP_BOX:
-                case Device.AUDIO_VIDEO_VCR:
-                    return true;
-                default:
-                    return false;
-            }
+            return switch (getDeviceClass()) {
+                case Device.AUDIO_VIDEO_HIFI_AUDIO,
+                        Device.AUDIO_VIDEO_SET_TOP_BOX,
+                        Device.AUDIO_VIDEO_VCR ->
+                        true;
+                default -> false;
+            };
         } else if (profile == PROFILE_HEADSET) {
             // The render service class is required by the spec for HFP, so is a
             // pretty good signal
@@ -385,45 +347,43 @@ public final class BluetoothClass implements Parcelable {
                 return true;
             }
             // Just in case they forgot the render service class
-            switch (getDeviceClass()) {
-                case Device.AUDIO_VIDEO_HANDSFREE:
-                case Device.AUDIO_VIDEO_WEARABLE_HEADSET:
-                case Device.AUDIO_VIDEO_CAR_AUDIO:
-                    return true;
-                default:
-                    return false;
-            }
+            return switch (getDeviceClass()) {
+                case Device.AUDIO_VIDEO_HANDSFREE,
+                        Device.AUDIO_VIDEO_WEARABLE_HEADSET,
+                        Device.AUDIO_VIDEO_CAR_AUDIO ->
+                        true;
+                default -> false;
+            };
         } else if (profile == PROFILE_OPP) {
             if (hasService(Service.OBJECT_TRANSFER)) {
                 return true;
             }
 
-            switch (getDeviceClass()) {
-                case Device.COMPUTER_UNCATEGORIZED:
-                case Device.COMPUTER_DESKTOP:
-                case Device.COMPUTER_SERVER:
-                case Device.COMPUTER_LAPTOP:
-                case Device.COMPUTER_HANDHELD_PC_PDA:
-                case Device.COMPUTER_PALM_SIZE_PC_PDA:
-                case Device.COMPUTER_WEARABLE:
-                case Device.PHONE_UNCATEGORIZED:
-                case Device.PHONE_CELLULAR:
-                case Device.PHONE_CORDLESS:
-                case Device.PHONE_SMART:
-                case Device.PHONE_MODEM_OR_GATEWAY:
-                case Device.PHONE_ISDN:
-                    return true;
-                default:
-                    return false;
-            }
+            return switch (getDeviceClass()) {
+                case Device.COMPUTER_UNCATEGORIZED,
+                        Device.COMPUTER_DESKTOP,
+                        Device.COMPUTER_SERVER,
+                        Device.COMPUTER_LAPTOP,
+                        Device.COMPUTER_HANDHELD_PC_PDA,
+                        Device.COMPUTER_PALM_SIZE_PC_PDA,
+                        Device.COMPUTER_WEARABLE,
+                        Device.PHONE_UNCATEGORIZED,
+                        Device.PHONE_CELLULAR,
+                        Device.PHONE_CORDLESS,
+                        Device.PHONE_SMART,
+                        Device.PHONE_MODEM_OR_GATEWAY,
+                        Device.PHONE_ISDN ->
+                        true;
+                default -> false;
+            };
         } else if (profile == PROFILE_HID) {
-            return (getDeviceClass() & Device.Major.PERIPHERAL) == Device.Major.PERIPHERAL;
+            return getMajorDeviceClass() == Device.Major.PERIPHERAL;
         } else if (profile == PROFILE_PANU || profile == PROFILE_NAP) {
             // No good way to distinguish between the two, based on class bits.
             if (hasService(Service.NETWORKING)) {
                 return true;
             }
-            return (getDeviceClass() & Device.Major.NETWORKING) == Device.Major.NETWORKING;
+            return getMajorDeviceClass() == Device.Major.NETWORKING;
         } else {
             return false;
         }

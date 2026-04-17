@@ -22,14 +22,20 @@ import static android.text.TextUtils.firstNotEmpty;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.le.ScanFilter;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.net.wifi.ScanResult;
+import android.os.Build;
 import android.os.ParcelUuid;
 import android.os.Parcelable;
 import android.util.Log;
 
+import com.android.internal.annotations.VisibleForTesting;
+
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 /** @hide */
@@ -37,7 +43,7 @@ public class BluetoothDeviceFilterUtils {
     private BluetoothDeviceFilterUtils() {}
 
     private static final boolean DEBUG = false;
-    private static final String LOG_TAG = "BluetoothDeviceFilterUtils";
+    private static final String LOG_TAG = "CDM_BluetoothDeviceFilterUtils";
 
     @Nullable
     static String patternToString(@Nullable Pattern p) {
@@ -47,13 +53,6 @@ public class BluetoothDeviceFilterUtils {
     @Nullable
     static Pattern patternFromString(@Nullable String s) {
         return s == null ? null : Pattern.compile(s);
-    }
-
-    static boolean matches(ScanFilter filter, BluetoothDevice device) {
-        boolean result = matchesAddress(filter.getDeviceAddress(), device)
-                && matchesServiceUuid(filter.getServiceUuid(), filter.getServiceUuidMask(), device);
-        if (DEBUG) debugLogMatchResult(result, device, filter);
-        return result;
     }
 
     static boolean matchesAddress(String deviceAddress, BluetoothDevice device) {
@@ -77,11 +76,19 @@ public class BluetoothDeviceFilterUtils {
 
     static boolean matchesServiceUuid(ParcelUuid serviceUuid, ParcelUuid serviceUuidMask,
             BluetoothDevice device) {
-        final boolean result = serviceUuid == null ||
-                ScanFilter.matchesServiceUuids(
-                        serviceUuid,
-                        serviceUuidMask,
-                        Arrays.asList(device.getUuids()));
+        boolean result = false;
+        List<ParcelUuid> deviceUuids = device.getUuids() == null
+                ? Collections.emptyList() : Arrays.asList(device.getUuids());
+        if (serviceUuid == null) {
+            result = true;
+        } else {
+            for (ParcelUuid parcelUuid : deviceUuids) {
+                UUID uuidMask = serviceUuidMask == null ? null : serviceUuidMask.getUuid();
+                if (uuidsMaskedEquals(parcelUuid.getUuid(), serviceUuid.getUuid(), uuidMask)) {
+                    result = true;
+                }
+            }
+        }
         if (DEBUG) debugLogMatchResult(result, device, serviceUuid);
         return result;
     }
@@ -124,14 +131,17 @@ public class BluetoothDeviceFilterUtils {
         Log.i(LOG_TAG, getDeviceDisplayNameInternal(device) + (result ? " ~ " : " !~ ") + criteria);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static String getDeviceDisplayNameInternal(@NonNull BluetoothDevice device) {
-        return firstNotEmpty(device.getAliasName(), device.getAddress());
+        return firstNotEmpty(device.getAlias(), device.getAddress());
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static String getDeviceDisplayNameInternal(@NonNull ScanResult device) {
         return firstNotEmpty(device.SSID, device.BSSID);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static String getDeviceMacAddress(@NonNull Parcelable device) {
         if (device instanceof BluetoothDevice) {
             return ((BluetoothDevice) device).getAddress();
@@ -142,5 +152,24 @@ public class BluetoothDeviceFilterUtils {
         } else {
             throw new IllegalArgumentException("Unknown device type: " + device);
         }
+    }
+
+    /**
+     * Compares two {@link #UUID} with a {@link #UUID} mask.
+     *
+     * @param data first {@link #UUID}.
+     * @param uuid second {@link #UUID}.
+     * @param mask mask {@link #UUID}.
+     * @return true if both UUIDs are equals when masked, false otherwise.
+     */
+    @VisibleForTesting
+    public static boolean uuidsMaskedEquals(UUID data, UUID uuid, UUID mask) {
+        if (mask == null) {
+            return Objects.equals(data, uuid);
+        }
+        return (data.getLeastSignificantBits() & mask.getLeastSignificantBits())
+                == (uuid.getLeastSignificantBits() & mask.getLeastSignificantBits())
+                && (data.getMostSignificantBits() & mask.getMostSignificantBits())
+                == (uuid.getMostSignificantBits() & mask.getMostSignificantBits());
     }
 }

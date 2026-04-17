@@ -16,11 +16,16 @@
 
 package android.view.inputmethod;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.BadParcelableException;
 import android.os.Parcel;
+import android.util.Printer;
 import android.util.Slog;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -49,13 +54,20 @@ public class InputMethodSubtypeArray {
      * @param subtypes A list of {@link InputMethodSubtype} from which
      * {@link InputMethodSubtypeArray} will be created.
      */
+    @UnsupportedAppUsage
     public InputMethodSubtypeArray(final List<InputMethodSubtype> subtypes) {
         if (subtypes == null) {
             mCount = 0;
             return;
         }
-        mCount = subtypes.size();
-        mInstance = subtypes.toArray(new InputMethodSubtype[mCount]);
+        List<InputMethodSubtype> list = subtypes;
+        if (Flags.limitSubtypeCount() && subtypes.size() > InputMethodInfo.MAX_SUBTYPES_PER_IME) {
+            Slog.e(TAG, "The number of subtypes is too large, truncating to "
+                    + InputMethodInfo.MAX_SUBTYPES_PER_IME + " from " + subtypes.size());
+            list = subtypes.subList(0, InputMethodInfo.MAX_SUBTYPES_PER_IME);
+        }
+        mCount = list.size();
+        mInstance = list.toArray(new InputMethodSubtype[mCount]);
     }
 
     /**
@@ -67,6 +79,12 @@ public class InputMethodSubtypeArray {
      */
     public InputMethodSubtypeArray(final Parcel source) {
         mCount = source.readInt();
+        if (mCount < 0) {
+            throw new BadParcelableException("mCount must be non-negative.");
+        }
+        if (Flags.limitSubtypeCount() && mCount > InputMethodInfo.MAX_SUBTYPES_PER_IME) {
+            throw new BadParcelableException("The number of subtypes is too large.");
+        }
         if (mCount > 0) {
             mDecompressedSize = source.readInt();
             mCompressedData = source.createByteArray();
@@ -155,6 +173,18 @@ public class InputMethodSubtypeArray {
     }
 
     /**
+     * @return A list of {@link InputMethodInfo} copied from this array.
+     */
+    @NonNull
+    public ArrayList<InputMethodSubtype> toList() {
+        final ArrayList<InputMethodSubtype> list = new ArrayList<>(mCount);
+        for (int i = 0; i < mCount; ++i) {
+            list.add(get(i));
+        }
+        return list;
+    }
+
+    /**
      * Return the number of {@link InputMethodSubtype} objects.
      */
     public int getCount() {
@@ -167,6 +197,19 @@ public class InputMethodSubtypeArray {
     private volatile InputMethodSubtype[] mInstance;
     private volatile byte[] mCompressedData;
     private volatile int mDecompressedSize;
+
+    void dump(@NonNull Printer pw, @NonNull String prefix) {
+        final var innerPrefix = prefix + "  ";
+        for (int i = 0; i < mCount; i++) {
+            pw.println(prefix + "InputMethodSubtype #" + i + ":");
+            final var subtype = get(i);
+            if (subtype != null) {
+                subtype.dump(pw, innerPrefix);
+            } else {
+                pw.println(innerPrefix + "missing subtype");
+            }
+        }
+    }
 
     private static byte[] marshall(final InputMethodSubtype[] array) {
         Parcel parcel = null;

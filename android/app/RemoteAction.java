@@ -23,6 +23,7 @@ import android.os.Parcelable;
 import android.text.TextUtils;
 
 import java.io.PrintWriter;
+import java.util.Objects;
 
 /**
  * Represents a remote action that can be called from another process.  The action can have an
@@ -127,6 +128,25 @@ public final class RemoteAction implements Parcelable {
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof RemoteAction)) return false;
+        RemoteAction that = (RemoteAction) o;
+        return mEnabled == that.mEnabled
+                && mShouldShowIcon == that.mShouldShowIcon
+                && mIcon.equals(that.mIcon)
+                && mTitle.equals(that.mTitle)
+                && mContentDescription.equals(that.mContentDescription)
+                && mActionIntent.equals(that.mActionIntent);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mIcon, mTitle, mContentDescription, mActionIntent, mEnabled,
+                mShouldShowIcon);
+    }
+
+    @Override
     public int describeContents() {
         return 0;
     }
@@ -152,7 +172,7 @@ public final class RemoteAction implements Parcelable {
         pw.println();
     }
 
-    public static final Parcelable.Creator<RemoteAction> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<RemoteAction> CREATOR =
             new Parcelable.Creator<RemoteAction>() {
                 public RemoteAction createFromParcel(Parcel in) {
                     return new RemoteAction(in);

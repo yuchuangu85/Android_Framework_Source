@@ -22,17 +22,15 @@ import android.annotation.Nullable;
 import android.annotation.StyleRes;
 import android.app.Notification;
 import android.content.Context;
+import android.graphics.Typeface;
 import android.text.Layout;
+import android.text.PrecomputedText;
 import android.util.AttributeSet;
-import android.util.Pools;
+import android.util.Log;
 import android.view.LayoutInflater;
-import android.view.ViewGroup;
-import android.view.ViewParent;
 import android.widget.RemoteViews;
 
 import com.android.internal.R;
-
-import java.util.Objects;
 
 /**
  * A message of a {@link MessagingLayout}.
@@ -40,9 +38,12 @@ import java.util.Objects;
 @RemoteViews.RemoteView
 public class MessagingTextMessage extends ImageFloatingTextView implements MessagingMessage {
 
-    private static Pools.SimplePool<MessagingTextMessage> sInstancePool
-            = new Pools.SynchronizedPool<>(20);
+    private static final String TAG = "MessagingTextMessage";
+    private static final MessagingPool<MessagingTextMessage> sInstancePool =
+            new MessagingPool<>(20);
     private final MessagingMessageState mState = new MessagingMessageState(this);
+
+    private PrecomputedText mPrecomputedText = null;
 
     public MessagingTextMessage(@NonNull Context context) {
         super(context);
@@ -68,25 +69,32 @@ public class MessagingTextMessage extends ImageFloatingTextView implements Messa
     }
 
     @Override
-    public boolean setMessage(Notification.MessagingStyle.Message message) {
-        MessagingMessage.super.setMessage(message);
-        setText(message.getText());
+    public boolean setMessage(Notification.MessagingStyle.Message message,
+            boolean usePrecomputedText) {
+        MessagingMessage.super.setMessage(message, usePrecomputedText);
+        if (usePrecomputedText) {
+            mPrecomputedText = PrecomputedText.create(message.getText(), getTextMetricsParams());
+        } else {
+            setText(message.getText());
+            mPrecomputedText = null;
+        }
+
         return true;
     }
 
-    static MessagingMessage createMessage(MessagingLayout layout,
-            Notification.MessagingStyle.Message m) {
+    static MessagingMessage createMessage(IMessagingLayout layout,
+            Notification.MessagingStyle.Message m, boolean usePrecomputedText, boolean useItalics) {
         MessagingLinearLayout messagingLinearLayout = layout.getMessagingLinearLayout();
         MessagingTextMessage createdMessage = sInstancePool.acquire();
         if (createdMessage == null) {
             createdMessage = (MessagingTextMessage) LayoutInflater.from(
                     layout.getContext()).inflate(
-                            R.layout.notification_template_messaging_text_message,
-                            messagingLinearLayout,
-                            false);
+                    R.layout.notification_template_messaging_text_message,
+                    messagingLinearLayout,
+                    false);
             createdMessage.addOnLayoutChangeListener(MessagingLayout.MESSAGING_PROPERTY_ANIMATOR);
         }
-        createdMessage.setMessage(m);
+        createdMessage.setMessage(m, usePrecomputedText);
         return createdMessage;
     }
 
@@ -96,7 +104,7 @@ public class MessagingTextMessage extends ImageFloatingTextView implements Messa
     }
 
     public static void dropCache() {
-        sInstancePool = new Pools.SynchronizedPool<>(10);
+        sInstancePool.clear();
     }
 
     @Override
@@ -139,5 +147,40 @@ public class MessagingTextMessage extends ImageFloatingTextView implements Messa
     @Override
     public void setColor(int color) {
         setTextColor(color);
+    }
+
+    @Override
+    public void updateViewForSummarization(boolean summarizationShowing) {
+        if (summarizationShowing) {
+            // Summarization text is italic, so we have to add space for it or characters like 'j'
+            // will be cut off
+            setPaddingRelative(mContext.getResources().getDimensionPixelSize(
+                            R.dimen.notification_text_message_start_padding_summarization),
+                    getPaddingTop(), getPaddingEnd(), getPaddingBottom());
+            setTypeface(Typeface.create("variable-body-medium", Typeface.ITALIC));
+            setShadowLayer(25f, 0f, 0f, 0);
+        } else {
+            setPaddingRelative(mContext.getResources().getDimensionPixelSize(
+                    R.dimen.notification_text_message_start_padding),
+                    getPaddingTop(), getPaddingEnd(), getPaddingBottom());
+            setTextAppearance(R.style.TextAppearance_DeviceDefault_Notification);
+            setShadowLayer(0f, 0f, 0f, 0);
+        }
+    }
+
+    @Override
+    public void finalizeInflate() {
+        try {
+            setText(mPrecomputedText != null ? mPrecomputedText
+                    : getState().getMessage().getText());
+        } catch (IllegalArgumentException exception) {
+            Log.wtf(
+                    /* tag = */ TAG,
+                    /* msg = */ "PrecomputedText setText failed for TextView:" + this,
+                    /* tr = */ exception
+            );
+            mPrecomputedText = null;
+            setText(getState().getMessage().getText());
+        }
     }
 }

@@ -193,6 +193,13 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
      */
     public static final int MSG_SHARED_ELEMENT_DESTINATION = 107;
 
+    /**
+     * Sent by Activity#startActivity to notify the entering activity that enter animation for
+     * back is allowed. If this message is not received, the default exit animation will run when
+     * backing out of an activity (instead of the 'reverse' shared element transition).
+     */
+    public static final int MSG_ALLOW_RETURN_TRANSITION = 108;
+
     private Window mWindow;
     final protected ArrayList<String> mAllSharedElementNames;
     final protected ArrayList<View> mSharedElements = new ArrayList<View>();
@@ -345,8 +352,6 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
     public ArrayList<View> copyMappedViews() {
         return new ArrayList<View>(mSharedElements);
     }
-
-    public ArrayList<String> getAllSharedElementNames() { return mAllSharedElementNames; }
 
     protected Transition setTargets(Transition transition, boolean add) {
         if (transition == null || (add &&
@@ -866,6 +871,7 @@ abstract class ActivityTransitionCoordinator extends ResultReceiver {
                 if (view.isAttachedToWindow()) {
                     tempMatrix.reset();
                     mSharedElementParentMatrices.get(i).invert(tempMatrix);
+                    decor.transformMatrixToLocal(tempMatrix);
                     GhostView.addGhost(view, decor, tempMatrix);
                     ViewGroup parent = (ViewGroup) view.getParent();
                     if (moveWithParent && !isInTransitionGroup(parent, decor)) {

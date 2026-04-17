@@ -42,8 +42,6 @@ class VMClassLoader {
                 new ArrayList<URLStreamHandler>(bootClassPathEntries.length);
         for (String bootClassPathEntry : bootClassPathEntries) {
             try {
-                String entryUri = new File(bootClassPathEntry).toURI().toString();
-
                 // We assume all entries are zip or jar files.
                 URLStreamHandler urlStreamHandler =
                         new ClassPathURLStreamHandler(bootClassPathEntry);

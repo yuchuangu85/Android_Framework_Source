@@ -17,6 +17,7 @@
 package android.text;
 
 import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
 
 import com.android.internal.util.Preconditions;
 
@@ -26,6 +27,7 @@ import java.util.Locale;
  * InputFilters can be attached to {@link Editable}s to constrain the
  * changes that can be made to them.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface InputFilter
 {
     /**
@@ -164,6 +166,7 @@ public interface InputFilter
      * greater than the specified length.
      */
     public static class LengthFilter implements InputFilter {
+        @UnsupportedAppUsage
         private final int mMax;
 
         public LengthFilter(int max) {

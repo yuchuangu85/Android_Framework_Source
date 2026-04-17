@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,14 +16,21 @@
 
 package android.security.net.config;
 
+import static com.android.org.conscrypt.net.flags.Flags.certificateTransparencyDefaultEnabled;
+
+import android.compat.annotation.UnsupportedAppUsage;
+
+import com.android.org.conscrypt.ConscryptNetworkSecurityPolicy;
+import com.android.org.conscrypt.ConscryptX509TrustManager;
+
 import java.net.Socket;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.util.List;
 
-import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocket;
 import javax.net.ssl.X509ExtendedTrustManager;
 
 /**
@@ -36,8 +43,11 @@ import javax.net.ssl.X509ExtendedTrustManager;
  * Note that if the {@code ApplicationConfig} has per-domain configurations the hostname aware
  * {@link #checkServerTrusted(X509Certificate[], String String)} must be used instead of the normal
  * non-aware call.
- * @hide */
-public class RootTrustManager extends X509ExtendedTrustManager {
+ *
+ * @hide
+ */
+public class RootTrustManager
+        extends X509ExtendedTrustManager implements ConscryptX509TrustManager {
     private final ApplicationConfig mConfig;
 
     public RootTrustManager(ApplicationConfig config) {
@@ -116,19 +126,39 @@ public class RootTrustManager extends X509ExtendedTrustManager {
         config.getTrustManager().checkServerTrusted(certs, authType);
     }
 
-    /**
-     * Hostname aware version of {@link #checkServerTrusted(X509Certificate[], String)}.
-     * This interface is used by conscrypt and android.net.http.X509TrustManagerExtensions do not
-     * modify without modifying those callers.
-     */
+    @Override
+    @UnsupportedAppUsage
     public List<X509Certificate> checkServerTrusted(X509Certificate[] certs, String authType,
-            String hostname) throws CertificateException {
+                                                    String hostname) throws CertificateException {
         if (hostname == null && mConfig.hasPerDomainConfigs()) {
             throw new CertificateException(
                     "Domain specific configurations require that the hostname be provided");
         }
         NetworkSecurityConfig config = mConfig.getConfigForHostname(hostname);
         return config.getTrustManager().checkServerTrusted(certs, authType, hostname);
+    }
+
+    @Override
+    public List<X509Certificate> checkServerTrusted(X509Certificate[] certs, byte[] ocspData,
+                                                    byte[] tlsSctData, String authType,
+                                                    String hostname) throws CertificateException {
+        if (hostname == null && mConfig.hasPerDomainConfigs()) {
+            throw new CertificateException(
+                    "Domain specific configurations require that the hostname be provided");
+        }
+        NetworkSecurityConfig config = mConfig.getConfigForHostname(hostname);
+        return config.getTrustManager().checkServerTrusted(certs, ocspData, tlsSctData, authType,
+                                                           hostname);
+    }
+
+    /**
+     * This interface is used by Conscrypt, do not modify without modifying those callers.
+     */
+    public ConscryptNetworkSecurityPolicy getNetworkSecurityPolicy() {
+        if (certificateTransparencyDefaultEnabled()) {
+            return new ConscryptNetworkSecurityPolicy(new ConfigNetworkSecurityPolicy(mConfig));
+        }
+        return null;
     }
 
     @Override
@@ -147,7 +177,7 @@ public class RootTrustManager extends X509ExtendedTrustManager {
      * <p>This is required by android.net.http.X509TrustManagerExtensions.
      */
     public boolean isSameTrustConfiguration(String hostname1, String hostname2) {
-        return mConfig.getConfigForHostname(hostname1)
-                .equals(mConfig.getConfigForHostname(hostname2));
+        return mConfig.getConfigForHostname(hostname1).equals(
+                mConfig.getConfigForHostname(hostname2));
     }
 }

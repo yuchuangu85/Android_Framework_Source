@@ -16,15 +16,12 @@
 
 package android.net.metrics;
 
-import android.net.NetworkCapabilities;
-
-import com.android.internal.util.BitUtils;
-
 import java.util.Arrays;
+import java.util.BitSet;
 
 /**
  * A batch of DNS events recorded by NetdEventListenerService for a specific network.
- * {@hide}
+ * @hide
  */
 final public class DnsEvent {
 
@@ -65,7 +62,11 @@ final public class DnsEvent {
             return isSuccess;
         }
         if (eventCount == eventTypes.length) {
-            resize((int) (1.4 * eventCount));
+            int resizeLength = (int) (1.4 * eventCount);
+            if (eventCount == resizeLength) {
+                resizeLength++;
+            }
+            resize(resizeLength);
         }
         eventTypes[eventCount] = eventType;
         returnCodes[eventCount] = returnCode;
@@ -86,10 +87,10 @@ final public class DnsEvent {
     @Override
     public String toString() {
         StringBuilder builder =
-                new StringBuilder("DnsEvent(").append("netId=").append(netId).append(", ");
-        for (int t : BitUtils.unpackBits(transports)) {
-            builder.append(NetworkCapabilities.transportNameOf(t)).append(", ");
-        }
+                new StringBuilder("DnsEvent(").append("netId=").append(netId)
+                        .append(", transports=")
+                        .append(BitSet.valueOf(new long[] { transports }))
+                        .append(", ");
         builder.append(String.format("%d events, ", eventCount));
         builder.append(String.format("%d success)", successCount));
         return builder.toString();

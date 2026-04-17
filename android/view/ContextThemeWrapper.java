@@ -16,22 +16,34 @@
 
 package android.view;
 
+import android.annotation.Nullable;
 import android.annotation.StyleRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.os.Build;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
+import android.ravenwood.annotation.RavenwoodReplace;
+
+import dalvik.system.VMRuntime;
 
 /**
  * A context wrapper that allows you to modify or replace the theme of the
  * wrapped context.
  */
+@RavenwoodKeepWholeClass
 public class ContextThemeWrapper extends ContextWrapper {
+    @UnsupportedAppUsage
     private int mThemeResource;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 123768723)
     private Resources.Theme mTheme;
+    @UnsupportedAppUsage
     private LayoutInflater mInflater;
     private Configuration mOverrideConfiguration;
+    @UnsupportedAppUsage
     private Resources mResources;
 
     /**
@@ -141,8 +153,18 @@ public class ContextThemeWrapper extends ContextWrapper {
         }
     }
 
+    /**
+     * Set the configure the current theme. If null is provided then the default Theme is returned
+     * on the next call to {@link #getTheme()}
+     * @param theme Theme to consume in the wrapper, a value of null resets the theme to the default
+     */
+    public void setTheme(@Nullable Resources.Theme theme) {
+        mTheme = theme;
+    }
+
     /** @hide */
     @Override
+    @UnsupportedAppUsage
     public int getThemeResId() {
         return mThemeResource;
     }
@@ -153,11 +175,21 @@ public class ContextThemeWrapper extends ContextWrapper {
             return mTheme;
         }
 
-        mThemeResource = Resources.selectDefaultTheme(mThemeResource,
-                getApplicationInfo().targetSdkVersion);
+        mThemeResource = Resources.selectDefaultTheme(mThemeResource, getTargetSdk());
         initializeTheme();
 
         return mTheme;
+    }
+
+    @RavenwoodReplace
+    private int getTargetSdk() {
+        return getApplicationInfo().targetSdkVersion;
+    }
+
+    private int getTargetSdk$ravenwood() {
+        // On Ravenwood we don't support loading other package's context yet,
+        // so we use the current process's target SDK version instead.
+        return VMRuntime.getRuntime().getTargetSdkVersion();
     }
 
     @Override
@@ -186,6 +218,7 @@ public class ContextThemeWrapper extends ContextWrapper {
         theme.applyStyle(resId, true);
     }
 
+    @UnsupportedAppUsage
     private void initializeTheme() {
         final boolean first = mTheme == null;
         if (first) {

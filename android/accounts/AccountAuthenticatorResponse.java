@@ -16,9 +16,10 @@
 
 package android.accounts;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Bundle;
-import android.os.Parcelable;
 import android.os.Parcel;
+import android.os.Parcelable;
 import android.os.RemoteException;
 import android.util.Log;
 
@@ -33,6 +34,7 @@ public class AccountAuthenticatorResponse implements Parcelable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public AccountAuthenticatorResponse(IAccountAuthenticatorResponse response) {
         mAccountAuthenticatorResponse = response;
     }
@@ -85,7 +87,7 @@ public class AccountAuthenticatorResponse implements Parcelable {
         dest.writeStrongBinder(mAccountAuthenticatorResponse.asBinder());
     }
 
-    public static final Creator<AccountAuthenticatorResponse> CREATOR =
+    public static final @android.annotation.NonNull Creator<AccountAuthenticatorResponse> CREATOR =
             new Creator<AccountAuthenticatorResponse>() {
         public AccountAuthenticatorResponse createFromParcel(Parcel source) {
             return new AccountAuthenticatorResponse(source);

@@ -18,6 +18,8 @@ package android.app.servertransaction;
 
 import static android.os.Trace.TRACE_TAG_ACTIVITY_MANAGER;
 
+import android.annotation.NonNull;
+import android.app.ActivityThread.ActivityClientRecord;
 import android.app.ClientTransactionHandler;
 import android.os.IBinder;
 import android.os.Parcel;
@@ -25,27 +27,27 @@ import android.os.Trace;
 
 /**
  * Request to move an activity to stopped state.
+ *
  * @hide
  */
 public class StopActivityItem extends ActivityLifecycleItem {
 
-    private static final String TAG = "StopActivityItem";
-
-    private boolean mShowWindow;
-    private int mConfigChanges;
+    public StopActivityItem(@NonNull IBinder activityToken) {
+        super(activityToken);
+    }
 
     @Override
-    public void execute(ClientTransactionHandler client, IBinder token,
-            PendingTransactionActions pendingActions) {
+    public void execute(@NonNull ClientTransactionHandler client, @NonNull ActivityClientRecord r,
+            @NonNull PendingTransactionActions pendingActions) {
         Trace.traceBegin(TRACE_TAG_ACTIVITY_MANAGER, "activityStop");
-        client.handleStopActivity(token, mShowWindow, mConfigChanges, pendingActions,
+        client.handleStopActivity(r, pendingActions,
                 true /* finalStateRequest */, "STOP_ACTIVITY_ITEM");
         Trace.traceEnd(TRACE_TAG_ACTIVITY_MANAGER);
     }
 
     @Override
-    public void postExecute(ClientTransactionHandler client, IBinder token,
-            PendingTransactionActions pendingActions) {
+    public void postExecute(@NonNull ClientTransactionHandler client,
+            @NonNull PendingTransactionActions pendingActions) {
         client.reportStop(pendingActions);
     }
 
@@ -54,50 +56,15 @@ public class StopActivityItem extends ActivityLifecycleItem {
         return ON_STOP;
     }
 
-
-    // ObjectPoolItem implementation
-
-    private StopActivityItem() {}
-
-    /** Obtain an instance initialized with provided params. */
-    public static StopActivityItem obtain(boolean showWindow, int configChanges) {
-        StopActivityItem instance = ObjectPool.obtain(StopActivityItem.class);
-        if (instance == null) {
-            instance = new StopActivityItem();
-        }
-        instance.mShowWindow = showWindow;
-        instance.mConfigChanges = configChanges;
-
-        return instance;
-    }
-
-    @Override
-    public void recycle() {
-        super.recycle();
-        mShowWindow = false;
-        mConfigChanges = 0;
-        ObjectPool.recycle(this);
-    }
-
-
     // Parcelable implementation
 
-    /** Write to Parcel. */
-    @Override
-    public void writeToParcel(Parcel dest, int flags) {
-        dest.writeBoolean(mShowWindow);
-        dest.writeInt(mConfigChanges);
+    /** Reads from Parcel. */
+    private StopActivityItem(@NonNull Parcel in) {
+        super(in);
     }
 
-    /** Read from Parcel. */
-    private StopActivityItem(Parcel in) {
-        mShowWindow = in.readBoolean();
-        mConfigChanges = in.readInt();
-    }
-
-    public static final Creator<StopActivityItem> CREATOR =
-            new Creator<StopActivityItem>() {
-        public StopActivityItem createFromParcel(Parcel in) {
+    public static final @NonNull Creator<StopActivityItem> CREATOR = new Creator<>() {
+        public StopActivityItem createFromParcel(@NonNull Parcel in) {
             return new StopActivityItem(in);
         }
 
@@ -107,28 +74,7 @@ public class StopActivityItem extends ActivityLifecycleItem {
     };
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        final StopActivityItem other = (StopActivityItem) o;
-        return mShowWindow == other.mShowWindow && mConfigChanges == other.mConfigChanges;
-    }
-
-    @Override
-    public int hashCode() {
-        int result = 17;
-        result = 31 * result + (mShowWindow ? 1 : 0);
-        result = 31 * result + mConfigChanges;
-        return result;
-    }
-
-    @Override
     public String toString() {
-        return "StopActivityItem{showWindow=" + mShowWindow + ",configChanges=" + mConfigChanges
-                + "}";
+        return "StopActivityItem{" + super.toString() + "}";
     }
 }

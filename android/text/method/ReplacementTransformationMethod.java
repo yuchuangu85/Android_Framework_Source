@@ -30,6 +30,7 @@ import android.view.View;
  * array to be replaced by the corresponding characters in the
  * {@link #getReplacement} array.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public abstract class ReplacementTransformationMethod
 implements TransformationMethod
 {

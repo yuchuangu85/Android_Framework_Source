@@ -18,6 +18,7 @@ package com.android.internal.util;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
 import android.util.Log;
 
 import java.util.Arrays;
@@ -25,6 +26,7 @@ import java.util.Arrays;
 /**
  * A histogram for positive integers where each bucket is twice the size of the previous one.
  */
+@RavenwoodKeepWholeClass
 public class ExponentiallyBucketedHistogram {
     @NonNull
     private final int[] mData;

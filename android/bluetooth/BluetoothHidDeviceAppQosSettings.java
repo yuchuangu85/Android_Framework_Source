@@ -16,6 +16,8 @@
 
 package android.bluetooth;
 
+import android.annotation.NonNull;
+import android.annotation.RequiresNoPermission;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -25,7 +27,7 @@ import android.os.Parcelable;
  * <p>The BluetoothHidDevice framework will update the L2CAP QoS settings for the app during
  * registration.
  *
- * <p>{@see BluetoothHidDevice}
+ * @see BluetoothHidDevice
  */
 public final class BluetoothHidDeviceAppQosSettings implements Parcelable {
 
@@ -44,7 +46,7 @@ public final class BluetoothHidDeviceAppQosSettings implements Parcelable {
 
     /**
      * Create a BluetoothHidDeviceAppQosSettings object for the Bluetooth L2CAP channel. The QoS
-     * Settings is optional. Please refer to Bluetooth HID Specfication v1.1.1 Section 5.2 and
+     * Settings is optional. Please refer to Bluetooth HID Specification v1.1.1 Section 5.2 and
      * Appendix D for parameters.
      *
      * @param serviceType L2CAP service type, default = SERVICE_BEST_EFFORT
@@ -69,26 +71,32 @@ public final class BluetoothHidDeviceAppQosSettings implements Parcelable {
         mDelayVariation = delayVariation;
     }
 
+    @RequiresNoPermission
     public int getServiceType() {
         return mServiceType;
     }
 
+    @RequiresNoPermission
     public int getTokenRate() {
         return mTokenRate;
     }
 
+    @RequiresNoPermission
     public int getTokenBucketSize() {
         return mTokenBucketSize;
     }
 
+    @RequiresNoPermission
     public int getPeakBandwidth() {
         return mPeakBandwidth;
     }
 
+    @RequiresNoPermission
     public int getLatency() {
         return mLatency;
     }
 
+    @RequiresNoPermission
     public int getDelayVariation() {
         return mDelayVariation;
     }
@@ -98,12 +106,11 @@ public final class BluetoothHidDeviceAppQosSettings implements Parcelable {
         return 0;
     }
 
-    public static final Parcelable.Creator<BluetoothHidDeviceAppQosSettings> CREATOR =
-            new Parcelable.Creator<BluetoothHidDeviceAppQosSettings>() {
-
+    @NonNull
+    public static final Creator<BluetoothHidDeviceAppQosSettings> CREATOR =
+            new Creator<>() {
                 @Override
                 public BluetoothHidDeviceAppQosSettings createFromParcel(Parcel in) {
-
                     return new BluetoothHidDeviceAppQosSettings(
                             in.readInt(),
                             in.readInt(),

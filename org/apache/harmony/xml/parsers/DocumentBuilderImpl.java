@@ -16,6 +16,7 @@
 
 package org.apache.harmony.xml.parsers;
 
+import com.android.org.kxml2.io.KXmlParser;
 import java.io.IOException;
 import java.net.URL;
 import java.net.URLConnection;
@@ -26,7 +27,6 @@ import org.apache.harmony.xml.dom.DOMImplementationImpl;
 import org.apache.harmony.xml.dom.DocumentImpl;
 import org.apache.harmony.xml.dom.DocumentTypeImpl;
 import org.apache.harmony.xml.dom.TextImpl;
-import org.kxml2.io.KXmlParser;
 import org.w3c.dom.Attr;
 import org.w3c.dom.DOMImplementation;
 import org.w3c.dom.Document;

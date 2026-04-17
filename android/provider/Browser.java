@@ -16,9 +16,8 @@
 
 package android.provider;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentResolver;
-import android.content.ContentUris;
-import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
@@ -29,8 +28,6 @@ import android.net.Uri;
 import android.provider.BrowserContract.Bookmarks;
 import android.provider.BrowserContract.Combined;
 import android.provider.BrowserContract.History;
-import android.provider.BrowserContract.Searches;
-import android.util.Log;
 import android.webkit.WebIconDatabase;
 
 public class Browser {
@@ -218,6 +215,7 @@ public class Browser {
      *  the string.
      *  @hide pending API council approval
      */
+    @UnsupportedAppUsage
     public static final void sendString(Context c,
                                         String stringToSend,
                                         String chooserDialogTitle) {
@@ -323,6 +321,7 @@ public class Browser {
      *  @hide pending API council approval
      */
     @Deprecated
+    @UnsupportedAppUsage
     public static final String[] getVisitedHistory(ContentResolver cr) {
         return new String[0];
     }

@@ -1,22 +1,23 @@
 /**
  * Copyright (C) 2015 The Android Open Source Project
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not
- * use this file except in compliance with the License. You may obtain a copy
- * of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package android.app.usage;
 
 import android.annotation.IntDef;
+import android.annotation.Nullable;
 import android.content.Context;
 import android.net.INetworkStatsService;
 import android.net.INetworkStatsSession;
@@ -24,20 +25,22 @@ import android.net.NetworkStatsHistory;
 import android.net.NetworkTemplate;
 import android.net.TrafficStats;
 import android.os.RemoteException;
-import android.util.IntArray;
 import android.util.Log;
+
+import com.android.net.module.util.CollectionUtils;
 
 import dalvik.system.CloseGuard;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
 
 /**
- * Class providing enumeration over buckets of network usage statistics. {@link NetworkStats} objects
- * are returned as results to various queries in {@link NetworkStatsManager}.
+ * Class providing enumeration over buckets of network usage statistics. {@link NetworkStats}
+ * objects are returned as results to various queries in {@link NetworkStatsManager}.
  */
 public final class NetworkStats implements AutoCloseable {
-    private final static String TAG = "NetworkStats";
+    private static final String TAG = "NetworkStats";
 
     private final CloseGuard mCloseGuard = CloseGuard.get();
 
@@ -472,10 +475,11 @@ public final class NetworkStats implements AutoCloseable {
 
     /**
      * Fills the recycled bucket with data of the next bin in the enumeration.
-     * @param bucketOut Bucket to be filled with data.
+     * @param bucketOut Bucket to be filled with data. If null, the method does
+     *                  nothing and returning false.
      * @return true if successfully filled the bucket, false otherwise.
      */
-    public boolean getNextBucket(Bucket bucketOut) {
+    public boolean getNextBucket(@Nullable Bucket bucketOut) {
         if (mSummary != null) {
             return getNextSummaryBucket(bucketOut);
         } else {
@@ -543,9 +547,18 @@ public final class NetworkStats implements AutoCloseable {
     }
 
     /**
+     * Collects tagged summary results and sets summary enumeration mode.
+     * @throws RemoteException
+     */
+    void startTaggedSummaryEnumeration() throws RemoteException {
+        mSummary = mSession.getTaggedSummaryForAllUid(mTemplate, mStartTimeStamp, mEndTimeStamp);
+        mEnumerationIndex = 0;
+    }
+
+    /**
      * Collects history results for uid and resets history enumeration index.
      */
-    void startHistoryEnumeration(int uid, int tag, int state) {
+    void startHistoryUidEnumeration(int uid, int tag, int state) {
         mHistory = null;
         try {
             mHistory = mSession.getHistoryIntervalForUid(mTemplate, uid,
@@ -560,6 +573,20 @@ public final class NetworkStats implements AutoCloseable {
     }
 
     /**
+     * Collects history results for network and resets history enumeration index.
+     */
+    void startHistoryDeviceEnumeration() {
+        try {
+            mHistory = mSession.getHistoryIntervalForNetwork(
+                    mTemplate, NetworkStatsHistory.FIELD_ALL, mStartTimeStamp, mEndTimeStamp);
+        } catch (RemoteException e) {
+            Log.w(TAG, e);
+            mHistory = null;
+        }
+        mEnumerationIndex = 0;
+    }
+
+    /**
      * Starts uid enumeration for current user.
      * @throws RemoteException
      */
@@ -568,7 +595,7 @@ public final class NetworkStats implements AutoCloseable {
         //       the filtering logic below can be removed.
         int[] uids = mSession.getRelevantUids();
         // Filtering of uids with empty history.
-        IntArray filteredUids = new IntArray(uids.length);
+        final ArrayList<Integer> filteredUids = new ArrayList<>();
         for (int uid : uids) {
             try {
                 NetworkStatsHistory history = mSession.getHistoryIntervalForUid(mTemplate, uid,
@@ -581,7 +608,7 @@ public final class NetworkStats implements AutoCloseable {
                 Log.w(TAG, "Error while getting history of uid " + uid, e);
             }
         }
-        mUids = filteredUids.toArray();
+        mUids = CollectionUtils.toIntArray(filteredUids);
         mUidOrUidIndex = -1;
         stepHistory();
     }
@@ -589,7 +616,7 @@ public final class NetworkStats implements AutoCloseable {
     /**
      * Steps to next uid in enumeration and collects history for that.
      */
-    private void stepHistory(){
+    private void stepHistory() {
         if (hasNextUid()) {
             stepUid();
             mHistory = null;
@@ -626,7 +653,7 @@ public final class NetworkStats implements AutoCloseable {
      * @param bucketOut Next item will be set here.
      * @return true if a next item could be set.
      */
-    private boolean getNextSummaryBucket(Bucket bucketOut) {
+    private boolean getNextSummaryBucket(@Nullable Bucket bucketOut) {
         if (bucketOut != null && mEnumerationIndex < mSummary.size()) {
             mRecycledSummaryEntry = mSummary.getValues(mEnumerationIndex++, mRecycledSummaryEntry);
             fillBucketFromSummaryEntry(bucketOut);
@@ -653,7 +680,7 @@ public final class NetworkStats implements AutoCloseable {
      * @param bucketOut Next item will be set here.
      * @return true if a next item could be set.
      */
-    private boolean getNextHistoryBucket(Bucket bucketOut) {
+    private boolean getNextHistoryBucket(@Nullable Bucket bucketOut) {
         if (bucketOut != null && mHistory != null) {
             if (mEnumerationIndex < mHistory.size()) {
                 mRecycledHistoryEntry = mHistory.getValues(mEnumerationIndex++,
@@ -665,8 +692,8 @@ public final class NetworkStats implements AutoCloseable {
                 bucketOut.mMetered = Bucket.METERED_ALL;
                 bucketOut.mRoaming = Bucket.ROAMING_ALL;
                 bucketOut.mBeginTimeStamp = mRecycledHistoryEntry.bucketStart;
-                bucketOut.mEndTimeStamp = mRecycledHistoryEntry.bucketStart +
-                        mRecycledHistoryEntry.bucketDuration;
+                bucketOut.mEndTimeStamp = mRecycledHistoryEntry.bucketStart
+                        + mRecycledHistoryEntry.bucketDuration;
                 bucketOut.mRxBytes = mRecycledHistoryEntry.rxBytes;
                 bucketOut.mRxPackets = mRecycledHistoryEntry.rxPackets;
                 bucketOut.mTxBytes = mRecycledHistoryEntry.txBytes;

@@ -16,14 +16,23 @@
 
 package android.content.pm;
 
+import android.annotation.FloatRange;
+import android.annotation.NonNull;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.Resources;
+import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
+import android.icu.text.UnicodeSet;
 import android.os.UserHandle;
 import android.os.UserManager;
+import android.text.TextUtils;
 import android.util.DisplayMetrics;
+
+import com.android.internal.annotations.VisibleForTesting;
+
+import java.util.Objects;
 
 /**
  * A representation of an activity that can belong to this user or a managed
@@ -31,30 +40,24 @@ import android.util.DisplayMetrics;
  * and badged icon for the activity.
  */
 public class LauncherActivityInfo {
-    private static final String TAG = "LauncherActivityInfo";
-
     private final PackageManager mPm;
+    private final LauncherActivityInfoInternal mInternal;
 
-    private ActivityInfo mActivityInfo;
-    private ComponentName mComponentName;
-    private UserHandle mUser;
+    private static final UnicodeSet INVISIBLE_CHARACTERS =
+            new UnicodeSet("[[:White_Space:][:Default_Ignorable_Code_Point:][:gc=Cc:]]",
+                    /* ignoreWhitespace= */ false).freeze();
+    // Only allow 3 consecutive invisible characters in the prefix of the string.
+    private static final int PREFIX_CONSECUTIVE_INVISIBLE_CHARACTERS_MAXIMUM = 3;
 
     /**
      * Create a launchable activity object for a given ResolveInfo and user.
      *
      * @param context The context for fetching resources.
-     * @param info ResolveInfo from which to create the LauncherActivityInfo.
-     * @param user The UserHandle of the profile to which this activity belongs.
-     */
-    LauncherActivityInfo(Context context, ActivityInfo info, UserHandle user) {
-        this(context);
-        mActivityInfo = info;
-        mComponentName =  new ComponentName(info.packageName, info.name);
-        mUser = user;
-    }
 
-    LauncherActivityInfo(Context context) {
+     */
+    LauncherActivityInfo(Context context, LauncherActivityInfoInternal internal) {
         mPm = context.getPackageManager();
+        mInternal = internal;
     }
 
     /**
@@ -63,7 +66,7 @@ public class LauncherActivityInfo {
      * @return ComponentName of the activity
      */
     public ComponentName getComponentName() {
-        return mComponentName;
+        return mInternal.getComponentName();
     }
 
     /**
@@ -78,17 +81,41 @@ public class LauncherActivityInfo {
      * @return The UserHandle of the profile.
      */
     public UserHandle getUser() {
-        return mUser;
+        return mInternal.getUser();
     }
 
     /**
-     * Retrieves the label for the activity.
+     * Retrieves the label for the activity. If the activity's label is invisible
+     * for the user, use the application's label instead. If the application's label
+     * is still invisible for the user, use the package name instead.
      *
-     * @return The label for the activity.
+     * @return The label for the activity. If the activity's label is invisible for the user,
+     *         return the application's label instead. If the application's label
+     *         is still invisible for the user, return the package name instead.
      */
     public CharSequence getLabel() {
-        // TODO: Go through LauncherAppsService
-        return mActivityInfo.loadLabel(mPm);
+        CharSequence label = getActivityInfo().loadLabel(mPm).toString().trim();
+        // If the activity label is visible to the user, return the original activity label
+        if (isVisible(label)) {
+            return label;
+        }
+
+        // Use application label instead
+        label = getApplicationInfo().loadLabel(mPm).toString().trim();
+        // If the application label is visible to the user, return the original application label
+        if (isVisible(label)) {
+            return label;
+        }
+
+        // Use package name instead
+        return getComponentName().getPackageName();
+    }
+
+    /**
+     * @return Package loading progress, range between [0, 1].
+     */
+    public @FloatRange(from = 0.0, to = 1.0) float getLoadingProgress() {
+        return mInternal.getIncrementalStatesInfo().getProgress();
     }
 
     /**
@@ -101,20 +128,20 @@ public class LauncherActivityInfo {
      */
     public Drawable getIcon(int density) {
         // TODO: Go through LauncherAppsService
-        final int iconRes = mActivityInfo.getIconResource();
+        final int iconRes = getActivityInfo().getIconResource();
         Drawable icon = null;
         // Get the preferred density icon from the app's resources
         if (density != 0 && iconRes != 0) {
             try {
-                final Resources resources
-                        = mPm.getResourcesForApplication(mActivityInfo.applicationInfo);
+                final Resources resources = mPm.getResourcesForApplication(
+                        getActivityInfo().applicationInfo);
                 icon = resources.getDrawableForDensity(iconRes, density);
             } catch (NameNotFoundException | Resources.NotFoundException exc) {
             }
         }
         // Get the default density icon
         if (icon == null) {
-            icon = mActivityInfo.loadIcon(mPm);
+            icon = getActivityInfo().loadIcon(mPm);
         }
         return icon;
     }
@@ -126,15 +153,25 @@ public class LauncherActivityInfo {
      * @hide remove before shipping
      */
     public int getApplicationFlags() {
-        return mActivityInfo.applicationInfo.flags;
+        return getActivityInfo().flags;
     }
 
     /**
-     * Returns the application info for the appliction this activity belongs to.
+     * Returns the ActivityInfo of the activity.
+     *
+     * @return Activity Info
+     */
+    @NonNull
+    public ActivityInfo getActivityInfo() {
+        return mInternal.getActivityInfo();
+    }
+
+    /**
+     * Returns the application info for the application this activity belongs to.
      * @return
      */
     public ApplicationInfo getApplicationInfo() {
-        return mActivityInfo.applicationInfo;
+        return getActivityInfo().applicationInfo;
     }
 
     /**
@@ -145,7 +182,7 @@ public class LauncherActivityInfo {
     public long getFirstInstallTime() {
         try {
             // TODO: Go through LauncherAppsService
-            return mPm.getPackageInfo(mActivityInfo.packageName,
+            return mPm.getPackageInfo(getActivityInfo().packageName,
                     PackageManager.MATCH_UNINSTALLED_PACKAGES).firstInstallTime;
         } catch (NameNotFoundException nnfe) {
             // Sorry, can't find package
@@ -154,11 +191,11 @@ public class LauncherActivityInfo {
     }
 
     /**
-     * Returns the name for the acitivty from  android:name in the manifest.
-     * @return the name from android:name for the acitivity.
+     * Returns the name for the activity from  android:name in the manifest.
+     * @return the name from android:name for the activity.
      */
     public String getName() {
-        return mActivityInfo.name;
+        return getActivityInfo().name;
     }
 
     /**
@@ -171,6 +208,87 @@ public class LauncherActivityInfo {
     public Drawable getBadgedIcon(int density) {
         Drawable originalIcon = getIcon(density);
 
-        return mPm.getUserBadgedIcon(originalIcon, mUser);
+        return mPm.getUserBadgedIcon(originalIcon, mInternal.getUser());
+    }
+
+    /**
+     * Returns whether this activity supports (and can be launched in) multiple instances.
+     * @hide
+     */
+    public boolean supportsMultiInstance() {
+        return mInternal.supportsMultiInstance();
+    }
+
+    /**
+     * Check whether the {@code sequence} is visible to the user or not.
+     * <p>
+     * Return {@code false} when one of these conditions are satisfied:
+     * 1. The {@code sequence} starts with at least consecutive three invisible characters.
+     * 2. The sequence is composed of the invisible characters and non-glyph characters.
+     * <p>
+     * Invisible character is one of the Default_Ignorable_Code_Point in
+     * <a href="
+     * https://www.unicode.org/Public/UCD/latest/ucd/DerivedCoreProperties.txt">
+     * DerivedCoreProperties.txt</a>, the White_Space in <a href=
+     * "https://www.unicode.org/Public/UCD/latest/ucd/PropList.txt">PropList.txt
+     * </a> or category Cc.
+     * <p>
+     * Non-glyph character means the character is not supported in the current system font.
+     * {@link android.graphics.Paint#hasGlyph(String)}
+     * <p>
+     *
+     * @hide
+     */
+    @VisibleForTesting
+    public static boolean isVisible(@NonNull CharSequence sequence) {
+        Objects.requireNonNull(sequence);
+        if (TextUtils.isEmpty(sequence)) {
+            return false;
+        }
+
+        final Paint paint = new Paint();
+        int invisibleCharCount = 0;
+        int notSupportedCharCount = 0;
+        final int[] codePoints = sequence.codePoints().toArray();
+        for (int i = 0, length = codePoints.length; i < length; i++) {
+            String ch = new String(new int[]{codePoints[i]}, /* offset= */ 0, /* count= */ 1);
+
+            // The check steps:
+            // 1. If the character is contained in INVISIBLE_CHARACTERS, invisibleCharCount++.
+            //    1.1 Check whether the invisibleCharCount is larger or equal to
+            //        PREFIX_INVISIBLE_CHARACTERS_MAXIMUM when notSupportedCharCount is zero.
+            //        It means that there are three consecutive invisible characters at the
+            //        start of the string, return false.
+            //    Otherwise, continue.
+            // 2. If the character is not supported on the system:
+            //    notSupportedCharCount++, continue
+            // 3. If it does not continue or return on the above two cases, it means the
+            //    character is visible and supported on the system, break.
+            // After going through the whole string, if the sum of invisibleCharCount
+            // and notSupportedCharCount is smaller than the length of the string, it
+            // means the string has the other visible characters, return true.
+            // Otherwise, return false.
+            if (INVISIBLE_CHARACTERS.contains(ch)) {
+                invisibleCharCount++;
+                // If there are three successive invisible characters at the start of the
+                // string, it is hard to visible to the user.
+                if (notSupportedCharCount == 0
+                        && invisibleCharCount >= PREFIX_CONSECUTIVE_INVISIBLE_CHARACTERS_MAXIMUM) {
+                    return false;
+                }
+                continue;
+            }
+
+            // The character is not supported on the system, but it may not be an invisible
+            // character. E.g. tofu (a rectangle).
+            if (!paint.hasGlyph(ch)) {
+                notSupportedCharCount++;
+                continue;
+            }
+            // The character is visible and supported on the system, break the for loop
+            break;
+        }
+
+        return (invisibleCharCount + notSupportedCharCount < codePoints.length);
     }
 }

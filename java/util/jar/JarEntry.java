@@ -32,6 +32,8 @@ import java.security.cert.Certificate;
 
 /**
  * This class is used to represent a JAR file entry.
+ *
+ * @since 1.2
  */
 public
 class JarEntry extends ZipEntry {
@@ -125,5 +127,16 @@ class JarEntry extends ZipEntry {
      */
     public CodeSigner[] getCodeSigners() {
         return signers == null ? null : signers.clone();
+    }
+
+    /**
+     * This method returns the same name that {@link #getName()} returns.
+     *
+     * @return the real name of the JarEntry
+     *
+     * @since 10
+     */
+    public String getRealName() {
+        return super.getName();
     }
 }

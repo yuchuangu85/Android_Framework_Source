@@ -16,6 +16,8 @@
 
 package android.security.keymaster;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 
 /**
@@ -36,6 +38,7 @@ class KeymasterBooleanArgument extends KeymasterArgument {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public KeymasterBooleanArgument(int tag, Parcel in) {
         super(tag);
     }

@@ -15,15 +15,13 @@
  */
 package com.android.internal.widget;
 
-import com.android.internal.R;
-
-import android.widget.ActionMenuPresenter;
-import android.widget.ActionMenuView;
-import com.android.internal.view.menu.MenuBuilder;
-
+import android.annotation.SuppressLint;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.view.ActionMode;
@@ -31,8 +29,13 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityEvent;
+import android.widget.ActionMenuPresenter;
+import android.widget.ActionMenuView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import com.android.internal.R;
+import com.android.internal.view.menu.MenuBuilder;
 
 /**
  * @hide
@@ -53,15 +56,17 @@ public class ActionBarContextView extends AbsActionBarView {
     private Drawable mSplitBackground;
     private boolean mTitleOptional;
     private int mCloseItemLayout;
+    private final int mInternalVerticalPadding;
 
     public ActionBarContextView(Context context) {
         this(context, null);
     }
-    
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public ActionBarContextView(Context context, AttributeSet attrs) {
         this(context, attrs, com.android.internal.R.attr.actionModeStyle);
     }
-    
+
     public ActionBarContextView(Context context, AttributeSet attrs, int defStyleAttr) {
         this(context, attrs, defStyleAttr, 0);
     }
@@ -90,6 +95,8 @@ public class ActionBarContextView extends AbsActionBarView {
                 R.layout.action_mode_close_item);
 
         a.recycle();
+
+        mInternalVerticalPadding = getPaddingTop() + getPaddingBottom();
     }
 
     @Override
@@ -99,6 +106,19 @@ public class ActionBarContextView extends AbsActionBarView {
             mActionMenuPresenter.hideOverflowMenu();
             mActionMenuPresenter.hideSubMenus();
         }
+    }
+
+    @SuppressLint("CustomViewStyleable")
+    @Override
+    protected void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+
+        // Action mode can change size on configuration changes.
+        // Reread the desired height from the theme-specified style.
+        TypedArray a = getContext().obtainStyledAttributes(null, R.styleable.ActionMode,
+                R.attr.actionModeStyle, 0);
+        setContentHeight(a.getLayoutDimension(R.styleable.ActionMode_height, 0));
+        a.recycle();
     }
 
     @Override
@@ -312,12 +332,13 @@ public class ActionBarContextView extends AbsActionBarView {
         }
 
         final int contentWidth = MeasureSpec.getSize(widthMeasureSpec);
-
-        int maxHeight = mContentHeight > 0 ?
-                mContentHeight : MeasureSpec.getSize(heightMeasureSpec);
+        int availableWidth = contentWidth - getPaddingLeft() - getPaddingRight();
 
         final int verticalPadding = getPaddingTop() + getPaddingBottom();
-        int availableWidth = contentWidth - getPaddingLeft() - getPaddingRight();
+        final int externalVerticalPadding = Math.max(0, verticalPadding - mInternalVerticalPadding);
+        final int maxHeight = mContentHeight > 0
+                ? mContentHeight + externalVerticalPadding
+                : MeasureSpec.getSize(heightMeasureSpec);
         final int height = maxHeight - verticalPadding;
         final int childSpecHeight = MeasureSpec.makeMeasureSpec(height, MeasureSpec.AT_MOST);
 

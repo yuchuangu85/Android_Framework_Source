@@ -21,6 +21,7 @@ import com.android.internal.util.GrowingArrayUtils;
 
 import libcore.util.EmptyArray;
 
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 class PackedObjectVector<E>
 {
     private int mColumns;

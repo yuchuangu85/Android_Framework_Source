@@ -17,6 +17,7 @@
 package android.widget;
 
 import android.R;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
@@ -104,14 +105,17 @@ public class SlidingDrawer extends ViewGroup {
 
     private final Rect mFrame = new Rect();
     private final Rect mInvalidate = new Rect();
+    @UnsupportedAppUsage
     private boolean mTracking;
     private boolean mLocked;
 
+    @UnsupportedAppUsage
     private VelocityTracker mVelocityTracker;
 
     private boolean mVertical;
     private boolean mExpanded;
     private int mBottomOffset;
+    @UnsupportedAppUsage
     private int mTopOffset;
     private int mHandleHeight;
     private int mHandleWidth;
@@ -125,6 +129,7 @@ public class SlidingDrawer extends ViewGroup {
     private float mAnimationPosition;
     private long mAnimationLastTime;
     private long mCurrentAnimationTime;
+    @UnsupportedAppUsage
     private int mTouchDelta;
     private boolean mAnimating;
     private boolean mAllowSingleTap;
@@ -213,6 +218,8 @@ public class SlidingDrawer extends ViewGroup {
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, R.styleable.SlidingDrawer, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, R.styleable.SlidingDrawer,
+                attrs, a, defStyleAttr, defStyleRes);
 
         int orientation = a.getInt(R.styleable.SlidingDrawer_orientation, ORIENTATION_VERTICAL);
         mVertical = orientation == ORIENTATION_VERTICAL;
@@ -555,6 +562,7 @@ public class SlidingDrawer extends ViewGroup {
         stopTracking(notifyScrollListener);
     }
 
+    @UnsupportedAppUsage
     private void prepareTracking(int position) {
         mTracking = true;
         mVelocityTracker = VelocityTracker.obtain();
@@ -646,6 +654,7 @@ public class SlidingDrawer extends ViewGroup {
         }
     }
 
+    @UnsupportedAppUsage
     private void prepareContent() {
         if (mAnimating) {
             return;

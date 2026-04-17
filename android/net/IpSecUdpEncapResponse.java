@@ -18,6 +18,7 @@ package android.net;
 import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.os.Parcelable;
+
 import java.io.FileDescriptor;
 import java.io.IOException;
 
@@ -80,9 +81,10 @@ public final class IpSecUdpEncapResponse implements Parcelable {
         status = in.readInt();
         resourceId = in.readInt();
         port = in.readInt();
-        fileDescriptor = in.readParcelable(ParcelFileDescriptor.class.getClassLoader());
+        fileDescriptor = in.readParcelable(ParcelFileDescriptor.class.getClassLoader(), android.os.ParcelFileDescriptor.class);
     }
 
+    @android.annotation.NonNull
     public static final Parcelable.Creator<IpSecUdpEncapResponse> CREATOR =
             new Parcelable.Creator<IpSecUdpEncapResponse>() {
                 public IpSecUdpEncapResponse createFromParcel(Parcel in) {

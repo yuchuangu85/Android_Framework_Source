@@ -23,6 +23,7 @@ import android.os.Parcel;
  * TextView save/restore cycles and can be used to keep application-specific
  * data that needs to be maintained for regions of text.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class Annotation implements ParcelableSpan {
     private final String mKey;
     private final String mValue;

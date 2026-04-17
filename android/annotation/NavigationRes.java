@@ -28,7 +28,7 @@ import static java.lang.annotation.RetentionPolicy.SOURCE;
  * Denotes that an integer parameter, field or method return value is expected
  * to be a navigation resource reference (e.g. {@code R.navigation.flow}).
  *
- * {@hide}
+ * @hide
  */
 @Documented
 @Retention(SOURCE)

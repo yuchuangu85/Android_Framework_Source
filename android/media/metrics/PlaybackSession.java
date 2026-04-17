@@ -1,0 +1,88 @@
+/*
+ * Copyright (C) 2020 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package android.media.metrics;
+
+import static android.media.metrics.Flags.FLAG_ENABLE_EXTENDED_BUNDLE_METRICS;
+
+import android.annotation.FlaggedApi;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.media.MediaMetrics;
+import android.os.PersistableBundle;
+
+import com.android.internal.util.AnnotationValidations;
+
+import java.util.Objects;
+
+/**
+ * An instance of this class represents a session of media playback used to report playback
+ * metrics and events.
+ *
+ * Create a new instance using {@link MediaMetricsManager#createPlaybackSession}.
+ */
+public final class PlaybackSession extends BaseSession {
+
+    /**
+     * Creates a new PlaybackSession.
+     *
+     * @hide
+     */
+    public PlaybackSession(@NonNull String id, @NonNull MediaMetricsManager manager) {
+        super(id, manager);
+    }
+
+    /**
+     * Reports playback metrics.
+     */
+    public void reportPlaybackMetrics(@NonNull PlaybackMetrics metrics) {
+        mManager.reportPlaybackMetrics(mId, metrics);
+    }
+
+    /**
+     * Reports error event.
+     */
+    public void reportPlaybackErrorEvent(@NonNull PlaybackErrorEvent event) {
+        mManager.reportPlaybackErrorEvent(mId, event);
+    }
+
+    /**
+     * Reports network event.
+     */
+    public void reportNetworkEvent(@NonNull NetworkEvent event) {
+        mManager.reportNetworkEvent(mId, event);
+    }
+
+    /**
+     * Reports playback state event.
+     */
+    public void reportPlaybackStateEvent(@NonNull PlaybackStateEvent event) {
+        mManager.reportPlaybackStateEvent(mId, event);
+    }
+
+    /**
+     * Reports track change event.
+     */
+    public void reportTrackChangeEvent(@NonNull TrackChangeEvent event) {
+        mManager.reportTrackChangeEvent(mId, event);
+    }
+
+    @FlaggedApi(FLAG_ENABLE_EXTENDED_BUNDLE_METRICS)
+    @Override
+    public void reportBundleMetrics(@NonNull PersistableBundle metrics) {
+        super.reportBundleMetrics(metrics);
+    }
+}

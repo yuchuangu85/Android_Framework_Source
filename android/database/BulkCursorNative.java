@@ -16,6 +16,7 @@
 
 package android.database;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -27,7 +28,7 @@ import android.os.RemoteException;
  * Native implementation of the bulk cursor. This is only for use in implementing
  * IPC, application code should use the Cursor interface.
  *
- * {@hide}
+ * @hide
  */
 public abstract class BulkCursorNative extends Binder implements IBulkCursor
 {
@@ -52,7 +53,7 @@ public abstract class BulkCursorNative extends Binder implements IBulkCursor
 
         return new BulkCursorProxy(obj);
     }
-    
+
     @Override
     public boolean onTransact(int code, Parcel data, Parcel reply, int flags)
             throws RemoteException {
@@ -78,7 +79,7 @@ public abstract class BulkCursorNative extends Binder implements IBulkCursor
                     reply.writeNoException();
                     return true;
                 }
-                
+
                 case CLOSE_TRANSACTION: {
                     data.enforceInterface(IBulkCursor.descriptor);
                     close();
@@ -138,6 +139,7 @@ public abstract class BulkCursorNative extends Binder implements IBulkCursor
 
 
 final class BulkCursorProxy implements IBulkCursor {
+    @UnsupportedAppUsage
     private IBinder mRemote;
     private Bundle mExtras;
 
@@ -210,15 +212,21 @@ final class BulkCursorProxy implements IBulkCursor {
         Parcel reply = Parcel.obtain();
         try {
             data.writeInterfaceToken(IBulkCursor.descriptor);
-
-            mRemote.transact(CLOSE_TRANSACTION, data, reply, 0);
-            DatabaseUtils.readExceptionFromParcel(reply);
+            // If close() is being called from the finalizer thread, do not wait for a reply from
+            // the remote side.
+            final boolean fromFinalizer =
+                    "FinalizerDaemon".equals(Thread.currentThread().getName());
+            mRemote.transact(CLOSE_TRANSACTION, data, reply,
+                    fromFinalizer ? IBinder.FLAG_ONEWAY: 0);
+            if (!fromFinalizer) {
+                DatabaseUtils.readExceptionFromParcel(reply);
+            }
         } finally {
             data.recycle();
             reply.recycle();
         }
     }
-    
+
     public int requery(IContentObserver observer) throws RemoteException {
         Parcel data = Parcel.obtain();
         Parcel reply = Parcel.obtain();
@@ -280,4 +288,3 @@ final class BulkCursorProxy implements IBulkCursor {
         }
     }
 }
-

@@ -23,9 +23,11 @@ import android.os.RemoteException;
  * During a remote procedure call, the arguments and the return value of the call
  * are transferred as {@link Parcel} objects stored in the Binder transaction buffer.
  * If the arguments or the return value are too large to fit in the transaction buffer,
- * then the call will fail and {@link TransactionTooLargeException} will be thrown.
+ * then the call will fail.  {@link TransactionTooLargeException} is thrown as a
+ * heuristic when a transaction is large, and it fails, since these are the transactions
+ * which are most likely to overfill the transaction buffer.
  * </p><p>
- * The Binder transaction buffer has a limited fixed size, currently 1Mb, which
+ * The Binder transaction buffer has a limited fixed size, currently 1MB, which
  * is shared by all transactions in progress for the process.  Consequently this
  * exception can be thrown when there are many transactions in progress even when
  * most of the individual transactions are of moderate size.
@@ -45,13 +47,14 @@ import android.os.RemoteException;
  * If possible, try to break up big requests into smaller pieces.
  * </p><p>
  * If you are implementing a service, it may help to impose size or complexity
- * contraints on the queries that clients can perform.  For example, if the result set
+ * constraints on the queries that clients can perform.  For example, if the result set
  * could become large, then don't allow the client to request more than a few records
  * at a time.  Alternately, instead of returning all of the available data all at once,
  * return the essential information first and make the client ask for additional information
  * later as needed.
  * </p>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class TransactionTooLargeException extends RemoteException {
     public TransactionTooLargeException() {
         super();

@@ -18,17 +18,24 @@ package android.graphics.fonts;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.text.TextUtils;
 
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 /**
  * Class that holds information about single font variation axis.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public final class FontVariationAxis {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final int mTag;
     private final String mTagString;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final float mStyleValue;
 
     /**
@@ -133,10 +140,20 @@ public final class FontVariationAxis {
      */
     public static @Nullable FontVariationAxis[] fromFontVariationSettings(
             @Nullable String settings) {
-        if (settings == null || settings.isEmpty()) {
+        List<FontVariationAxis> result = fromFontVariationSettingsForList(settings);
+        if (result.isEmpty()) {
             return null;
         }
+        return result.toArray(new FontVariationAxis[0]);
+    }
+
+    /** @hide */
+    public static @NonNull List<FontVariationAxis> fromFontVariationSettingsForList(
+            @Nullable String settings) {
         final ArrayList<FontVariationAxis> axisList = new ArrayList<>();
+        if (settings == null || settings.isEmpty()) {
+            return axisList;
+        }
         final int length = settings.length();
         for (int i = 0; i < length; i++) {
             final char c = settings.charAt(i);
@@ -165,10 +182,7 @@ public final class FontVariationAxis {
             axisList.add(new FontVariationAxis(tagString, value));
             i = endOfValueString;
         }
-        if (axisList.isEmpty()) {
-            return null;
-        }
-        return axisList.toArray(new FontVariationAxis[0]);
+        return axisList;
     }
 
     /**
@@ -182,6 +196,34 @@ public final class FontVariationAxis {
             return "";
         }
         return TextUtils.join(",", axes);
+    }
+
+    /**
+     * Stringify the array of FontVariationAxis.
+     * @hide
+     */
+    public static @NonNull String toFontVariationSettings(@Nullable List<FontVariationAxis> axes) {
+        if (axes == null) {
+            return "";
+        }
+        return TextUtils.join(",", axes);
+    }
+
+    @Override
+    public boolean equals(@Nullable Object o) {
+        if (o == this) {
+            return true;
+        }
+        if (o == null || !(o instanceof FontVariationAxis)) {
+            return false;
+        }
+        FontVariationAxis axis = (FontVariationAxis) o;
+        return axis.mTag == mTag && axis.mStyleValue == mStyleValue;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mTag, mStyleValue);
     }
 }
 

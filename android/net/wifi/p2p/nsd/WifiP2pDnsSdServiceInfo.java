@@ -16,8 +16,11 @@
 
 package android.net.wifi.p2p.nsd;
 
-import android.net.nsd.DnsSdTxtRecord;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.text.TextUtils;
+
+import com.android.net.module.util.DnsSdTxtRecord;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -29,10 +32,10 @@ import java.util.Map;
  * A class for storing Bonjour service information that is advertised
  * over a Wi-Fi peer-to-peer setup.
  *
- * {@see android.net.wifi.p2p.WifiP2pManager#addLocalService}
- * {@see android.net.wifi.p2p.WifiP2pManager#removeLocalService}
- * {@see WifiP2pServiceInfo}
- * {@see WifiP2pUpnpServiceInfo}
+ * @see android.net.wifi.p2p.WifiP2pManager#addLocalService
+ * @see android.net.wifi.p2p.WifiP2pManager#removeLocalService
+ * @see WifiP2pServiceInfo
+ * @see WifiP2pUpnpServiceInfo
  */
 public class WifiP2pDnsSdServiceInfo extends WifiP2pServiceInfo {
 
@@ -173,6 +176,7 @@ public class WifiP2pDnsSdServiceInfo extends WifiP2pServiceInfo {
      * @param version version number
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     static String createRequest(String dnsName, int dnsType, int version) {
         StringBuffer sb = new StringBuffer();
 

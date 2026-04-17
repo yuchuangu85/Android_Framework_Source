@@ -16,14 +16,18 @@
 
 package android.security.keymaster;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 
 /**
  * @hide
  */
 class KeymasterBlobArgument extends KeymasterArgument {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public final byte[] blob;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public KeymasterBlobArgument(int tag, byte[] blob) {
         super(tag);
         switch (KeymasterDefs.getTagType(tag)) {
@@ -36,6 +40,7 @@ class KeymasterBlobArgument extends KeymasterArgument {
         this.blob = blob;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public KeymasterBlobArgument(int tag, Parcel in) {
         super(tag);
         blob = in.createByteArray();

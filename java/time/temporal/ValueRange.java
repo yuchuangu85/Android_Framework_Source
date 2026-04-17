@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -92,6 +92,7 @@ public final class ValueRange implements Serializable {
     /**
      * Serialization version.
      */
+    @java.io.Serial
     private static final long serialVersionUID = -7317881728594519368L;
 
     /**
@@ -144,6 +145,9 @@ public final class ValueRange implements Serializable {
      *  or the smallest maximum is greater than the largest maximum
      */
     public static ValueRange of(long min, long maxSmallest, long maxLargest) {
+        if (min > maxSmallest) {
+            throw new IllegalArgumentException("Minimum value must be less than smallest maximum value");
+        }
         return of(min, min, maxSmallest, maxLargest);
     }
 
@@ -159,8 +163,9 @@ public final class ValueRange implements Serializable {
      * @return the ValueRange for smallest min, largest min, smallest max, largest max, not null
      * @throws IllegalArgumentException if
      *     the smallest minimum is greater than the smallest maximum,
-     *  or the smallest maximum is greater than the largest maximum
-     *  or the largest minimum is greater than the largest maximum
+     *  or the smallest maximum is greater than the largest maximum,
+     *  or the largest minimum is greater than the largest maximum,
+     *  or the smallest minimum is greater than the largest minimum
      */
     public static ValueRange of(long minSmallest, long minLargest, long maxSmallest, long maxLargest) {
         if (minSmallest > minLargest) {
@@ -170,7 +175,10 @@ public final class ValueRange implements Serializable {
             throw new IllegalArgumentException("Smallest maximum value must be less than largest maximum value");
         }
         if (minLargest > maxLargest) {
-            throw new IllegalArgumentException("Minimum value must be less than maximum value");
+            throw new IllegalArgumentException("Largest minimum value must be less than largest maximum value");
+        }
+        if (minSmallest > maxSmallest) {
+            throw new IllegalArgumentException("Smallest minimum value must be less than smallest maximum value");
         }
         return new ValueRange(minSmallest, minLargest, maxSmallest, maxLargest);
     }
@@ -346,12 +354,14 @@ public final class ValueRange implements Serializable {
      * Check that the values are valid.
      *
      * @param s the stream to read
+     * @throws IOException if an I/O error occurs
      * @throws InvalidObjectException if
      *     the smallest minimum is greater than the smallest maximum,
      *  or the smallest maximum is greater than the largest maximum
      *  or the largest minimum is greater than the largest maximum
      * @throws ClassNotFoundException if a class cannot be resolved
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s)
          throws IOException, ClassNotFoundException, InvalidObjectException
     {
@@ -383,12 +393,11 @@ public final class ValueRange implements Serializable {
         if (obj == this) {
             return true;
         }
-        if (obj instanceof ValueRange) {
-            ValueRange other = (ValueRange) obj;
-           return minSmallest == other.minSmallest && minLargest == other.minLargest &&
-                   maxSmallest == other.maxSmallest && maxLargest == other.maxLargest;
-        }
-        return false;
+        return (obj instanceof ValueRange other)
+                && minSmallest == other.minSmallest
+                && minLargest == other.minLargest
+                && maxSmallest == other.maxSmallest
+                && maxLargest == other.maxLargest;
     }
 
     /**
@@ -398,8 +407,9 @@ public final class ValueRange implements Serializable {
      */
     @Override
     public int hashCode() {
-        long hash = minSmallest + minLargest << 16 + minLargest >> 48 + maxSmallest << 32 +
-            maxSmallest >> 32 + maxLargest << 48 + maxLargest >> 16;
+        long hash = minSmallest + (minLargest << 16) + (minLargest >> 48) +
+                (maxSmallest << 32) + (maxSmallest >> 32) + (maxLargest << 48) +
+                (maxLargest >> 16);
         return (int) (hash ^ (hash >>> 32));
     }
 

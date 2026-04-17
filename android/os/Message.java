@@ -16,9 +16,19 @@
 
 package android.os;
 
-import android.os.MessageProto;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
+import android.ravenwood.annotation.RavenwoodRedirect;
+import android.ravenwood.annotation.RavenwoodRedirectionClass;
 import android.util.TimeUtils;
 import android.util.proto.ProtoOutputStream;
+
+import com.android.internal.annotations.VisibleForTesting;
+
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 
 /**
  *
@@ -31,12 +41,18 @@ import android.util.proto.ProtoOutputStream;
  * {@link Handler#obtainMessage Handler.obtainMessage()} methods, which will pull
  * them from a pool of recycled objects.</p>
  */
+@RavenwoodKeepWholeClass
+@RavenwoodRedirectionClass("Message_ravenwood")
 public final class Message implements Parcelable {
+
     /**
      * User-defined message code so that the recipient can identify
      * what this message is about. Each {@link Handler} has its own name-space
      * for message codes, so you do not need to worry about yours conflicting
      * with other handlers.
+     *
+     * If not specified, this value is 0.
+     * Use values other than 0 to indicate custom message codes.
      */
     public int what;
 
@@ -74,11 +90,30 @@ public final class Message implements Parcelable {
     public Messenger replyTo;
 
     /**
+     * Indicates that the uid is not set;
+     *
+     * @hide Only for use within the system server.
+     */
+    public static final int UID_NONE = -1;
+
+    /**
      * Optional field indicating the uid that sent the message.  This is
      * only valid for messages posted by a {@link Messenger}; otherwise,
      * it will be -1.
      */
-    public int sendingUid = -1;
+    public int sendingUid = UID_NONE;
+
+    /**
+     * Optional field indicating the uid that caused this message to be enqueued.
+     *
+     * @hide Only for use within the system server.
+     */
+    public int workSourceUid = UID_NONE;
+
+    /**
+     * Name of the thread that sent the message.
+     */
+    /*package*/ String sendingThreadName;
 
     /** If set message is in use.
      * This flag is set when the message is enqueued and remains set while it
@@ -93,53 +128,108 @@ public final class Message implements Parcelable {
     /** If set message is asynchronous */
     /*package*/ static final int FLAG_ASYNCHRONOUS = 1 << 1;
 
+    /** If the message is marked for removal */
+    /* package*/ static final int FLAG_REMOVED = 1 << 2;
+
     /** Flags to clear in the copyFrom method */
-    /*package*/ static final int FLAGS_TO_CLEAR_ON_COPY_FROM = FLAG_IN_USE;
+    /*package*/ static final int FLAGS_TO_CLEAR_ON_COPY_FROM = FLAG_IN_USE | FLAG_REMOVED;
 
-    /*package*/ int flags;
+    @UnsupportedAppUsage
+    /*package*/ volatile int flags;
+    /*package*/ static final VarHandle sFlags;
+    static {
+        try {
+            MethodHandles.Lookup l = MethodHandles.lookup();
+            sFlags = l.findVarHandle(Message.class, "flags", int.class);
+        } catch (ReflectiveOperationException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
 
-    /*package*/ long when;
+    /**
+     * CAS flags with FLAG_REMOVED to indicate that this message should be removed. Returns false if
+     * the message has already been marked for removal.
+     *
+     * The CAS loop shouldn't fail due to FLAG_IN_USE or FLAG_ASYNCHRONOUS being set because those
+     * are only changed when a message is initially created and enqueued. However, we loop anyways
+     * in case additional flags that can be modified are added in the future.
+     *
+     * @hide
+     */
+    @VisibleForTesting
+    public boolean markRemoved() {
+        int localFlags;
+        do {
+            localFlags = this.flags;
+            if ((localFlags & FLAG_REMOVED) != 0) {
+                return false;
+            }
+        } while (!sFlags.compareAndSet(this, localFlags, localFlags | FLAG_REMOVED));
+        return true;
+    }
+
+    boolean isRemoved() {
+       return (this.flags & FLAG_REMOVED) != 0;
+    }
+
+    /**
+     * The targeted delivery time of this message. The time-base is
+     * {@link SystemClock#uptimeMillis}.
+     * @hide Only for use within the tests.
+     */
+    @UnsupportedAppUsage
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+    public long when;
+
+    /** @hide */
+    public long insertSeq;
+
+    /** @hide */
+    public int heapIndex = -1;
 
     /*package*/ Bundle data;
 
+    @UnsupportedAppUsage
     /*package*/ Handler target;
 
+    @UnsupportedAppUsage
     /*package*/ Runnable callback;
 
     // sometimes we store linked lists of these things
-    // 消息队列中下一个消息的引用
+    @UnsupportedAppUsage
     /*package*/ Message next;
 
+    // only used in MessageStack
+    /*package*/ Message prev;
+    /*package*/ Message nextFree;
+
+    /**
+     * For trace flows, if tracing is enabled.
+     */
+    /*package*/ volatile long eventId;
 
     /** @hide */
     public static final Object sPoolSync = new Object();
-    // sPool这个变量可以理解为消息队列的头部的指针，也就是当前消息对象
     private static Message sPool;
-    // sPoolSize是当前的消息队列的长度
     private static int sPoolSize = 0;
 
     private static final int MAX_POOL_SIZE = 50;
-
-    private static boolean gCheckRecycle = true;
 
     /**
      * Return a new Message instance from the global pool. Allows us to
      * avoid allocating new objects in many cases.
      */
     public static Message obtain() {
-        // 避免多线程进行争抢资源，给sPoolSync进行加锁
-        synchronized (sPoolSync) {
-            // 如果消息队列的头部不为空，则可以取出头部重用
-            if (sPool != null) {
-                Message m = sPool;
-                // 头部消息取出后，将sPool指向后面的消息对象
-                sPool = m.next;
-                // next（队列尾部）设置为null
-                m.next = null;
-                m.flags = 0; // clear in-use flag
-                // 消息池长度减一
-                sPoolSize--;
-                return m;
+        if (!MessageQueue.getUseConcurrent()) {
+            synchronized (sPoolSync) {
+                if (sPool != null) {
+                    Message m = sPool;
+                    sPool = m.next;
+                    m.next = null;
+                    m.flags = 0; // clear in-use flag
+                    sPoolSize--;
+                    return m;
+                }
             }
         }
         return new Message();
@@ -159,6 +249,7 @@ public final class Message implements Parcelable {
         m.obj = orig.obj;
         m.replyTo = orig.replyTo;
         m.sendingUid = orig.sendingUid;
+        m.workSourceUid = orig.workSourceUid;
         if (orig.data != null) {
             m.data = new Bundle(orig.data);
         }
@@ -270,13 +361,6 @@ public final class Message implements Parcelable {
         return m;
     }
 
-    /** @hide */
-    public static void updateCheckRecycle(int targetSdkVersion) {
-        if (targetSdkVersion < Build.VERSION_CODES.LOLLIPOP) {
-            gCheckRecycle = false;
-        }
-    }
-
     /**
      * Return a Message instance to the global pool.
      * <p>
@@ -287,11 +371,8 @@ public final class Message implements Parcelable {
      */
     public void recycle() {
         if (isInUse()) {
-            if (gCheckRecycle) {
-                throw new IllegalStateException("This message cannot be recycled because it "
-                        + "is still in use.");
-            }
-            return;
+            throw new IllegalStateException("This message cannot be recycled because it "
+                    + "is still in use.");
         }
         recycleUnchecked();
     }
@@ -300,32 +381,73 @@ public final class Message implements Parcelable {
      * Recycles a Message that may be in-use.
      * Used internally by the MessageQueue and Looper when disposing of queued Messages.
      */
+    @UnsupportedAppUsage
     void recycleUnchecked() {
-        // Mark the message as in use while it remains in the recycled object pool.
-        // Clear out all other details.
+        if (MessageQueue.getUseConcurrent()) {
+            // Once a message has entered the queue, it may still be referenced by removing threads
+            // forever and may not be recycled. As such, its flags field must not be cleared.
+            clearReferenceFields();
+
+            // However, we should still mark this as in-use.
+            markInUse();
+        } else {
+            clear();
+            synchronized (sPoolSync) {
+                if (sPoolSize < MAX_POOL_SIZE) {
+                    next = sPool;
+                    sPool = this;
+                    sPoolSize++;
+                }
+            }
+        }
+    }
+
+    /**
+     * Clears all Message contents.
+     */
+    void clear() {
+        // Prevent accidental reuse such as if this Message is recycled.
         flags = FLAG_IN_USE;
         what = 0;
         arg1 = 0;
         arg2 = 0;
         obj = null;
         replyTo = null;
-        sendingUid = -1;
+        sendingUid = UID_NONE;
+        workSourceUid = UID_NONE;
         when = 0;
         target = null;
         callback = null;
         data = null;
+        this.onClear();
+    }
 
-        // 避免多线程进行争抢资源，给sPoolSync进行加锁
-        synchronized (sPoolSync) {
-            if (sPoolSize < MAX_POOL_SIZE) {
-                // 回收当前消息后时，将sPool消息后移
-                next = sPool;
-                // 将当前消息放到头部
-                sPool = this;
-                // 队列长度加一
-                sPoolSize++;
-            }
-        }
+    @RavenwoodRedirect
+    private void onClear() {
+    }
+
+    // Sentinel values used to clear reference fields with a valid 'null' value, to avoid grabbing a
+    // removed message when matching for 'null' in these fields.
+    private static final Object NULL_OBJECT = new Object();
+    private static final Handler NULL_HANDLER = Handler.createSentinelHandler();
+    private static final Runnable NULL_RUNNABLE = () -> {};
+
+    /**
+     * Clear reference fields to avoid retaining any objects. This is used in MessageStack's message
+     * removal functions, and differs from clear() in that 'flags' and links (next, prev, nextFree)
+     * are not cleared, as they are still needed to indicate that a message is removed and to
+     * traverse the stack.
+     */
+    void clearReferenceFields() {
+        obj = NULL_OBJECT;
+        replyTo = null;
+        sendingThreadName = null;
+        data = null;
+        // A null target indicates a barrier node. In this case, we don't want to clear the field
+        // with the sentinel handler.
+        target = (target != null) ? NULL_HANDLER : null;
+        callback = NULL_RUNNABLE;
+        this.onClear();
     }
 
     /**
@@ -341,6 +463,7 @@ public final class Message implements Parcelable {
         this.obj = o.obj;
         this.replyTo = o.replyTo;
         this.sendingUid = o.sendingUid;
+        this.workSourceUid = o.workSourceUid;
 
         if (o.data != null) {
             this.data = (Bundle) o.data.clone();
@@ -361,7 +484,7 @@ public final class Message implements Parcelable {
     }
 
     /**
-     * Retrieve the a {@link android.os.Handler Handler} implementation that
+     * Retrieve the {@link android.os.Handler Handler} implementation that
      * will receive this message. The object must implement
      * {@link android.os.Handler#handleMessage(android.os.Message)
      * Handler.handleMessage()}. Each Handler has its own name-space for
@@ -369,7 +492,9 @@ public final class Message implements Parcelable {
      * worry about yours conflicting with other handlers.
      */
     public Handler getTarget() {
-        return target;
+        // We assign this first to avoid a data race that could potentially expose NULL_HANDLER.
+        final Handler ret = target;
+        return ret == NULL_HANDLER ? null : ret;
     }
 
     /**
@@ -378,13 +503,16 @@ public final class Message implements Parcelable {
      * the <em>target</em> {@link Handler} that is receiving this Message to
      * dispatch it.  If
      * not set, the message will be dispatched to the receiving Handler's
-     * {@link Handler#handleMessage(Message Handler.handleMessage())}.
+     * {@link Handler#handleMessage(Message)}.
      */
     public Runnable getCallback() {
-        return callback;
+        // We assign this first to avoid a data race that could potentially expose NULL_RUNNABLE.
+        final Runnable ret = callback;
+        return ret == NULL_RUNNABLE ? null : ret;
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public Message setCallback(Runnable r) {
         callback = r;
         return this;
@@ -416,6 +544,7 @@ public final class Message implements Parcelable {
      * @see #getData()
      * @see #setData(Bundle)
      */
+    @Nullable
     public Bundle peekData() {
         return data;
     }
@@ -445,7 +574,8 @@ public final class Message implements Parcelable {
      * Throws a null pointer exception if this field has not been set.
      */
     public void sendToTarget() {
-        target.sendMessage(this);
+        // We have no use for the return value, so ignore it.
+        boolean unused = target.sendMessage(this);
     }
 
     /**
@@ -498,8 +628,20 @@ public final class Message implements Parcelable {
         return ((flags & FLAG_IN_USE) == FLAG_IN_USE);
     }
 
+    /**
+     * CAS flags with FLAG_IN_USE to indicate that this message is in-use and cannot be recycled or
+     * sent.
+     */
+    @UnsupportedAppUsage
     /*package*/ void markInUse() {
-        flags |= FLAG_IN_USE;
+        int localFlags;
+        do {
+            localFlags = this.flags;
+            if ((localFlags & FLAG_IN_USE) != 0) {
+                return;
+            }
+        } while (!sFlags.compareAndSet(this, localFlags, localFlags | FLAG_IN_USE));
+        return;
     }
 
     /** Constructor (but the preferred way to get a Message is to call {@link #obtain() Message.obtain()}).
@@ -507,11 +649,26 @@ public final class Message implements Parcelable {
     public Message() {
     }
 
+    /*package*/ static int compareMessages(@NonNull Message m1, @NonNull Message m2) {
+        // Implement the comparison with branchless logic.
+        final long when1 = m1.when;
+        final long when2 = m2.when;
+        final long insertSeq1 = m1.insertSeq;
+        final long insertSeq2 = m2.insertSeq;
+        final int whenSign = Long.signum(when1 - when2);
+        final int insertSeqSign = Long.signum(insertSeq1 - insertSeq2);
+        // whenSign takes precedence over insertSeqSign, so the formula below is such that
+        // insertSeqSign
+        // only matters as a tie-breaker if whenSign is 0.
+        return whenSign * 2 + insertSeqSign;
+    }
+
     @Override
     public String toString() {
         return toString(SystemClock.uptimeMillis());
     }
 
+    @UnsupportedAppUsage
     String toString(long now) {
         StringBuilder b = new StringBuilder();
         b.append("{ when=");
@@ -548,11 +705,15 @@ public final class Message implements Parcelable {
             b.append(arg1);
         }
 
+        b.append(" async=");
+        b.append(isAsynchronous());
+        b.append(" heapIndex=");
+        b.append(heapIndex);
         b.append(" }");
         return b.toString();
     }
 
-    void writeToProto(ProtoOutputStream proto, long fieldId) {
+    void dumpDebug(ProtoOutputStream proto, long fieldId) {
         final long messageToken = proto.start(fieldId);
         proto.write(MessageProto.WHEN, when);
 
@@ -583,7 +744,7 @@ public final class Message implements Parcelable {
         proto.end(messageToken);
     }
 
-    public static final Parcelable.Creator<Message> CREATOR
+    public static final @NonNull Parcelable.Creator<Message> CREATOR
             = new Parcelable.Creator<Message>() {
         public Message createFromParcel(Parcel source) {
             Message msg = Message.obtain();
@@ -624,6 +785,7 @@ public final class Message implements Parcelable {
         dest.writeBundle(data);
         Messenger.writeMessengerOrNullToParcel(replyTo, dest);
         dest.writeInt(sendingUid);
+        dest.writeInt(workSourceUid);
     }
 
     private void readFromParcel(Parcel source) {
@@ -631,11 +793,189 @@ public final class Message implements Parcelable {
         arg1 = source.readInt();
         arg2 = source.readInt();
         if (source.readInt() != 0) {
-            obj = source.readParcelable(getClass().getClassLoader());
+            obj = source.readParcelable(getClass().getClassLoader(), java.lang.Object.class);
         }
         when = source.readLong();
         data = source.readBundle();
         replyTo = Messenger.readMessengerOrNullFromParcel(source);
         sendingUid = source.readInt();
+        workSourceUid = source.readInt();
     }
+
+    /*
+     * This class is used to find matches for MessageQueue.hasMessages() and
+     * MessageQueue.removeMessages()
+     */
+    abstract static class MessageCompare {
+        public abstract boolean compareMessage(Message m, Handler h, int what, Object object,
+                Runnable r, long when);
+    }
+
+    /**
+     * Matches handler, what, and object if non-null.
+     *
+     * @hide
+     */
+    public static final class MatchHandlerWhatAndObject extends MessageCompare {
+        @Override
+        public boolean compareMessage(Message m, Handler h, int what, Object object, Runnable r,
+                long when) {
+            if (m.target == h && m.what == what && (object == null || m.obj == object)) {
+                return true;
+            }
+            return false;
+        }
+    }
+    /** @hide */
+    public static final MatchHandlerWhatAndObject sMatchHandlerWhatAndObject =
+            new MatchHandlerWhatAndObject();
+
+    /**
+     * Matches handler, what, and object.equals() if non-null.
+     */
+    static final class MatchHandlerWhatAndObjectEquals extends MessageCompare {
+        @Override
+        public boolean compareMessage(Message m, Handler h, int what, Object object, Runnable r,
+                long when) {
+            if (m.target == h && m.what == what && (object == null || object.equals(m.obj))) {
+                return true;
+            }
+            return false;
+        }
+    }
+
+    static final MatchHandlerWhatAndObjectEquals sMatchHandlerWhatAndObjectEquals =
+            new MatchHandlerWhatAndObjectEquals();
+
+    /**
+     * Matches handler, runnable, and object if non-null.
+     */
+    static final class MatchHandlerRunnableAndObject extends MessageCompare {
+        @Override
+        public boolean compareMessage(Message m, Handler h, int what, Object object, Runnable r,
+                long when) {
+            if (m.target == h && m.callback == r && (object == null || m.obj == object)) {
+                return true;
+            }
+            return false;
+        }
+    }
+    static final MatchHandlerRunnableAndObject sMatchHandlerRunnableAndObject =
+            new MatchHandlerRunnableAndObject();
+
+    /**
+     * Matches handler.
+     */
+    static final class MatchHandler extends MessageCompare {
+        @Override
+        public boolean compareMessage(Message m, Handler h, int what, Object object, Runnable r,
+                long when) {
+            return m.target == h;
+        }
+    }
+    static final MatchHandler sMatchHandler = new MatchHandler();
+
+    /**
+     * Matches handler, runnable, and object.equals() if non-null.
+     */
+    static final class MatchHandlerRunnableAndObjectEquals extends MessageCompare {
+        @Override
+        public boolean compareMessage(Message m, Handler h, int what, Object object, Runnable r,
+                long when) {
+            if (m.target == h && m.callback == r && (object == null || object.equals(m.obj))) {
+                return true;
+            }
+            return false;
+        }
+    }
+    static final MatchHandlerRunnableAndObjectEquals sMatchHandlerRunnableAndObjectEquals =
+            new MatchHandlerRunnableAndObjectEquals();
+
+    /**
+     * Matches handler, and object if non-null.
+     */
+    static final class MatchHandlerAndObject extends MessageCompare {
+        @Override
+        public boolean compareMessage(Message m, Handler h, int what, Object object, Runnable r,
+                long when) {
+            if (m.target == h && (object == null || m.obj == object)) {
+                return true;
+            }
+            return false;
+        }
+    }
+    static final MatchHandlerAndObject sMatchHandlerAndObject = new MatchHandlerAndObject();
+
+    /**
+     * Matches handler, and object.equals() if non-null.
+     */
+    static final class MatchHandlerAndObjectEquals extends MessageCompare {
+        @Override
+        public boolean compareMessage(Message m, Handler h, int what, Object object, Runnable r,
+                long when) {
+            if (m.target == h && (object == null || object.equals(m.obj))) {
+                return true;
+            }
+            return false;
+        }
+    }
+    static final MatchHandlerAndObjectEquals sMatchHandlerAndObjectEquals =
+            new MatchHandlerAndObjectEquals();
+
+    /**
+     * Matches all messages.
+     *
+     * @hide
+     */
+    public static final class MatchAllMessages extends MessageCompare {
+        @Override
+        public boolean compareMessage(Message m, Handler h, int what, Object object, Runnable r,
+                long when) {
+            return true;
+        }
+    }
+    static final MatchAllMessages sMatchAllMessages = new MatchAllMessages();
+
+    /**
+     * Matches all messages whose when is greater than the when parameter passed in.
+     */
+    static final class MatchAllFutureMessages extends MessageCompare {
+        @Override
+        public boolean compareMessage(Message m, Handler h, int what, Object object, Runnable r,
+                long when) {
+            return m.when > when;
+        }
+    }
+    static final MatchAllFutureMessages sMatchAllFutureMessages =
+            new MatchAllFutureMessages();
+
+    /**
+     * For use with removeSyncBarrier. Matches the barrier with passed token.
+     */
+    static final class MatchBarrierToken extends MessageCompare {
+        final int mBarrierToken;
+
+        MatchBarrierToken(int token) {
+            mBarrierToken = token;
+        }
+
+        @Override
+        public boolean compareMessage(Message m, Handler h, int what, Object object, Runnable r,
+                long when) {
+            return m.target == null && m.arg1 == mBarrierToken;
+        }
+    }
+
+    /**
+     * Matches any messages that come at or before when.
+     */
+    static final class MatchDeliverableMessages extends MessageCompare {
+        @Override
+        public boolean compareMessage(Message m, Handler h, int what, Object object, Runnable r,
+                long when) {
+            return m.when <= when;
+        }
+    }
+    static final MatchDeliverableMessages sMatchDeliverableMessages =
+            new MatchDeliverableMessages();
 }

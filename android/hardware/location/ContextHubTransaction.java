@@ -16,16 +16,18 @@
 package android.hardware.location;
 
 import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.SystemApi;
+import android.chre.flags.Flags;
 import android.os.Handler;
 import android.os.HandlerExecutor;
-
-import com.android.internal.util.Preconditions;
+import android.util.Log;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -50,41 +52,59 @@ public class ContextHubTransaction<T> {
 
     /**
      * Constants describing the type of a transaction through the Context Hub Service.
-     * {@hide}
+     *
+     * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "TYPE_" }, value = {
-            TYPE_LOAD_NANOAPP,
-            TYPE_UNLOAD_NANOAPP,
-            TYPE_ENABLE_NANOAPP,
-            TYPE_DISABLE_NANOAPP,
-            TYPE_QUERY_NANOAPPS
-    })
-    public @interface Type { }
+    @IntDef(
+            prefix = {"TYPE_"},
+            value = {
+                TYPE_LOAD_NANOAPP,
+                TYPE_UNLOAD_NANOAPP,
+                TYPE_ENABLE_NANOAPP,
+                TYPE_DISABLE_NANOAPP,
+                TYPE_QUERY_NANOAPPS,
+                TYPE_RELIABLE_MESSAGE,
+                TYPE_HUB_MESSAGE_DEFAULT,
+                TYPE_HUB_MESSAGE_REQUIRES_RESPONSE,
+            })
+    public @interface Type {}
 
     public static final int TYPE_LOAD_NANOAPP = 0;
     public static final int TYPE_UNLOAD_NANOAPP = 1;
     public static final int TYPE_ENABLE_NANOAPP = 2;
     public static final int TYPE_DISABLE_NANOAPP = 3;
     public static final int TYPE_QUERY_NANOAPPS = 4;
+    public static final int TYPE_RELIABLE_MESSAGE = 5;
+
+    @FlaggedApi(Flags.FLAG_OFFLOAD_API)
+    public static final int TYPE_HUB_MESSAGE_DEFAULT = 6;
+
+    @FlaggedApi(Flags.FLAG_OFFLOAD_API)
+    public static final int TYPE_HUB_MESSAGE_REQUIRES_RESPONSE = 7;
 
     /**
      * Constants describing the result of a transaction or request through the Context Hub Service.
-     * {@hide}
+     *
+     * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "RESULT_" }, value = {
-            RESULT_SUCCESS,
-            RESULT_FAILED_UNKNOWN,
-            RESULT_FAILED_BAD_PARAMS,
-            RESULT_FAILED_UNINITIALIZED,
-            RESULT_FAILED_BUSY,
-            RESULT_FAILED_AT_HUB,
-            RESULT_FAILED_TIMEOUT,
-            RESULT_FAILED_SERVICE_INTERNAL_FAILURE,
-            RESULT_FAILED_HAL_UNAVAILABLE
-    })
+    @IntDef(
+            prefix = {"RESULT_"},
+            value = {
+                RESULT_SUCCESS,
+                RESULT_FAILED_UNKNOWN,
+                RESULT_FAILED_BAD_PARAMS,
+                RESULT_FAILED_UNINITIALIZED,
+                RESULT_FAILED_BUSY,
+                RESULT_FAILED_AT_HUB,
+                RESULT_FAILED_TIMEOUT,
+                RESULT_FAILED_SERVICE_INTERNAL_FAILURE,
+                RESULT_FAILED_HAL_UNAVAILABLE,
+                RESULT_FAILED_NOT_SUPPORTED,
+            })
     public @interface Result {}
+
     public static final int RESULT_SUCCESS = 0;
     /**
      * Generic failure mode.
@@ -119,6 +139,9 @@ public class ContextHubTransaction<T> {
      */
     public static final int RESULT_FAILED_HAL_UNAVAILABLE = 8;
 
+    /** Failure mode when the operation is not supported. */
+    public static final int RESULT_FAILED_NOT_SUPPORTED = 9;
+
     /**
      * A class describing the response for a ContextHubTransaction.
      *
@@ -136,7 +159,8 @@ public class ContextHubTransaction<T> {
          */
         private R mContents;
 
-        Response(@ContextHubTransaction.Result int result, R contents) {
+        /** @hide */
+        public Response(@ContextHubTransaction.Result int result, R contents) {
             mResult = result;
             mContents = contents;
         }
@@ -199,7 +223,8 @@ public class ContextHubTransaction<T> {
      */
     private boolean mIsResponseSet = false;
 
-    ContextHubTransaction(@Type int type) {
+    /** @hide */
+    public ContextHubTransaction(@Type int type) {
         mTransactionType = type;
     }
 
@@ -222,6 +247,8 @@ public class ContextHubTransaction<T> {
                 return upperCase ? "Disable" : "disable";
             case ContextHubTransaction.TYPE_QUERY_NANOAPPS:
                 return upperCase ? "Query" : "query";
+            case ContextHubTransaction.TYPE_RELIABLE_MESSAGE:
+                return upperCase ? "Reliable Message" : "reliable message";
             default:
                 return upperCase ? "Unknown" : "unknown";
         }
@@ -291,8 +318,8 @@ public class ContextHubTransaction<T> {
             @NonNull ContextHubTransaction.OnCompleteListener<T> listener,
             @NonNull @CallbackExecutor Executor executor) {
         synchronized (this) {
-            Preconditions.checkNotNull(listener, "OnCompleteListener cannot be null");
-            Preconditions.checkNotNull(executor, "Executor cannot be null");
+            Objects.requireNonNull(listener, "OnCompleteListener cannot be null");
+            Objects.requireNonNull(executor, "Executor cannot be null");
             if (mListener != null) {
                 throw new IllegalStateException(
                         "Cannot set ContextHubTransaction listener multiple times");
@@ -329,21 +356,20 @@ public class ContextHubTransaction<T> {
     /**
      * Sets the response of the transaction.
      *
-     * This method should only be invoked by ContextHubManager as a result of a callback from
-     * the Context Hub Service indicating the response from a transaction. This method should not be
+     * <p>This method should only be invoked by ContextHubManager as a result of a callback from the
+     * Context Hub Service indicating the response from a transaction. This method should not be
      * invoked more than once.
      *
      * @param response the response to set
-     *
-     * @throws IllegalStateException if this method is invoked multiple times
      * @throws NullPointerException if the response is null
+     * @hide
      */
-    /* package */ void setResponse(ContextHubTransaction.Response<T> response) {
+    public void setResponse(ContextHubTransaction.Response<T> response) {
         synchronized (this) {
-            Preconditions.checkNotNull(response, "Response cannot be null");
+            Objects.requireNonNull(response, "Response cannot be null");
             if (mIsResponseSet) {
-                throw new IllegalStateException(
-                        "Cannot set response of ContextHubTransaction multiple times");
+              Log.e(TAG, "Cannot set response of ContextHubTransaction multiple times");
+              return;
             }
 
             mResponse = response;

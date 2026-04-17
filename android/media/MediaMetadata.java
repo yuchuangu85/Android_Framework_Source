@@ -15,17 +15,24 @@
  */
 package android.media;
 
+import android.annotation.IntRange;
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.Size;
 import android.annotation.StringDef;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentResolver;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.media.browse.MediaBrowser;
 import android.media.session.MediaController;
+import android.media.session.MediaSession;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.StrictMode;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
@@ -33,8 +40,8 @@ import android.util.SparseArray;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.util.Set;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Contains metadata about an item, such as the title, artist, etc.
@@ -249,16 +256,16 @@ public final class MediaMetadata implements Parcelable {
      * second line for media described by this metadata this should be preferred
      * to other fields if present.
      */
-    public static final String METADATA_KEY_DISPLAY_SUBTITLE
-            = "android.media.metadata.DISPLAY_SUBTITLE";
+    public static final String METADATA_KEY_DISPLAY_SUBTITLE =
+            "android.media.metadata.DISPLAY_SUBTITLE";
 
     /**
      * A description that is suitable for display to the user. When displaying
      * more information for media described by this metadata this should be
      * preferred to other fields if present.
      */
-    public static final String METADATA_KEY_DISPLAY_DESCRIPTION
-            = "android.media.metadata.DISPLAY_DESCRIPTION";
+    public static final String METADATA_KEY_DISPLAY_DESCRIPTION =
+            "android.media.metadata.DISPLAY_DESCRIPTION";
 
     /**
      * An icon or thumbnail that is suitable for display to the user. When
@@ -269,8 +276,8 @@ public final class MediaMetadata implements Parcelable {
      * if it is too large. For higher resolution artwork
      * {@link #METADATA_KEY_DISPLAY_ICON_URI} should be used instead.
      */
-    public static final String METADATA_KEY_DISPLAY_ICON
-            = "android.media.metadata.DISPLAY_ICON";
+    public static final String METADATA_KEY_DISPLAY_ICON =
+            "android.media.metadata.DISPLAY_ICON";
 
     /**
      * A Uri formatted String for an icon or thumbnail that is suitable for
@@ -284,8 +291,8 @@ public final class MediaMetadata implements Parcelable {
      * {@link ContentResolver#EXTRA_SIZE} for retrieving scaled artwork through
      * {@link ContentResolver#openTypedAssetFileDescriptor(Uri, String, Bundle)}.
      */
-    public static final String METADATA_KEY_DISPLAY_ICON_URI
-            = "android.media.metadata.DISPLAY_ICON_URI";
+    public static final String METADATA_KEY_DISPLAY_ICON_URI =
+            "android.media.metadata.DISPLAY_ICON_URI";
 
     /**
      * A String key for identifying the content. This value is specific to the
@@ -319,8 +326,8 @@ public final class MediaMetadata implements Parcelable {
      * <li>{@link MediaDescription#BT_FOLDER_TYPE_YEARS}</li>
      * </ul>
      */
-    public static final String METADATA_KEY_BT_FOLDER_TYPE
-            = "android.media.metadata.BT_FOLDER_TYPE";
+    public static final String METADATA_KEY_BT_FOLDER_TYPE =
+            "android.media.metadata.BT_FOLDER_TYPE";
 
     private static final @TextKey String[] PREFERRED_DESCRIPTION_ORDER = {
             METADATA_KEY_TITLE,
@@ -414,14 +421,26 @@ public final class MediaMetadata implements Parcelable {
     }
 
     private final Bundle mBundle;
+    private final int mBitmapDimensionLimit;
     private MediaDescription mDescription;
 
-    private MediaMetadata(Bundle bundle) {
+    private MediaMetadata(Bundle bundle, int bitmapDimensionLimit) {
         mBundle = new Bundle(bundle);
+        mBitmapDimensionLimit = bitmapDimensionLimit;
     }
 
     private MediaMetadata(Parcel in) {
-        mBundle = Bundle.setDefusable(in.readBundle(), true);
+        mBundle = in.readBundle();
+        mBitmapDimensionLimit = Math.max(in.readInt(), 1);
+
+        // Proactively read bitmaps from known bitmap keys, to ensure that they're unparceled and
+        // added to mBundle's internal map. This ensures that the GC accounts for the underlying
+        // allocations, which it does not do if the bitmaps remain parceled (see b/215820910).
+        // TODO(b/223225532): Remove this workaround once the underlying allocations are properly
+        // tracked in NativeAllocationsRegistry.
+        getBitmap(METADATA_KEY_ART);
+        getBitmap(METADATA_KEY_ALBUM_ART);
+        getBitmap(METADATA_KEY_DISPLAY_ICON);
     }
 
     /**
@@ -442,6 +461,7 @@ public final class MediaMetadata implements Parcelable {
      * @param key The key the value is stored under
      * @return a CharSequence value, or null
      */
+    @Nullable
     public CharSequence getText(@TextKey String key) {
         return mBundle.getCharSequence(key);
     }
@@ -455,6 +475,7 @@ public final class MediaMetadata implements Parcelable {
      * @param key The key the value is stored under
      * @return a String value, or null
      */
+    @Nullable
     public String getString(@TextKey String key) {
         CharSequence text = getText(key);
         if (text != null) {
@@ -481,12 +502,13 @@ public final class MediaMetadata implements Parcelable {
      * @param key The key the value is stored under
      * @return A {@link Rating} or null
      */
+    @Nullable
     public Rating getRating(@RatingKey String key) {
         Rating rating = null;
         try {
-            rating = mBundle.getParcelable(key);
+            rating = mBundle.getParcelable(key, android.media.Rating.class);
         } catch (Exception e) {
-            // ignore, value was not a bitmap
+            // ignore, value was not a rating
             Log.w(TAG, "Failed to retrieve a key as Rating.", e);
         }
         return rating;
@@ -499,15 +521,33 @@ public final class MediaMetadata implements Parcelable {
      * @param key The key the value is stored under
      * @return A {@link Bitmap} or null
      */
+    @Nullable
     public Bitmap getBitmap(@BitmapKey String key) {
         Bitmap bmp = null;
         try {
-            bmp = mBundle.getParcelable(key);
+            bmp = mBundle.getParcelable(key, android.graphics.Bitmap.class);
         } catch (Exception e) {
             // ignore, value was not a bitmap
             Log.w(TAG, "Failed to retrieve a key as Bitmap.", e);
         }
         return bmp;
+    }
+
+    /**
+     * Gets the width/height limit (in pixels) for the bitmaps when this metadata was created.
+     * This method always returns a positive value.
+     * <p>
+     * If it returns {@link Integer#MAX_VALUE}, then no scaling down was applied to the bitmaps
+     * when this metadata was created.
+     * <p>
+     * If it returns another positive value, then all the bitmaps in this metadata has width/height
+     * not greater than this limit. Bitmaps may have been scaled down according to the limit.
+     * <p>
+     *
+     * @see Builder#setBitmapDimensionLimit(int)
+     */
+    public @IntRange(from = 1) int getBitmapDimensionLimit() {
+        return mBitmapDimensionLimit;
     }
 
     @Override
@@ -518,6 +558,7 @@ public final class MediaMetadata implements Parcelable {
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeBundle(mBundle);
+        dest.writeInt(mBitmapDimensionLimit);
     }
 
     /**
@@ -550,30 +591,9 @@ public final class MediaMetadata implements Parcelable {
 
         String mediaId = getString(METADATA_KEY_MEDIA_ID);
 
-        CharSequence[] text = new CharSequence[3];
+        CharSequence[] text = getTitleSubtitleAndDescription();
         Bitmap icon = null;
         Uri iconUri = null;
-
-        // First handle the case where display data is set already
-        CharSequence displayText = getText(METADATA_KEY_DISPLAY_TITLE);
-        if (!TextUtils.isEmpty(displayText)) {
-            // If they have a display title use only display data, otherwise use
-            // our best bets
-            text[0] = displayText;
-            text[1] = getText(METADATA_KEY_DISPLAY_SUBTITLE);
-            text[2] = getText(METADATA_KEY_DISPLAY_DESCRIPTION);
-        } else {
-            // Use whatever fields we can
-            int textIndex = 0;
-            int keyIndex = 0;
-            while (textIndex < text.length && keyIndex < PREFERRED_DESCRIPTION_ORDER.length) {
-                CharSequence next = getText(PREFERRED_DESCRIPTION_ORDER[keyIndex++]);
-                if (!TextUtils.isEmpty(next)) {
-                    // Fill in the next empty bit of text
-                    text[textIndex++] = next;
-                }
-            }
-        }
 
         // Get the best art bitmap we can find
         for (int i = 0; i < PREFERRED_BITMAP_ORDER.length; i++) {
@@ -619,6 +639,19 @@ public final class MediaMetadata implements Parcelable {
     }
 
     /**
+     * Returns a description string of this metadata.
+     *
+     * Note: this is for MediaSession.setMetadata() to get the description of the
+     * metadata, and it matches the previous beahvior as MediaDescription#toString()
+     *
+     * @hide
+     */
+    public String getDescriptionString() {
+        CharSequence[] text = getTitleSubtitleAndDescription();
+        return text[0] + ", " + text[1] + ", " + text[2];
+    }
+
+    /**
      * Helper for getting the String key used by {@link MediaMetadata} from the
      * integer key that {@link MediaMetadataEditor} uses.
      *
@@ -626,11 +659,13 @@ public final class MediaMetadata implements Parcelable {
      * @return The key used by this class or null if no mapping exists
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @Nullable
     public static String getKeyFromMetadataEditorKey(int editorKey) {
         return EDITOR_KEY_MAPPING.get(editorKey, null);
     }
 
-    public static final Parcelable.Creator<MediaMetadata> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<MediaMetadata> CREATOR =
             new Parcelable.Creator<MediaMetadata>() {
                 @Override
                 public MediaMetadata createFromParcel(Parcel in) {
@@ -709,11 +744,41 @@ public final class MediaMetadata implements Parcelable {
     }
 
     /**
+     * Returns title, subtitle, description in this metadata
+     */
+    @NonNull @Size(3)
+    private CharSequence[] getTitleSubtitleAndDescription() {
+        CharSequence[] text = new CharSequence[3];
+        // First handle the case where display data is set already
+        CharSequence displayText = getText(METADATA_KEY_DISPLAY_TITLE);
+        if (!TextUtils.isEmpty(displayText)) {
+            // If they have a display title use only display data, otherwise use
+            // our best bets
+            text[0] = displayText;
+            text[1] = getText(METADATA_KEY_DISPLAY_SUBTITLE);
+            text[2] = getText(METADATA_KEY_DISPLAY_DESCRIPTION);
+        } else {
+            // Use whatever fields we can
+            int textIndex = 0;
+            int keyIndex = 0;
+            while (textIndex < text.length && keyIndex < PREFERRED_DESCRIPTION_ORDER.length) {
+                CharSequence next = getText(PREFERRED_DESCRIPTION_ORDER[keyIndex++]);
+                if (!TextUtils.isEmpty(next)) {
+                    // Fill in the next empty bit of text
+                    text[textIndex++] = next;
+                }
+            }
+        }
+        return text;
+    }
+
+    /**
      * Use to build MediaMetadata objects. The system defined metadata keys must
      * use the appropriate data type.
      */
     public static final class Builder {
         private final Bundle mBundle;
+        private int mBitmapDimensionLimit = Integer.MAX_VALUE;
 
         /**
          * Create an empty Builder. Any field that should be included in the
@@ -732,29 +797,7 @@ public final class MediaMetadata implements Parcelable {
          */
         public Builder(MediaMetadata source) {
             mBundle = new Bundle(source.mBundle);
-        }
-
-        /**
-         * Create a Builder using a {@link MediaMetadata} instance to set
-         * initial values, but replace bitmaps with a scaled down copy if they
-         * are larger than maxBitmapSize.
-         *
-         * @param source The original metadata to copy.
-         * @param maxBitmapSize The maximum height/width for bitmaps contained
-         *            in the metadata.
-         * @hide
-         */
-        public Builder(MediaMetadata source, int maxBitmapSize) {
-            this(source);
-            for (String key : mBundle.keySet()) {
-                Object value = mBundle.get(key);
-                if (value != null && value instanceof Bitmap) {
-                    Bitmap bmp = (Bitmap) value;
-                    if (bmp.getHeight() > maxBitmapSize || bmp.getWidth() > maxBitmapSize) {
-                        putBitmap(key, scaleBitmap(bmp, maxBitmapSize));
-                    }
-                }
-            }
+            mBitmapDimensionLimit = source.mBitmapDimensionLimit;
         }
 
         /**
@@ -783,7 +826,8 @@ public final class MediaMetadata implements Parcelable {
          * @param value The CharSequence value to store
          * @return The Builder to allow chaining
          */
-        public Builder putText(@TextKey String key, CharSequence value) {
+        public Builder putText(
+                    @TextKey String key, @Nullable CharSequence value) {
             if (METADATA_KEYS_TYPE.containsKey(key)) {
                 if (METADATA_KEYS_TYPE.get(key) != METADATA_TYPE_TEXT) {
                     throw new IllegalArgumentException("The " + key
@@ -825,7 +869,7 @@ public final class MediaMetadata implements Parcelable {
          * @param value The String value to store
          * @return The Builder to allow chaining
          */
-        public Builder putString(@TextKey String key, String value) {
+        public Builder putString(@TextKey String key, @Nullable String value) {
             if (METADATA_KEYS_TYPE.containsKey(key)) {
                 if (METADATA_KEYS_TYPE.get(key) != METADATA_TYPE_TEXT) {
                     throw new IllegalArgumentException("The " + key
@@ -876,7 +920,8 @@ public final class MediaMetadata implements Parcelable {
          * @param value The Rating value to store
          * @return The Builder to allow chaining
          */
-        public Builder putRating(@RatingKey String key, Rating value) {
+        public Builder putRating(
+                    @RatingKey String key, @Nullable Rating value) {
             if (METADATA_KEYS_TYPE.containsKey(key)) {
                 if (METADATA_KEYS_TYPE.get(key) != METADATA_TYPE_RATING) {
                     throw new IllegalArgumentException("The " + key
@@ -897,16 +942,17 @@ public final class MediaMetadata implements Parcelable {
          * <li>{@link #METADATA_KEY_DISPLAY_ICON}</li>
          * </ul>
          * <p>
-         * Large bitmaps may be scaled down by the system when
-         * {@link android.media.session.MediaSession#setMetadata} is called.
-         * To pass full resolution images {@link Uri Uris} should be used with
+         * Large bitmaps may be scaled down by the system with
+         * {@link Builder#setBitmapDimensionLimit(int)} when {@link MediaSession#setMetadata}
+         * is called. To pass full resolution images {@link Uri Uris} should be used with
          * {@link #putString}.
          *
          * @param key The key for referencing this value
          * @param value The Bitmap to store
          * @return The Builder to allow chaining
          */
-        public Builder putBitmap(@BitmapKey String key, Bitmap value) {
+        public Builder putBitmap(
+                    @BitmapKey String key, @Nullable Bitmap value) {
             if (METADATA_KEYS_TYPE.containsKey(key)) {
                 if (METADATA_KEYS_TYPE.get(key) != METADATA_TYPE_BITMAP) {
                     throw new IllegalArgumentException("The " + key
@@ -918,22 +964,59 @@ public final class MediaMetadata implements Parcelable {
         }
 
         /**
+         * Sets the maximum width/height (in pixels) for the bitmaps in the metadata.
+         * Bitmaps will be replaced with scaled down copies if their width (or height) is
+         * larger than {@code bitmapDimensionLimit}.
+         * <p>
+         * In order to unset the limit, pass {@link Integer#MAX_VALUE} as
+         * {@code bitmapDimensionLimit}.
+         *
+         * @param bitmapDimensionLimit The maximum width/height (in pixels) for bitmaps
+         *                             contained in the metadata. Non-positive values are ignored.
+         *                             Pass {@link Integer#MAX_VALUE} to unset the limit.
+         */
+        @NonNull
+        public Builder setBitmapDimensionLimit(@IntRange(from = 1) int bitmapDimensionLimit) {
+            if (bitmapDimensionLimit > 0) {
+                mBitmapDimensionLimit = bitmapDimensionLimit;
+            } else {
+                Log.w(TAG, "setBitmapDimensionLimit(): Ignoring non-positive bitmapDimensionLimit: "
+                        + bitmapDimensionLimit);
+            }
+            return this;
+        }
+
+        /**
          * Creates a {@link MediaMetadata} instance with the specified fields.
          *
          * @return The new MediaMetadata instance
          */
         public MediaMetadata build() {
-            return new MediaMetadata(mBundle);
+            if (mBitmapDimensionLimit != Integer.MAX_VALUE) {
+                for (String key : mBundle.keySet()) {
+                    Object value = mBundle.get(key);
+                    if (value instanceof Bitmap) {
+                        Bitmap bmp = (Bitmap) value;
+                        if (bmp.getHeight() > mBitmapDimensionLimit
+                                || bmp.getWidth() > mBitmapDimensionLimit) {
+                            putBitmap(key, scaleBitmap(bmp, mBitmapDimensionLimit));
+                        }
+                    }
+                }
+            }
+            return new MediaMetadata(mBundle, mBitmapDimensionLimit);
         }
 
-        private Bitmap scaleBitmap(Bitmap bmp, int maxSize) {
-            float maxSizeF = maxSize;
-            float widthScale = maxSizeF / bmp.getWidth();
-            float heightScale = maxSizeF / bmp.getHeight();
+        private Bitmap scaleBitmap(Bitmap bmp, int maxDimension) {
+            float maxDimensionF = maxDimension;
+            float widthScale = maxDimensionF / bmp.getWidth();
+            float heightScale = maxDimensionF / bmp.getHeight();
             float scale = Math.min(widthScale, heightScale);
             int height = (int) (bmp.getHeight() * scale);
             int width = (int) (bmp.getWidth() * scale);
-            return Bitmap.createScaledBitmap(bmp, width, height, true);
+            StrictMode.noteSlowCall("Downscaling oversized MediaMetadata Bitmap");
+            // Downscale directly to ashmem in anticipation of parceling.
+            return Bitmap.createScaledAshmemBitmap(bmp, width, height, true);
         }
     }
 }

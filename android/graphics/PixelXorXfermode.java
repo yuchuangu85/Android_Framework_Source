@@ -20,6 +20,7 @@ package android.graphics;
  * @removed
  */
 @Deprecated
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class PixelXorXfermode extends Xfermode {
 
     public PixelXorXfermode(int opColor) {

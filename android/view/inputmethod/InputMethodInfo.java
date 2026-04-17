@@ -16,31 +16,47 @@
 
 package android.view.inputmethod;
 
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SuppressLint;
+import android.annotation.SystemApi;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.Resources.NotFoundException;
 import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
 import android.graphics.drawable.Drawable;
+import android.icu.util.ULocale;
+import android.inputmethodservice.InputMethodService;
+import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.Printer;
 import android.util.Slog;
 import android.util.Xml;
 import android.view.inputmethod.InputMethodSubtype.InputMethodSubtypeBuilder;
 
+import com.android.internal.annotations.VisibleForTesting;
+
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -57,9 +73,71 @@ import java.util.List;
  * @attr ref android.R.styleable#InputMethod_settingsActivity
  * @attr ref android.R.styleable#InputMethod_isDefault
  * @attr ref android.R.styleable#InputMethod_supportsSwitchingToNextInputMethod
+ * @attr ref android.R.styleable#InputMethod_supportsInlineSuggestions
+ * @attr ref android.R.styleable#InputMethod_supportsInlineSuggestionsWithTouchExploration
+ * @attr ref android.R.styleable#InputMethod_suppressesSpellChecker
+ * @attr ref android.R.styleable#InputMethod_showInInputMethodPicker
+ * @attr ref android.R.styleable#InputMethod_configChanges
  */
 public final class InputMethodInfo implements Parcelable {
+
+    /**
+     * {@link Intent#getAction() Intent action} for IME that
+     * {@link #supportsStylusHandwriting() supports stylus handwriting}.
+     *
+     * @see #createStylusHandwritingSettingsActivityIntent()
+     */
+    public static final String ACTION_STYLUS_HANDWRITING_SETTINGS =
+            "android.view.inputmethod.action.STYLUS_HANDWRITING_SETTINGS";
+
+    /**
+     * {@link Intent#getAction() Intent action} for the IME language settings.
+     *
+     * @see #createImeLanguageSettingsActivityIntent()
+     */
+    public static final String ACTION_IME_LANGUAGE_SETTINGS =
+            "android.view.inputmethod.action.IME_LANGUAGE_SETTINGS";
+
+    /**
+     * Maximal length of a component name
+     * @hide
+     */
+    @TestApi
+    public static final int COMPONENT_NAME_MAX_LENGTH = 1000;
+
+    /**
+     * The maximum amount of IMEs that are loaded per package (in order).
+     * If a package contains more IMEs, they will be ignored and cannot be enabled.
+     * @hide
+     */
+    @TestApi
+    @SuppressLint("MinMaxConstant")
+    public static final int MAX_IMES_PER_PACKAGE = 20;
+
+    /**
+     * The maximum number of subtypes per IME.
+     */
+    static final int MAX_SUBTYPES_PER_IME = 1500;
+
     static final String TAG = "InputMethodInfo";
+
+    /**
+     * The maximum allowed size in bytes for an input method's metadata XML file
+     * (typically {@code inputmethod.xml} referenced by
+     * {@link android.inputmethodservice.InputMethod#SERVICE_META_DATA}).
+     * This limit is enforced to prevent {@link OutOfMemoryError OutOfMemoryErrors}
+     * when the Android system parses input method manifests.
+     * <p>
+     * An excessively large metadata file, whether due to misconfiguration or
+     * malicious intent, could consume an unreasonable amount of memory in the
+     * system process, potentially leading to instability or denial of service.
+     * </p>
+     * <p>
+     * The current recommended value is 200 KB (200 * 1024 bytes), which is
+     * significantly larger than typical input method metadata files.
+     * </p>
+     */
+    private static final int MAX_METADATA_SIZE_BYTES = 200 * 1024; // 200 KB
 
     /**
      * The Service that implements this input method component.
@@ -70,6 +148,11 @@ public final class InputMethodInfo implements Parcelable {
      * IME only supports VR mode.
      */
     final boolean mIsVrOnly;
+
+    /**
+     * IME only supports virtual devices.
+     */
+    final boolean mIsVirtualDeviceOnly;
 
     /**
      * The unique string Id to identify the input method.  This is generated
@@ -84,6 +167,13 @@ public final class InputMethodInfo implements Parcelable {
     final String mSettingsActivityName;
 
     /**
+     * The input method language settings activity's name, used to
+     * launch the language settings activity of this input method.
+     */
+    @Nullable
+    private final String mLanguageSettingsActivityName;
+
+    /**
      * The resource in the input method's .apk that holds a boolean indicating
      * whether it should be considered the default input method for this
      * system.  This is a resource ID instead of the final value so that it
@@ -94,6 +184,7 @@ public final class InputMethodInfo implements Parcelable {
     /**
      * An array-like container of the subtypes.
      */
+    @UnsupportedAppUsage
     private final InputMethodSubtypeArray mSubtypes;
 
     private final boolean mIsAuxIme;
@@ -107,6 +198,46 @@ public final class InputMethodInfo implements Parcelable {
      * The flag whether this IME supports ways to switch to a next input method (e.g. globe key.)
      */
     private final boolean mSupportsSwitchingToNextInputMethod;
+
+    /**
+     * The flag whether this IME supports inline suggestions.
+     */
+    private final boolean mInlineSuggestionsEnabled;
+
+    /**
+     * The flag whether this IME supports inline suggestions when touch exploration is enabled.
+     */
+    private final boolean mSupportsInlineSuggestionsWithTouchExploration;
+
+    /**
+     * The flag whether this IME suppresses spell checker.
+     */
+    private final boolean mSuppressesSpellChecker;
+
+    /**
+     * The flag whether this IME should be shown as an option in the IME picker.
+     */
+    private final boolean mShowInInputMethodPicker;
+
+    /**
+     * The flag for configurations IME assumes the responsibility for handling in
+     * {@link InputMethodService#onConfigurationChanged(Configuration)}}.
+     */
+    private final int mHandledConfigChanges;
+
+    /**
+     * The flag whether this IME supports Handwriting using stylus input.
+     */
+    private final boolean mSupportsStylusHandwriting;
+
+    /** The flag whether this IME supports connectionless stylus handwriting sessions. */
+    private final boolean mSupportsConnectionlessStylusHandwriting;
+
+    /**
+     * The stylus handwriting setting activity's name, used by the system settings to
+     * launch the stylus handwriting specific setting activity of this input method.
+     */
+    private final String mStylusHandwritingSettingsActivityAttr;
 
     /**
      * @param service the {@link ResolveInfo} corresponds in which the IME is implemented.
@@ -150,23 +281,30 @@ public final class InputMethodInfo implements Parcelable {
         mId = computeId(service);
         boolean isAuxIme = true;
         boolean supportsSwitchingToNextInputMethod = false; // false as default
+        boolean inlineSuggestionsEnabled = false; // false as default
+        boolean supportsInlineSuggestionsWithTouchExploration = false; // false as default
+        boolean suppressesSpellChecker = false; // false as default
+        boolean showInInputMethodPicker = true; // true as default
         mForceDefault = false;
 
         PackageManager pm = context.getPackageManager();
         String settingsActivityComponent = null;
+        String languageSettingsActivityComponent = null;
+        String stylusHandwritingSettingsActivity = null;
         boolean isVrOnly;
+        boolean isVirtualDeviceOnly;
         int isDefaultResId = 0;
 
         XmlResourceParser parser = null;
         final ArrayList<InputMethodSubtype> subtypes = new ArrayList<InputMethodSubtype>();
         try {
+            Resources res = pm.getResourcesForApplication(si.applicationInfo);
+            validateXmlMetaData(si, res);
             parser = si.loadXmlMetaData(pm, InputMethod.SERVICE_META_DATA);
             if (parser == null) {
                 throw new XmlPullParserException("No "
                         + InputMethod.SERVICE_META_DATA + " meta-data");
             }
-
-            Resources res = pm.getResourcesForApplication(si.applicationInfo);
 
             AttributeSet attrs = Xml.asAttributeSet(parser);
 
@@ -181,35 +319,81 @@ public final class InputMethodInfo implements Parcelable {
                         "Meta-data does not start with input-method tag");
             }
 
-            TypedArray sa = res.obtainAttributes(attrs,
-                    com.android.internal.R.styleable.InputMethod);
-            settingsActivityComponent = sa.getString(
-                    com.android.internal.R.styleable.InputMethod_settingsActivity);
-            isVrOnly = sa.getBoolean(com.android.internal.R.styleable.InputMethod_isVrOnly, false);
-            isDefaultResId = sa.getResourceId(
-                    com.android.internal.R.styleable.InputMethod_isDefault, 0);
-            supportsSwitchingToNextInputMethod = sa.getBoolean(
-                    com.android.internal.R.styleable.InputMethod_supportsSwitchingToNextInputMethod,
-                    false);
-            sa.recycle();
+            final MetadataReadBytesTracker readTracker = new MetadataReadBytesTracker();
+            try (TypedArrayWrapper sa = TypedArrayWrapper.createForMethod(
+                    res.obtainAttributes(attrs, com.android.internal.R.styleable.InputMethod),
+                    readTracker)) {
+                settingsActivityComponent = sa.getString(
+                        com.android.internal.R.styleable.InputMethod_settingsActivity);
+                languageSettingsActivityComponent = sa.getString(
+                        com.android.internal.R.styleable.InputMethod_languageSettingsActivity);
+                isVrOnly = sa.getBoolean(com.android.internal.R.styleable.InputMethod_isVrOnly,
+                        false);
+                isVirtualDeviceOnly = sa.getBoolean(
+                        com.android.internal.R.styleable.InputMethod_isVirtualDeviceOnly, false);
+                isDefaultResId = sa.getResourceId(
+                        com.android.internal.R.styleable.InputMethod_isDefault, 0);
+                supportsSwitchingToNextInputMethod = sa.getBoolean(
+                        com.android.internal.R.styleable
+                                .InputMethod_supportsSwitchingToNextInputMethod,
+                        false);
+                inlineSuggestionsEnabled = sa.getBoolean(
+                        com.android.internal.R.styleable.InputMethod_supportsInlineSuggestions,
+                        false);
+                supportsInlineSuggestionsWithTouchExploration = sa.getBoolean(
+                        com.android.internal.R.styleable
+                                .InputMethod_supportsInlineSuggestionsWithTouchExploration, false);
+                suppressesSpellChecker = sa.getBoolean(
+                        com.android.internal.R.styleable.InputMethod_suppressesSpellChecker, false);
+                showInInputMethodPicker = sa.getBoolean(
+                        com.android.internal.R.styleable.InputMethod_showInInputMethodPicker, true);
+                mHandledConfigChanges = sa.getInt(
+                        com.android.internal.R.styleable.InputMethod_configChanges, 0);
+                mSupportsStylusHandwriting = sa.getBoolean(
+                        com.android.internal.R.styleable.InputMethod_supportsStylusHandwriting,
+                        false);
+                mSupportsConnectionlessStylusHandwriting = sa.getBoolean(
+                        com.android.internal.R.styleable
+                                .InputMethod_supportsConnectionlessStylusHandwriting, false);
+                stylusHandwritingSettingsActivity = sa.getString(
+                        com.android.internal.R.styleable
+                                .InputMethod_stylusHandwritingSettingsActivity);
+            }
 
             final int depth = parser.getDepth();
             // Parse all subtypes
             while (((type = parser.next()) != XmlPullParser.END_TAG || parser.getDepth() > depth)
                     && type != XmlPullParser.END_DOCUMENT) {
-                if (type == XmlPullParser.START_TAG) {
-                    nodeName = parser.getName();
-                    if (!"subtype".equals(nodeName)) {
-                        throw new XmlPullParserException(
-                                "Meta-data in input-method does not start with subtype tag");
-                    }
-                    final TypedArray a = res.obtainAttributes(
-                            attrs, com.android.internal.R.styleable.InputMethod_Subtype);
-                    final InputMethodSubtype subtype = new InputMethodSubtypeBuilder()
+                if (type != XmlPullParser.START_TAG) {
+                    continue;
+                }
+                nodeName = parser.getName();
+                if (!"subtype".equals(nodeName)) {
+                    throw new XmlPullParserException(
+                            "Meta-data in input-method does not start with subtype tag");
+                }
+
+                final InputMethodSubtype subtype;
+                try (TypedArrayWrapper a = TypedArrayWrapper.createForSubtype(
+                        res.obtainAttributes(attrs,
+                                com.android.internal.R.styleable.InputMethod_Subtype),
+                        readTracker)) {
+                    String pkLanguageTag = a.getString(com.android.internal.R.styleable
+                            .InputMethod_Subtype_physicalKeyboardHintLanguageTag);
+                    String pkLayoutType = a.getString(com.android.internal.R.styleable
+                            .InputMethod_Subtype_physicalKeyboardHintLayoutType);
+                    String subtypeShortLabel = a.getString(com.android.internal.R.styleable
+                            .InputMethod_Subtype_shortLabel);
+                    subtype = new InputMethodSubtypeBuilder()
                             .setSubtypeNameResId(a.getResourceId(com.android.internal.R.styleable
                                     .InputMethod_Subtype_label, 0))
+                            .setSubtypeShortLabel(
+                                    subtypeShortLabel == null ? "" : subtypeShortLabel)
                             .setSubtypeIconResId(a.getResourceId(com.android.internal.R.styleable
                                     .InputMethod_Subtype_icon, 0))
+                            .setPhysicalKeyboardHint(
+                                    pkLanguageTag == null ? null : new ULocale(pkLanguageTag),
+                                    pkLayoutType == null ? "" : pkLayoutType)
                             .setLanguageTag(a.getString(com.android.internal.R.styleable
                                     .InputMethod_Subtype_languageTag))
                             .setSubtypeLocale(a.getString(com.android.internal.R.styleable
@@ -227,11 +411,11 @@ public final class InputMethodInfo implements Parcelable {
                                     .InputMethod_Subtype_subtypeId, 0 /* use Arrays.hashCode */))
                             .setIsAsciiCapable(a.getBoolean(com.android.internal.R.styleable
                                     .InputMethod_Subtype_isAsciiCapable, false)).build();
-                    if (!subtype.isAuxiliary()) {
-                        isAuxIme = false;
-                    }
-                    subtypes.add(subtype);
                 }
+                if (!subtype.isAuxiliary()) {
+                    isAuxIme = false;
+                }
+                subtypes.add(subtype);
             }
         } catch (NameNotFoundException | IndexOutOfBoundsException | NumberFormatException e) {
             throw new XmlPullParserException(
@@ -258,21 +442,132 @@ public final class InputMethodInfo implements Parcelable {
         }
         mSubtypes = new InputMethodSubtypeArray(subtypes);
         mSettingsActivityName = settingsActivityComponent;
+        mLanguageSettingsActivityName = languageSettingsActivityComponent;
+        mStylusHandwritingSettingsActivityAttr = stylusHandwritingSettingsActivity;
         mIsDefaultResId = isDefaultResId;
         mIsAuxIme = isAuxIme;
         mSupportsSwitchingToNextInputMethod = supportsSwitchingToNextInputMethod;
+        mInlineSuggestionsEnabled = inlineSuggestionsEnabled;
+        mSupportsInlineSuggestionsWithTouchExploration =
+                supportsInlineSuggestionsWithTouchExploration;
+        mSuppressesSpellChecker = suppressesSpellChecker;
+        mShowInInputMethodPicker = showInInputMethodPicker;
         mIsVrOnly = isVrOnly;
+        mIsVirtualDeviceOnly = isVirtualDeviceOnly;
+    }
+
+    /**
+     * Validates the XML metadata for an input method service to prevent OOM errors
+     * from excessively large XML files.
+     *
+     * @param si The ServiceInfo of the input method.
+     * @param res The input method app resources.
+     * @throws IOException if there's an issue reading the resource.
+     * @throws NameNotFoundException if the application's resources cannot be found.
+     * @throws XmlPullParserException if the metadata file exceeds the size limit.
+     */
+    private static void validateXmlMetaData(@NonNull ServiceInfo si, @NonNull Resources res)
+            throws IOException, NameNotFoundException, XmlPullParserException {
+        final Bundle metaData = si.metaData;
+        if (metaData == null) {
+            // No metadata, skip validation.
+            return;
+        }
+        final int resourceId = metaData.getInt(InputMethod.SERVICE_META_DATA);
+        if (resourceId == 0) {
+            // No metadata, skip validation.
+            return;
+        }
+
+        if (si.name != null && si.name.length() > COMPONENT_NAME_MAX_LENGTH) {
+            throw new XmlPullParserException(
+                    "Input method name exceeds " + COMPONENT_NAME_MAX_LENGTH + " characters");
+        }
+
+        // Validate file size using InputStream.skip()
+        long totalBytesSkipped = 0;
+        // Loop to ensure we skip the required number of bytes, as a single
+        // call to skip() is not guaranteed to skip the full amount.
+        try (InputStream is = res.openRawResource(resourceId)) {
+            while (totalBytesSkipped < MAX_METADATA_SIZE_BYTES) {
+                long bytesSkipped = is.skip(MAX_METADATA_SIZE_BYTES - totalBytesSkipped);
+                if (bytesSkipped <= 0) {
+                    // end of the stream.
+                    break;
+                }
+                totalBytesSkipped += bytesSkipped;
+            }
+
+            // If we successfully skipped exactly MAX_METADATA_SIZE_BYTES
+            if (totalBytesSkipped == MAX_METADATA_SIZE_BYTES) {
+                // try to read one more byte.
+                if (is.read() != -1) {
+                    throw new XmlPullParserException(
+                            "Input method metadata exceeds maximum allowed limit of 200KB for "
+                                    + si.packageName + ". InputMethod will not be loaded. ");
+                }
+            }
+        }
+    }
+
+    /**
+     * @hide
+     */
+    public InputMethodInfo(@NonNull InputMethodInfo source,
+            @NonNull List<InputMethodSubtype> additionalSubtypes) {
+        mId = source.mId;
+        mSettingsActivityName = source.mSettingsActivityName;
+        mLanguageSettingsActivityName = source.mLanguageSettingsActivityName;
+        mIsDefaultResId = source.mIsDefaultResId;
+        mIsAuxIme = source.mIsAuxIme;
+        mSupportsSwitchingToNextInputMethod = source.mSupportsSwitchingToNextInputMethod;
+        mInlineSuggestionsEnabled = source.mInlineSuggestionsEnabled;
+        mSupportsInlineSuggestionsWithTouchExploration =
+                source.mSupportsInlineSuggestionsWithTouchExploration;
+        mSuppressesSpellChecker = source.mSuppressesSpellChecker;
+        mShowInInputMethodPicker = source.mShowInInputMethodPicker;
+        mIsVrOnly = source.mIsVrOnly;
+        mIsVirtualDeviceOnly = source.mIsVirtualDeviceOnly;
+        mService = source.mService;
+        if (additionalSubtypes.isEmpty()) {
+            mSubtypes = source.mSubtypes;
+        } else {
+            final ArrayList<InputMethodSubtype> subtypes = source.mSubtypes.toList();
+            final int additionalSubtypeCount = additionalSubtypes.size();
+            for (int i = 0; i < additionalSubtypeCount; ++i) {
+                final InputMethodSubtype additionalSubtype = additionalSubtypes.get(i);
+                if (!subtypes.contains(additionalSubtype)) {
+                    subtypes.add(additionalSubtype);
+                }
+            }
+            mSubtypes = new InputMethodSubtypeArray(subtypes);
+        }
+        mHandledConfigChanges = source.mHandledConfigChanges;
+        mSupportsStylusHandwriting = source.mSupportsStylusHandwriting;
+        mSupportsConnectionlessStylusHandwriting = source.mSupportsConnectionlessStylusHandwriting;
+        mForceDefault = source.mForceDefault;
+        mStylusHandwritingSettingsActivityAttr = source.mStylusHandwritingSettingsActivityAttr;
     }
 
     InputMethodInfo(Parcel source) {
-        mId = source.readString();
-        mSettingsActivityName = source.readString();
+        mId = source.readString8();
+        mSettingsActivityName = source.readString8();
+        mLanguageSettingsActivityName = source.readString8();
         mIsDefaultResId = source.readInt();
         mIsAuxIme = source.readInt() == 1;
         mSupportsSwitchingToNextInputMethod = source.readInt() == 1;
+        mInlineSuggestionsEnabled = source.readInt() == 1;
+        mSupportsInlineSuggestionsWithTouchExploration = source.readInt() == 1;
+        mSuppressesSpellChecker = source.readBoolean();
+        mShowInInputMethodPicker = source.readBoolean();
         mIsVrOnly = source.readBoolean();
+        mIsVirtualDeviceOnly = source.readBoolean();
         mService = ResolveInfo.CREATOR.createFromParcel(source);
         mSubtypes = new InputMethodSubtypeArray(source);
+        mHandledConfigChanges = source.readInt();
+        mSupportsStylusHandwriting = source.readBoolean();
+        mSupportsConnectionlessStylusHandwriting = source.readBoolean();
+        mStylusHandwritingSettingsActivityAttr = source.readString8();
         mForceDefault = false;
     }
 
@@ -281,10 +576,57 @@ public final class InputMethodInfo implements Parcelable {
      */
     public InputMethodInfo(String packageName, String className,
             CharSequence label, String settingsActivity) {
-        this(buildDummyResolveInfo(packageName, className, label), false /* isAuxIme */,
-                settingsActivity, null /* subtypes */, 0 /* isDefaultResId */,
-                false /* forceDefault */, true /* supportsSwitchingToNextInputMethod */,
-                false /* isVrOnly */);
+        this(buildFakeResolveInfo(packageName, className, label), false /* isAuxIme */,
+                settingsActivity, null /* languageSettingsActivity */, null /* subtypes */,
+                0 /* isDefaultResId */, false /* forceDefault */,
+                true /* supportsSwitchingToNextInputMethod */,
+                false /* inlineSuggestionsEnabled */, false /* isVrOnly */,
+                false /* isVirtualDeviceOnly */, 0 /* handledConfigChanges */,
+                false /* supportsStylusHandwriting */,
+                false /* supportConnectionlessStylusHandwriting */,
+                null /* stylusHandwritingSettingsActivityAttr */,
+                false /* inlineSuggestionsEnabled */);
+    }
+
+    /**
+     * Test API for creating a built-in input method to verify stylus handwriting.
+     * @hide
+     */
+    @TestApi
+    @FlaggedApi(Flags.FLAG_CONNECTIONLESS_HANDWRITING)
+    public InputMethodInfo(@NonNull String packageName, @NonNull String className,
+            @NonNull CharSequence label, @NonNull String settingsActivity,
+            @NonNull String languageSettingsActivity, boolean supportStylusHandwriting,
+            boolean supportConnectionlessStylusHandwriting,
+            @NonNull String stylusHandwritingSettingsActivityAttr) {
+        this(buildFakeResolveInfo(packageName, className, label), false /* isAuxIme */,
+                settingsActivity, languageSettingsActivity, null /* subtypes */,
+                0 /* isDefaultResId */, false /* forceDefault */,
+                true /* supportsSwitchingToNextInputMethod */,
+                false /* inlineSuggestionsEnabled */, false /* isVrOnly */,
+                false /* isVirtualDeviceOnly */, 0 /* handledConfigChanges */,
+                supportStylusHandwriting, supportConnectionlessStylusHandwriting,
+                stylusHandwritingSettingsActivityAttr, false /* inlineSuggestionsEnabled */);
+    }
+
+    /**
+     * Temporary API for creating a built-in input method for test.
+     * @hide
+     */
+    @TestApi
+    public InputMethodInfo(@NonNull String packageName, @NonNull String className,
+            @NonNull CharSequence label, @NonNull String settingsActivity,
+            int handledConfigChanges) {
+        this(buildFakeResolveInfo(packageName, className, label), false /* isAuxIme */,
+                settingsActivity, null /* languageSettingsActivity */, null /* subtypes */,
+                0 /* isDefaultResId */, false /* forceDefault */,
+                true /* supportsSwitchingToNextInputMethod */,
+                false /* inlineSuggestionsEnabled */, false /* isVrOnly */,
+                false /* isVirtualDeviceOnly */, handledConfigChanges,
+                false /* supportsStylusHandwriting */,
+                false /* supportConnectionlessStylusHandwriting */,
+                null /* stylusHandwritingSettingsActivityAttr */,
+                false /* inlineSuggestionsEnabled */);
     }
 
     /**
@@ -294,8 +636,14 @@ public final class InputMethodInfo implements Parcelable {
     public InputMethodInfo(ResolveInfo ri, boolean isAuxIme,
             String settingsActivity, List<InputMethodSubtype> subtypes, int isDefaultResId,
             boolean forceDefault) {
-        this(ri, isAuxIme, settingsActivity, subtypes, isDefaultResId, forceDefault,
-                true /* supportsSwitchingToNextInputMethod */, false /* isVrOnly */);
+        this(ri, isAuxIme, settingsActivity, null /* languageSettingsActivity */, subtypes,
+                isDefaultResId, forceDefault,
+                true /* supportsSwitchingToNextInputMethod */, false /* inlineSuggestionsEnabled */,
+                false /* isVrOnly */, false /* isVirtualDeviceOnly */, 0 /* handledConfigChanges */,
+                false /* supportsStylusHandwriting */,
+                false /* supportConnectionlessStylusHandwriting */,
+                null /* stylusHandwritingSettingsActivityAttr */,
+                false /* inlineSuggestionsEnabled */);
     }
 
     /**
@@ -305,19 +653,52 @@ public final class InputMethodInfo implements Parcelable {
     public InputMethodInfo(ResolveInfo ri, boolean isAuxIme, String settingsActivity,
             List<InputMethodSubtype> subtypes, int isDefaultResId, boolean forceDefault,
             boolean supportsSwitchingToNextInputMethod, boolean isVrOnly) {
+        this(ri, isAuxIme, settingsActivity, null /* languageSettingsActivity */, subtypes,
+                isDefaultResId, forceDefault,
+                supportsSwitchingToNextInputMethod, false /* inlineSuggestionsEnabled */, isVrOnly,
+                false /* isVirtualDeviceOnly */,
+                0 /* handledConfigChanges */, false /* supportsStylusHandwriting */,
+                false /* supportConnectionlessStylusHandwriting */,
+                null /* stylusHandwritingSettingsActivityAttr */,
+                false /* inlineSuggestionsEnabled */);
+    }
+
+    /**
+     * Temporary API for creating a built-in input method for test.
+     * @hide
+     */
+    public InputMethodInfo(ResolveInfo ri, boolean isAuxIme, String settingsActivity,
+            @Nullable String languageSettingsActivity, List<InputMethodSubtype> subtypes,
+            int isDefaultResId, boolean forceDefault,
+            boolean supportsSwitchingToNextInputMethod, boolean inlineSuggestionsEnabled,
+            boolean isVrOnly, boolean isVirtualDeviceOnly, int handledConfigChanges,
+            boolean supportsStylusHandwriting, boolean supportsConnectionlessStylusHandwriting,
+            String stylusHandwritingSettingsActivityAttr,
+            boolean supportsInlineSuggestionsWithTouchExploration) {
         final ServiceInfo si = ri.serviceInfo;
         mService = ri;
         mId = new ComponentName(si.packageName, si.name).flattenToShortString();
         mSettingsActivityName = settingsActivity;
+        mLanguageSettingsActivityName = languageSettingsActivity;
         mIsDefaultResId = isDefaultResId;
         mIsAuxIme = isAuxIme;
         mSubtypes = new InputMethodSubtypeArray(subtypes);
         mForceDefault = forceDefault;
         mSupportsSwitchingToNextInputMethod = supportsSwitchingToNextInputMethod;
+        mInlineSuggestionsEnabled = inlineSuggestionsEnabled;
+        mSupportsInlineSuggestionsWithTouchExploration =
+                supportsInlineSuggestionsWithTouchExploration;
+        mSuppressesSpellChecker = false;
+        mShowInInputMethodPicker = true;
         mIsVrOnly = isVrOnly;
+        mIsVirtualDeviceOnly = isVirtualDeviceOnly;
+        mHandledConfigChanges = handledConfigChanges;
+        mSupportsStylusHandwriting = supportsStylusHandwriting;
+        mSupportsConnectionlessStylusHandwriting = supportsConnectionlessStylusHandwriting;
+        mStylusHandwritingSettingsActivityAttr = stylusHandwritingSettingsActivityAttr;
     }
 
-    private static ResolveInfo buildDummyResolveInfo(String packageName, String className,
+    private static ResolveInfo buildFakeResolveInfo(String packageName, String className,
             CharSequence label) {
         ResolveInfo ri = new ResolveInfo();
         ServiceInfo si = new ServiceInfo();
@@ -335,8 +716,9 @@ public final class InputMethodInfo implements Parcelable {
     }
 
     /**
-     * Return a unique ID for this input method.  The ID is generated from
-     * the package and class name implementing the method.
+     * @return a unique ID for this input method, which is guaranteed to be the same as the result
+     *         of {@code getComponent().flattenToShortString()}.
+     * @see ComponentName#unflattenFromString(String)
      */
     public String getId() {
         return mId;
@@ -403,6 +785,7 @@ public final class InputMethodInfo implements Parcelable {
      *
      * <p>A null will be returned if there is no settings activity associated
      * with the input method.</p>
+     * @see #createStylusHandwritingSettingsActivityIntent()
      */
     public String getSettingsActivity() {
         return mSettingsActivityName;
@@ -414,6 +797,15 @@ public final class InputMethodInfo implements Parcelable {
      */
     public boolean isVrOnly() {
         return mIsVrOnly;
+    }
+
+    /**
+     * Returns true if IME supports only virtual devices.
+     * @hide
+     */
+    @SystemApi
+    public boolean isVirtualDeviceOnly() {
+        return mIsVirtualDeviceOnly;
     }
 
     /**
@@ -445,6 +837,7 @@ public final class InputMethodInfo implements Parcelable {
      * Return whether or not this ime is a default ime or not.
      * @hide
      */
+    @UnsupportedAppUsage
     public boolean isDefault(Context context) {
         if (mForceDefault) {
             return true;
@@ -460,22 +853,123 @@ public final class InputMethodInfo implements Parcelable {
         }
     }
 
+    /**
+     * Returns the bit mask of kinds of configuration changes that this IME
+     * can handle itself (without being restarted by the system).
+     *
+     * @attr ref android.R.styleable#InputMethod_configChanges
+     */
+    @ActivityInfo.Config
+    public int getConfigChanges() {
+        return mHandledConfigChanges;
+    }
+
+    /**
+     * Returns if IME supports handwriting using stylus input.
+     * @attr ref android.R.styleable#InputMethod_supportsStylusHandwriting
+     * @see #createStylusHandwritingSettingsActivityIntent()
+     */
+    public boolean supportsStylusHandwriting() {
+        return mSupportsStylusHandwriting;
+    }
+
+    /**
+     * Returns whether the IME supports connectionless stylus handwriting sessions.
+     *
+     * @attr ref android.R.styleable#InputMethod_supportsConnectionlessStylusHandwriting
+     */
+    @FlaggedApi(Flags.FLAG_CONNECTIONLESS_HANDWRITING)
+    public boolean supportsConnectionlessStylusHandwriting() {
+        return mSupportsConnectionlessStylusHandwriting;
+    }
+
+    /**
+     * Returns {@link Intent} for stylus handwriting settings activity with
+     * {@link Intent#getAction() Intent action} {@link #ACTION_STYLUS_HANDWRITING_SETTINGS}
+     * if IME {@link #supportsStylusHandwriting() supports stylus handwriting}, else
+     * <code>null</code> if there are no associated settings for stylus handwriting / handwriting
+     * is not supported or if
+     * {@link android.R.styleable#InputMethod_stylusHandwritingSettingsActivity} is not defined.
+     *
+     * <p>To launch stylus settings, use this method to get the {@link android.content.Intent} to
+     * launch the stylus handwriting settings activity.</p>
+     * <p>e.g.<pre><code>startActivity(createStylusHandwritingSettingsActivityIntent());</code>
+     * </pre></p>
+     *
+     * @attr ref android.R.styleable#InputMethod_stylusHandwritingSettingsActivity
+     * @see #getSettingsActivity()
+     * @see #supportsStylusHandwriting()
+     */
+    @Nullable
+    public Intent createStylusHandwritingSettingsActivityIntent() {
+        if (TextUtils.isEmpty(mStylusHandwritingSettingsActivityAttr)
+                || !mSupportsStylusHandwriting) {
+            return null;
+        }
+        // TODO(b/210039666): consider returning null if component is not enabled.
+        return new Intent(ACTION_STYLUS_HANDWRITING_SETTINGS).setComponent(
+                new ComponentName(getServiceInfo().packageName,
+                        mStylusHandwritingSettingsActivityAttr));
+    }
+
+    /**
+     * Returns {@link Intent} for IME language settings activity with
+     * {@link Intent#getAction() Intent action} {@link #ACTION_IME_LANGUAGE_SETTINGS}. If
+     * {@link android.R.styleable#InputMethod_languageSettingsActivity} is not defined, tries to
+     * fall back to the IME general settings activity. If
+     * {@link android.R.styleable#InputMethod_settingsActivity} is also not defined,
+     * returns {code null}.
+     *
+     * <p>To launch IME language settings, use this method to get the {@link Intent} to launch
+     * the IME language settings activity.</p>
+     * <p>e.g.<pre><code>startActivity(createImeLanguageSettingsActivityIntent());</code></pre></p>
+     *
+     * @attr ref android.R.styleable#InputMethod_languageSettingsActivity
+     * @attr ref android.R.styleable#InputMethod_settingsActivity
+     */
+    @Nullable
+    public Intent createImeLanguageSettingsActivityIntent() {
+        final var activityName = !TextUtils.isEmpty(mLanguageSettingsActivityName)
+                ? mLanguageSettingsActivityName : mSettingsActivityName;
+        if (TextUtils.isEmpty(activityName)) {
+            return null;
+        }
+        return new Intent(ACTION_IME_LANGUAGE_SETTINGS).setComponent(
+                new ComponentName(getServiceInfo().packageName, activityName)
+        );
+    }
+
     public void dump(Printer pw, String prefix) {
         pw.println(prefix + "mId=" + mId
                 + " mSettingsActivityName=" + mSettingsActivityName
+                + " mLanguageSettingsActivityName=" + mLanguageSettingsActivityName
                 + " mIsVrOnly=" + mIsVrOnly
-                + " mSupportsSwitchingToNextInputMethod=" + mSupportsSwitchingToNextInputMethod);
+                + " mIsVirtualDeviceOnly=" + mIsVirtualDeviceOnly
+                + " mSupportsSwitchingToNextInputMethod=" + mSupportsSwitchingToNextInputMethod
+                + " mInlineSuggestionsEnabled=" + mInlineSuggestionsEnabled
+                + " mSupportsInlineSuggestionsWithTouchExploration="
+                + mSupportsInlineSuggestionsWithTouchExploration
+                + " mSuppressesSpellChecker=" + mSuppressesSpellChecker
+                + " mShowInInputMethodPicker=" + mShowInInputMethodPicker
+                + " mSupportsStylusHandwriting=" + mSupportsStylusHandwriting
+                + " mSupportsConnectionlessStylusHandwriting="
+                + mSupportsConnectionlessStylusHandwriting
+                + " mStylusHandwritingSettingsActivityAttr="
+                        + mStylusHandwritingSettingsActivityAttr);
         pw.println(prefix + "mIsDefaultResId=0x"
                 + Integer.toHexString(mIsDefaultResId));
         pw.println(prefix + "Service:");
         mService.dump(pw, prefix + "  ");
+        pw.println(prefix + "InputMethodSubtype array: count=" + mSubtypes.getCount());
+        mSubtypes.dump(pw, prefix + "  ");
     }
 
     @Override
     public String toString() {
         return "InputMethodInfo{" + mId
-                + ", settings: "
-                + mSettingsActivityName + "}";
+                + ", settings: " + mSettingsActivityName
+                + ", languageSettings: " + mLanguageSettingsActivityName
+                + "}";
     }
 
     /**
@@ -486,7 +980,7 @@ public final class InputMethodInfo implements Parcelable {
      *         {@link InputMethodInfo} and its Id is the same to this one.
      */
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (o == this) return true;
         if (o == null) return false;
 
@@ -499,6 +993,14 @@ public final class InputMethodInfo implements Parcelable {
     @Override
     public int hashCode() {
         return mId.hashCode();
+    }
+
+    /**
+     * @hide
+     * @return {@code true} if the IME is a trusted system component (e.g. pre-installed)
+     */
+    public boolean isSystem() {
+        return (mService.serviceInfo.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
     }
 
     /**
@@ -517,6 +1019,39 @@ public final class InputMethodInfo implements Parcelable {
     }
 
     /**
+     * @return true if this input method supports inline suggestions.
+     * @hide
+     */
+    public boolean isInlineSuggestionsEnabled() {
+        return mInlineSuggestionsEnabled;
+    }
+
+    /**
+     * Returns {@code true} if this input method supports inline suggestions when touch exploration
+     * is enabled.
+     * @hide
+     */
+    public boolean supportsInlineSuggestionsWithTouchExploration() {
+        return mSupportsInlineSuggestionsWithTouchExploration;
+    }
+
+    /**
+     * Return {@code true} if this input method suppresses spell checker.
+     */
+    public boolean suppressesSpellChecker() {
+        return mSuppressesSpellChecker;
+    }
+
+    /**
+     * Returns {@code true} if this input method should be shown in menus for selecting an Input
+     * Method, such as the system Input Method Picker. This is {@code false} if the IME is intended
+     * to be accessed programmatically.
+     */
+    public boolean shouldShowInInputMethodPicker() {
+        return mShowInInputMethodPicker;
+    }
+
+    /**
      * Used to package this object into a {@link Parcel}.
      *
      * @param dest The {@link Parcel} to be written.
@@ -524,20 +1059,30 @@ public final class InputMethodInfo implements Parcelable {
      */
     @Override
     public void writeToParcel(Parcel dest, int flags) {
-        dest.writeString(mId);
-        dest.writeString(mSettingsActivityName);
+        dest.writeString8(mId);
+        dest.writeString8(mSettingsActivityName);
+        dest.writeString8(mLanguageSettingsActivityName);
         dest.writeInt(mIsDefaultResId);
         dest.writeInt(mIsAuxIme ? 1 : 0);
         dest.writeInt(mSupportsSwitchingToNextInputMethod ? 1 : 0);
+        dest.writeInt(mInlineSuggestionsEnabled ? 1 : 0);
+        dest.writeInt(mSupportsInlineSuggestionsWithTouchExploration ? 1 : 0);
+        dest.writeBoolean(mSuppressesSpellChecker);
+        dest.writeBoolean(mShowInInputMethodPicker);
         dest.writeBoolean(mIsVrOnly);
+        dest.writeBoolean(mIsVirtualDeviceOnly);
         mService.writeToParcel(dest, flags);
         mSubtypes.writeToParcel(dest);
+        dest.writeInt(mHandledConfigChanges);
+        dest.writeBoolean(mSupportsStylusHandwriting);
+        dest.writeBoolean(mSupportsConnectionlessStylusHandwriting);
+        dest.writeString8(mStylusHandwritingSettingsActivityAttr);
     }
 
     /**
      * Used to make this class parcelable.
      */
-    public static final Parcelable.Creator<InputMethodInfo> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<InputMethodInfo> CREATOR
             = new Parcelable.Creator<InputMethodInfo>() {
         @Override
         public InputMethodInfo createFromParcel(Parcel source) {
@@ -553,5 +1098,163 @@ public final class InputMethodInfo implements Parcelable {
     @Override
     public int describeContents() {
         return 0;
+    }
+
+    /**
+     * A wrapper class for {@link TypedArray} that enforces limits on the size of the metadata
+     * read from the XML. Methods throw an {@link XmlPullParserException} if the limit is surpassed.
+     *
+     * <p>This class works in conjunction with {@link MetadataReadBytesTracker} to:
+     * <ul>
+     *     <li>Limit the length of individual string attributes. For
+     *     {@code settingsActivity} and {@code languageSettingsActivity}, the maximum length is
+     *     {@link #COMPONENT_NAME_MAX_LENGTH}. For other string attributes, the maximum length is
+     *     {@link #STRING_ATTRIBUTES_MAX_CHAR_LENGTH}.</li>
+     *     <li>Track the total amount of data read from the metadata XML. The
+     *     {@link MetadataReadBytesTracker} ensures that the cumulative size of all attributes
+     *     does not exceed {@link #MAX_METADATA_SIZE_BYTES}.
+     * </ul>
+     *
+     * @hide
+     */
+    @VisibleForTesting
+    public static final class TypedArrayWrapper implements AutoCloseable {
+        /** The underlying {@link TypedArray} to read from. */
+        @NonNull
+        private final TypedArray mTypedArray;
+        /** Tracker for enforcing metadata size limits. */
+        @NonNull
+        private final MetadataReadBytesTracker mReadTracker;
+        /** {@code true} if parsing a {@code <subtype>} tag, {@code false} otherwise. */
+        private final boolean mIsReadingSubtype;
+
+        /**
+         * Creates a {@link TypedArrayWrapper} for parsing attributes of the main
+         * {@code <input-method>} tag.
+         *
+         * @param wrapped The {@link TypedArray} obtained for the {@code <input-method>} tag.
+         * @param readTracker The tracker for monitoring data size.
+         * @return A new {@link TypedArrayWrapper} instance.
+         */
+        @NonNull
+        @VisibleForTesting
+        public static TypedArrayWrapper createForMethod(
+                @NonNull TypedArray wrapped, @NonNull MetadataReadBytesTracker readTracker) {
+            return new TypedArrayWrapper(wrapped, readTracker, false);
+        }
+
+        /**
+         * Creates a {@link TypedArrayWrapper} for parsing attributes of a {@code <subtype>} tag.
+         *
+         * @param wrapped The {@link TypedArray} obtained for the {@code <subtype>} tag.
+         * @param readTracker The tracker for monitoring data size.
+         * @return A new {@link TypedArrayWrapper} instance.
+         */
+        @NonNull
+        @VisibleForTesting
+        public static TypedArrayWrapper createForSubtype(
+                @NonNull TypedArray wrapped, @NonNull MetadataReadBytesTracker readTracker) {
+            return new TypedArrayWrapper(wrapped, readTracker, true);
+        }
+
+        /**
+         * Constructs a new wrapper.
+         */
+        private TypedArrayWrapper(@NonNull TypedArray wrapped,
+                @NonNull MetadataReadBytesTracker readTracker, boolean isReadingSubtype) {
+            mTypedArray = wrapped;
+            mReadTracker = readTracker;
+            mIsReadingSubtype = isReadingSubtype;
+        }
+
+        /** Retrieves an integer value for the attribute at {@code index}. */
+        @VisibleForTesting
+        public int getInt(int index, int defaultValue) throws XmlPullParserException {
+            if (!mTypedArray.hasValue(index)) {
+                return defaultValue;
+            }
+            final int ret = mTypedArray.getInt(index, defaultValue);
+            mReadTracker.onReadBytes(Integer.BYTES);
+            return ret;
+        }
+
+        /** Retrieves the string value for the attribute at {@code index}. */
+        @VisibleForTesting
+        public String getString(int index) throws XmlPullParserException {
+            final String ret = mTypedArray.getString(index);
+            final int maxLen = getMaxLength(index);
+            if (ret != null && ret.length() > maxLen) {
+                throw new XmlPullParserException(
+                        "String resources in input method exceed the length limit of "
+                                + maxLen + " characters");
+            }
+            mReadTracker.onReadBytes(ret == null ? 0 : ret.length() * Character.BYTES);
+            return ret;
+        }
+
+        /** Retrieves a boolean value for the attribute at {@code index}. */
+        @VisibleForTesting
+        public boolean getBoolean(int index, boolean defaultValue) throws XmlPullParserException {
+            if (!mTypedArray.hasValue(index)) {
+                return defaultValue;
+            }
+            final boolean ret = mTypedArray.getBoolean(index, defaultValue);
+            mReadTracker.onReadBytes(1);
+            return ret;
+        }
+
+        /** Retrieves a resource identifier for the attribute at {@code index}. */
+        @VisibleForTesting
+        public int getResourceId(int index, int defaultValue) throws XmlPullParserException {
+            if (!mTypedArray.hasValue(index)) {
+                return defaultValue;
+            }
+            final int ret = mTypedArray.getResourceId(index, defaultValue);
+            mReadTracker.onReadBytes(Integer.BYTES);
+            return ret;
+        }
+
+        @Override
+        public void close() {
+            mTypedArray.recycle();
+        }
+
+        private int getMaxLength(int index) {
+            // Note that the Android resource has limit DEFAULT_MAX_STRING_ATTR_LENGTH = 32_768.
+            if (mIsReadingSubtype) {
+                // No limits for strings in subtype for now.
+                return Integer.MAX_VALUE;
+            } else {
+                return switch (index) {
+                    // TODO(b/456008595): Consider to add
+                    //  InputMethod_stylusHandwritingSettingsActivity
+                    case com.android.internal.R.styleable.InputMethod_settingsActivity,
+                         com.android.internal.R.styleable.InputMethod_languageSettingsActivity ->
+                            COMPONENT_NAME_MAX_LENGTH;
+                    default ->
+                        // TODO(b/456008595): Consider to introduce limits.
+                            Integer.MAX_VALUE;
+                };
+            }
+        }
+    }
+
+    /** @hide */
+    @VisibleForTesting
+    public static final class MetadataReadBytesTracker {
+        private int mRemainingBytes = MAX_METADATA_SIZE_BYTES;
+
+        @VisibleForTesting
+        public MetadataReadBytesTracker() {
+        }
+
+        private void onReadBytes(int bytes) throws XmlPullParserException {
+            mRemainingBytes -= bytes;
+            if (mRemainingBytes < 0) {
+                throw new XmlPullParserException(
+                        "The input method service has metadata exceeds the  "
+                        + MAX_METADATA_SIZE_BYTES + " byte limit");
+            }
+        }
     }
 }

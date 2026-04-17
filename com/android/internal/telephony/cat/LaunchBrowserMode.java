@@ -20,7 +20,7 @@ package com.android.internal.telephony.cat;
 /**
  * Browser launch mode for LAUNCH BROWSER proactive command.
  *
- * {@hide}
+ * @hide
  */
 public enum LaunchBrowserMode {
     /** Launch browser if not already launched. */

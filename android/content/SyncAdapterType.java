@@ -17,9 +17,12 @@
 package android.content;
 
 import android.annotation.Nullable;
-import android.text.TextUtils;
-import android.os.Parcelable;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
+import android.os.Parcelable;
+import android.text.TextUtils;
 
 /**
  * Value type that represents a SyncAdapterType. This object overrides {@link #equals} and
@@ -29,10 +32,15 @@ public class SyncAdapterType implements Parcelable {
     public final String authority;
     public final String accountType;
     public final boolean isKey;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final boolean userVisible;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final boolean supportsUploading;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final boolean isAlwaysSyncable;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final boolean allowParallelSyncs;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final String settingsActivity;
     private final String packageName;
 
@@ -79,6 +87,7 @@ public class SyncAdapterType implements Parcelable {
         this.packageName = packageName;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private SyncAdapterType(String authority, String accountType) {
         if (TextUtils.isEmpty(authority)) {
             throw new IllegalArgumentException("the authority must not be empty: " + authority);
@@ -160,6 +169,7 @@ public class SyncAdapterType implements Parcelable {
      *
      * @hide
      */
+    @TestApi
     public @Nullable String getPackageName() {
         return packageName;
     }
@@ -168,7 +178,7 @@ public class SyncAdapterType implements Parcelable {
         return new SyncAdapterType(authority, accountType);
     }
 
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (o == this) return true;
         if (!(o instanceof SyncAdapterType)) return false;
         final SyncAdapterType other = (SyncAdapterType)o;
@@ -233,7 +243,7 @@ public class SyncAdapterType implements Parcelable {
                 source.readString());
     }
 
-    public static final Creator<SyncAdapterType> CREATOR = new Creator<SyncAdapterType>() {
+    public static final @android.annotation.NonNull Creator<SyncAdapterType> CREATOR = new Creator<SyncAdapterType>() {
         public SyncAdapterType createFromParcel(Parcel source) {
             return new SyncAdapterType(source);
         }

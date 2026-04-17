@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -110,7 +110,7 @@ import java.util.Objects;
  *        int year = date.get(ChronoField.YEAR);
  *        System.out.printf("  Today is %s %s %d-%s-%d%n", date.getChronology().getID(),
  *                dow, day, month, year);
-
+ *
  *        // Print today's date and the last day of the year
  *        ChronoLocalDate now1 = Chronology.of("Hijrah").dateNow();
  *        ChronoLocalDate first = now1.with(ChronoField.DAY_OF_MONTH, 1)
@@ -121,7 +121,7 @@ import java.util.Objects;
  *                first, last);
  * </pre>
  *
- * <h3>Adding Calendars</h3>
+ * <h2>Adding Calendars</h2>
  * <p> The set of calendars is extensible by defining a subclass of {@link ChronoLocalDate}
  * to represent a date instance and an implementation of {@code Chronology}
  * to be the factory for the ChronoLocalDate subclass.
@@ -146,6 +146,7 @@ abstract class ChronoLocalDateImpl<D extends ChronoLocalDate>
     /**
      * Serialization version.
      */
+    @java.io.Serial
     private static final long serialVersionUID = 6282433883239719096L;
 
     /**
@@ -196,19 +197,18 @@ abstract class ChronoLocalDateImpl<D extends ChronoLocalDate>
     @Override
     @SuppressWarnings("unchecked")
     public D plus(long amountToAdd, TemporalUnit unit) {
-        if (unit instanceof ChronoUnit) {
-            ChronoUnit f = (ChronoUnit) unit;
-            switch (f) {
-                case DAYS: return plusDays(amountToAdd);
-                case WEEKS: return plusDays(Math.multiplyExact(amountToAdd, 7));
-                case MONTHS: return plusMonths(amountToAdd);
-                case YEARS: return plusYears(amountToAdd);
-                case DECADES: return plusYears(Math.multiplyExact(amountToAdd, 10));
-                case CENTURIES: return plusYears(Math.multiplyExact(amountToAdd, 100));
-                case MILLENNIA: return plusYears(Math.multiplyExact(amountToAdd, 1000));
-                case ERAS: return with(ERA, Math.addExact(getLong(ERA), amountToAdd));
-            }
-            throw new UnsupportedTemporalTypeException("Unsupported unit: " + unit);
+        if (unit instanceof ChronoUnit chronoUnit) {
+            return switch (chronoUnit) {
+                case DAYS      -> plusDays(amountToAdd);
+                case WEEKS     -> plusDays(Math.multiplyExact(amountToAdd, 7));
+                case MONTHS    -> plusMonths(amountToAdd);
+                case YEARS     -> plusYears(amountToAdd);
+                case DECADES   -> plusYears(Math.multiplyExact(amountToAdd, 10));
+                case CENTURIES -> plusYears(Math.multiplyExact(amountToAdd, 100));
+                case MILLENNIA -> plusYears(Math.multiplyExact(amountToAdd, 1000));
+                case ERAS      -> with(ERA, Math.addExact(getLong(ERA), amountToAdd));
+                default -> throw new UnsupportedTemporalTypeException("Unsupported unit: " + unit);
+            };
         }
         return (D) ChronoLocalDate.super.plus(amountToAdd, unit);
     }
@@ -376,18 +376,18 @@ abstract class ChronoLocalDateImpl<D extends ChronoLocalDate>
     public long until(Temporal endExclusive, TemporalUnit unit) {
         Objects.requireNonNull(endExclusive, "endExclusive");
         ChronoLocalDate end = getChronology().date(endExclusive);
-        if (unit instanceof ChronoUnit) {
-            switch ((ChronoUnit) unit) {
-                case DAYS: return daysUntil(end);
-                case WEEKS: return daysUntil(end) / 7;
-                case MONTHS: return monthsUntil(end);
-                case YEARS: return monthsUntil(end) / 12;
-                case DECADES: return monthsUntil(end) / 120;
-                case CENTURIES: return monthsUntil(end) / 1200;
-                case MILLENNIA: return monthsUntil(end) / 12000;
-                case ERAS: return end.getLong(ERA) - getLong(ERA);
-            }
-            throw new UnsupportedTemporalTypeException("Unsupported unit: " + unit);
+        if (unit instanceof ChronoUnit chronoUnit) {
+            return switch (chronoUnit) {
+                case DAYS      -> daysUntil(end);
+                case WEEKS     -> daysUntil(end) / 7;
+                case MONTHS    -> monthsUntil(end);
+                case YEARS     -> monthsUntil(end) / 12;
+                case DECADES   -> monthsUntil(end) / 120;
+                case CENTURIES -> monthsUntil(end) / 1200;
+                case MILLENNIA -> monthsUntil(end) / 12000;
+                case ERAS      -> end.getLong(ERA) - getLong(ERA);
+                default -> throw new UnsupportedTemporalTypeException("Unsupported unit: " + unit);
+            };
         }
         Objects.requireNonNull(unit, "unit");
         return unit.between(this, end);
@@ -421,7 +421,7 @@ abstract class ChronoLocalDateImpl<D extends ChronoLocalDate>
     @Override
     public int hashCode() {
         long epDay = toEpochDay();
-        return getChronology().hashCode() ^ ((int) (epDay ^ (epDay >>> 32)));
+        return getChronology().hashCode() ^ Long.hashCode(epDay);
     }
 
     @Override

@@ -16,9 +16,11 @@
 
 package android.app;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentProviderNative;
 import android.content.IContentProvider;
 import android.content.pm.ProviderInfo;
+import android.os.Build;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -29,11 +31,21 @@ import android.os.Parcelable;
  * @hide
  */
 public class ContentProviderHolder implements Parcelable {
+    @UnsupportedAppUsage
     public final ProviderInfo info;
+    @UnsupportedAppUsage
     public IContentProvider provider;
     public IBinder connection;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public boolean noReleaseNeeded;
+    public boolean noReleaseNeededIfUnstable;
 
+    /**
+     * Whether the provider here is a local provider or not.
+     */
+    public boolean mLocal;
+
+    @UnsupportedAppUsage
     public ContentProviderHolder(ProviderInfo _info) {
         info = _info;
     }
@@ -53,9 +65,11 @@ public class ContentProviderHolder implements Parcelable {
         }
         dest.writeStrongBinder(connection);
         dest.writeInt(noReleaseNeeded ? 1 : 0);
+        dest.writeInt(mLocal ? 1 : 0);
+        dest.writeInt(noReleaseNeededIfUnstable ? 1 : 0);
     }
 
-    public static final Parcelable.Creator<ContentProviderHolder> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<ContentProviderHolder> CREATOR
             = new Parcelable.Creator<ContentProviderHolder>() {
         @Override
         public ContentProviderHolder createFromParcel(Parcel source) {
@@ -68,11 +82,14 @@ public class ContentProviderHolder implements Parcelable {
         }
     };
 
+    @UnsupportedAppUsage
     private ContentProviderHolder(Parcel source) {
         info = ProviderInfo.CREATOR.createFromParcel(source);
         provider = ContentProviderNative.asInterface(
                 source.readStrongBinder());
         connection = source.readStrongBinder();
         noReleaseNeeded = source.readInt() != 0;
+        mLocal = source.readInt() != 0;
+        noReleaseNeededIfUnstable = source.readInt() != 0;
     }
 }

@@ -26,18 +26,27 @@ import static android.app.servertransaction.ActivityLifecycleItem.ON_STOP;
 import static android.app.servertransaction.ActivityLifecycleItem.PRE_ON_CREATE;
 import static android.app.servertransaction.ActivityLifecycleItem.UNDEFINED;
 
+import android.annotation.NonNull;
+import android.app.Activity;
 import android.app.ActivityThread.ActivityClientRecord;
+import android.app.ClientTransactionHandler;
+import android.os.IBinder;
 import android.util.IntArray;
+import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.List;
 
 /**
  * Helper class for {@link TransactionExecutor} that contains utils for lifecycle path resolution.
+ *
  * @hide
  */
 public class TransactionExecutorHelper {
+    private static final String TAG = TransactionExecutorHelper.class.getSimpleName();
     // A penalty applied to path with destruction when looking for the shortest one.
     private static final int DESTRUCTION_PENALTY = 10;
 
@@ -46,11 +55,11 @@ public class TransactionExecutorHelper {
     // Temp holder for lifecycle path.
     // No direct transition between two states should take more than one complete cycle of 6 states.
     @ActivityLifecycleItem.LifecycleState
-    private IntArray mLifecycleSequence = new IntArray(6);
+    private final IntArray mLifecycleSequence = new IntArray(6 /* initialCapacity */);
 
     /**
      * Calculate the path through main lifecycle states for an activity and fill
-     * @link #mLifecycleSequence} with values starting with the state that follows the initial
+     * {@link #mLifecycleSequence} with values starting with the state that follows the initial
      * state.
      * <p>NOTE: The returned value is used internally in this class and is not a copy. It's contents
      * may change after calling other methods of this class.</p>
@@ -70,9 +79,15 @@ public class TransactionExecutorHelper {
 
         mLifecycleSequence.clear();
         if (finish >= start) {
-            // just go there
-            for (int i = start + 1; i <= finish; i++) {
-                mLifecycleSequence.add(i);
+            if (start == ON_START && finish == ON_STOP) {
+                // A case when we from start to stop state soon, we don't need to go
+                // through the resumed, paused state.
+                mLifecycleSequence.add(ON_STOP);
+            } else {
+                // just go there
+                for (int i = start + 1; i <= finish; i++) {
+                    mLifecycleSequence.add(i);
+                }
             }
         } else { // finish < start, can't just cycle down
             if (start == ON_PAUSE && finish == ON_RESUME) {
@@ -151,6 +166,11 @@ public class TransactionExecutorHelper {
         if (finalStates == null || finalStates.length == 0) {
             return UNDEFINED;
         }
+        if (r == null) {
+            // Early return because the ActivityClientRecord hasn't been created or cannot be found.
+            Log.w(TAG, "ActivityClientRecord was null");
+            return UNDEFINED;
+        }
 
         final int currentState = r.getLifecycleState();
         int closestState = UNDEFINED;
@@ -174,15 +194,18 @@ public class TransactionExecutorHelper {
         final ActivityLifecycleItem lifecycleItem;
         switch (prevState) {
             // TODO(lifecycler): Extend to support all possible states.
+            case ON_START:
+                // Fall through to return the PAUSE item to ensure the activity is properly
+                // resumed while relaunching.
             case ON_PAUSE:
-                lifecycleItem = PauseActivityItem.obtain();
+                lifecycleItem = new PauseActivityItem(r.token);
                 break;
             case ON_STOP:
-                lifecycleItem = StopActivityItem.obtain(r.isVisibleFromServer(),
-                        0 /* configChanges */);
+                lifecycleItem = new StopActivityItem(r.token);
                 break;
             default:
-                lifecycleItem = ResumeActivityItem.obtain(false /* isForward */);
+                lifecycleItem = new ResumeActivityItem(r.token, false /* isForward */,
+                        false /* shouldSendCompatFakeFocus */);
                 break;
         }
 
@@ -204,9 +227,10 @@ public class TransactionExecutorHelper {
     }
 
     /**
-     * Return the index of the last callback that requests the state in which activity will be after
-     * execution. If there is a group of callbacks in the end that requests the same specific state
-     * or doesn't request any - we will find the first one from such group.
+     * Returns the index of the last callback between the start index and last index that requests
+     * the state for the given activity token in which that activity will be after execution.
+     * If there is a group of callbacks in the end that requests the same specific state or doesn't
+     * request any - we will find the first one from such group.
      *
      * E.g. ActivityResult requests RESUMED post-execution state, Configuration does not request any
      * specific state. If there is a sequence
@@ -214,21 +238,17 @@ public class TransactionExecutorHelper {
      * index 1 will be returned, because ActivityResult request on position 1 will be the last
      * request that moves activity to the RESUMED state where it will eventually end.
      */
-    static int lastCallbackRequestingState(ClientTransaction transaction) {
-        final List<ClientTransactionItem> callbacks = transaction.getCallbacks();
-        if (callbacks == null || callbacks.size() == 0) {
-            return -1;
-        }
-
+    private static int lastCallbackRequestingStateIndex(@NonNull List<ClientTransactionItem> items,
+            int startIndex, int lastIndex, @NonNull IBinder activityToken) {
         // Go from the back of the list to front, look for the request closes to the beginning that
         // requests the state in which activity will end after all callbacks are executed.
         int lastRequestedState = UNDEFINED;
         int lastRequestingCallback = -1;
-        for (int i = callbacks.size() - 1; i >= 0; i--) {
-            final ClientTransactionItem callback = callbacks.get(i);
-            final int postExecutionState = callback.getPostExecutionState();
-            if (postExecutionState != UNDEFINED) {
-                // Found a callback that requests some post-execution state.
+        for (int i = lastIndex; i >= startIndex; i--) {
+            final ClientTransactionItem item = items.get(i);
+            final int postExecutionState = item.getPostExecutionState();
+            if (postExecutionState != UNDEFINED && activityToken.equals(item.getActivityToken())) {
+                // Found a callback that requests some post-execution state for the given activity.
                 if (lastRequestedState == UNDEFINED || lastRequestedState == postExecutionState) {
                     // It's either a first-from-end callback that requests state or it requests
                     // the same state as the last one. In both cases, we will use it as the new
@@ -242,5 +262,119 @@ public class TransactionExecutorHelper {
         }
 
         return lastRequestingCallback;
+    }
+
+    /**
+     * For the transaction item at {@code currentIndex}, if it is requesting post execution state,
+     * whether or not to exclude the last state. This only returns {@code true} when there is a
+     * following explicit {@link ActivityLifecycleItem} requesting the same state for the same
+     * activity, so that last state will be covered by the following {@link ActivityLifecycleItem}.
+     */
+    static boolean shouldExcludeLastLifecycleState(@NonNull List<ClientTransactionItem> items,
+            int currentIndex) {
+        final ClientTransactionItem item = items.get(currentIndex);
+        final IBinder activityToken = item.getActivityToken();
+        final int postExecutionState = item.getPostExecutionState();
+        if (activityToken == null || postExecutionState == UNDEFINED) {
+            // Not a transaction item requesting post execution state.
+            return false;
+        }
+        final int nextLifecycleItemIndex = findNextLifecycleItemIndex(items, currentIndex + 1,
+                activityToken);
+        if (nextLifecycleItemIndex == -1) {
+            // No following ActivityLifecycleItem for this activity token.
+            return false;
+        }
+        final ActivityLifecycleItem lifecycleItem =
+                (ActivityLifecycleItem) items.get(nextLifecycleItemIndex);
+        if (postExecutionState != lifecycleItem.getTargetState()) {
+            // The explicit ActivityLifecycleItem is not requesting the same state.
+            return false;
+        }
+        // Only exclude for the first non-lifecycle item that requests the same specific state.
+        return currentIndex == lastCallbackRequestingStateIndex(items, currentIndex,
+                nextLifecycleItemIndex - 1, activityToken);
+    }
+
+    /**
+     * Finds the index of the next {@link ActivityLifecycleItem} for the given activity token.
+     */
+    private static int findNextLifecycleItemIndex(@NonNull List<ClientTransactionItem> items,
+            int startIndex, @NonNull IBinder activityToken) {
+        final int size = items.size();
+        for (int i = startIndex; i < size; i++) {
+            final ClientTransactionItem item = items.get(i);
+            if (item.isActivityLifecycleItem() && item.getActivityToken().equals(activityToken)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** Dump transaction to string. */
+    static String transactionToString(@NonNull ClientTransaction transaction,
+            @NonNull ClientTransactionHandler transactionHandler) {
+        final StringWriter stringWriter = new StringWriter();
+        final PrintWriter pw = new PrintWriter(stringWriter);
+        final String prefix = tId(transaction);
+        transaction.dump(prefix, pw, transactionHandler);
+        return stringWriter.toString();
+    }
+
+    /** @return A string in format "tId:<transaction hashcode> ". */
+    static String tId(ClientTransaction transaction) {
+        return "tId:" + transaction.hashCode() + " ";
+    }
+
+    /** Get activity string name for provided token. */
+    static String getActivityName(IBinder token, ClientTransactionHandler transactionHandler) {
+        final Activity activity = getActivityForToken(token, transactionHandler);
+        if (activity != null) {
+            return activity.getComponentName().getClassName();
+        }
+        return "Not found for token: " + token;
+    }
+
+    /** Get short activity class name for provided token. */
+    static String getShortActivityName(IBinder token, ClientTransactionHandler transactionHandler) {
+        final Activity activity = getActivityForToken(token, transactionHandler);
+        if (activity != null) {
+            return activity.getComponentName().getShortClassName();
+        }
+        return "Not found for token: " + token;
+    }
+
+    private static Activity getActivityForToken(IBinder token,
+            ClientTransactionHandler transactionHandler) {
+        if (token == null) {
+            return null;
+        }
+        return transactionHandler.getActivity(token);
+    }
+
+    /** Get lifecycle state string name. */
+    static String getStateName(int state) {
+        switch (state) {
+            case UNDEFINED:
+                return "UNDEFINED";
+            case PRE_ON_CREATE:
+                return "PRE_ON_CREATE";
+            case ON_CREATE:
+                return "ON_CREATE";
+            case ON_START:
+                return "ON_START";
+            case ON_RESUME:
+                return "ON_RESUME";
+            case ON_PAUSE:
+                return "ON_PAUSE";
+            case ON_STOP:
+                return "ON_STOP";
+            case ON_DESTROY:
+                return "ON_DESTROY";
+            case ON_RESTART:
+                return "ON_RESTART";
+            default:
+                throw new IllegalArgumentException("Unexpected lifecycle state: " + state);
+        }
     }
 }

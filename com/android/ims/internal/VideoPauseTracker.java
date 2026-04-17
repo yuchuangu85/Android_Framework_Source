@@ -16,10 +16,10 @@
 
 package com.android.ims.internal;
 
-import android.telecom.Log;
 import android.telecom.VideoProfile;
 import android.telephony.ims.ImsVideoCallProvider;
 import android.util.ArraySet;
+import android.util.Log;
 
 import java.util.Collection;
 import java.util.Set;
@@ -51,6 +51,8 @@ public class VideoPauseTracker {
     private static final String SOURCE_INCALL_STR = "INCALL";
     private static final String SOURCE_DATA_ENABLED_STR = "DATA_ENABLED";
 
+    private static final String LOG_TAG = VideoPauseTracker.class.getSimpleName();
+
     /**
      * Tracks the current sources of pause requests.
      */
@@ -79,13 +81,15 @@ public class VideoPauseTracker {
             mPauseRequests.add(source);
 
             if (!wasPaused) {
-                Log.i(this, "shouldPauseVideoFor: source=%s, pendingRequests=%s - should pause",
-                        sourceToString(source), sourcesToString(mPauseRequests));
+                Log.i(LOG_TAG, String.format(
+                        "shouldPauseVideoFor: source=%s, pendingRequests=%s - should pause",
+                        sourceToString(source), sourcesToString(mPauseRequests)));
                 // There were previously no pause requests, but there is one now, so pause.
                 return true;
             } else {
-                Log.i(this, "shouldPauseVideoFor: source=%s, pendingRequests=%s - already paused",
-                        sourceToString(source), sourcesToString(mPauseRequests));
+                Log.i(LOG_TAG, String.format(
+                        "shouldPauseVideoFor: source=%s, pendingRequests=%s - already paused",
+                        sourceToString(source), sourcesToString(mPauseRequests)));
                 // There were already pause requests, so no need to re-pause.
                 return false;
             }
@@ -111,18 +115,21 @@ public class VideoPauseTracker {
             boolean isPaused = isPaused();
 
             if (wasPaused && !isPaused) {
-                Log.i(this, "shouldResumeVideoFor: source=%s, pendingRequests=%s - should resume",
-                        sourceToString(source), sourcesToString(mPauseRequests));
+                Log.i(LOG_TAG, String.format(
+                        "shouldResumeVideoFor: source=%s, pendingRequests=%s - should resume",
+                        sourceToString(source), sourcesToString(mPauseRequests)));
                 // This was the last pause request, so resume video.
                 return true;
             } else if (wasPaused && isPaused) {
-                Log.i(this, "shouldResumeVideoFor: source=%s, pendingRequests=%s - stay paused",
-                        sourceToString(source), sourcesToString(mPauseRequests));
+                Log.i(LOG_TAG, String.format(
+                        "shouldResumeVideoFor: source=%s, pendingRequests=%s - stay paused",
+                        sourceToString(source), sourcesToString(mPauseRequests)));
                 // There are still pending pause requests, so don't resume.
                 return false;
             } else {
-                Log.i(this, "shouldResumeVideoFor: source=%s, pendingRequests=%s - not paused",
-                        sourceToString(source), sourcesToString(mPauseRequests));
+                Log.i(LOG_TAG, String.format(
+                        "shouldResumeVideoFor: source=%s, pendingRequests=%s - not paused",
+                        sourceToString(source), sourcesToString(mPauseRequests)));
                 // Although there are no pending pause requests, it is possible that we cleared the
                 // pause tracker because the video state reported we're un-paused.  In this case it
                 // is benign to just allow the resume request to be sent since it'll have no effect.

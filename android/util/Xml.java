@@ -16,13 +16,23 @@
 
 package android.util;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.Reader;
-import java.io.StringReader;
-import java.io.UnsupportedEncodingException;
-import org.apache.harmony.xml.ExpatReader;
-import org.kxml2.io.KXmlParser;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.os.SystemProperties;
+import android.system.ErrnoException;
+import android.system.Os;
+
+import com.android.internal.util.ArtBinaryXmlPullParser;
+import com.android.internal.util.ArtBinaryXmlSerializer;
+import com.android.internal.util.FastXmlSerializer;
+import com.android.internal.util.XmlUtils;
+import com.android.modules.utils.BinaryXmlPullParser;
+import com.android.modules.utils.BinaryXmlSerializer;
+import com.android.modules.utils.TypedXmlPullParser;
+import com.android.modules.utils.TypedXmlSerializer;
+
+import libcore.util.XmlObjectFactory;
+
 import org.xml.sax.ContentHandler;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
@@ -32,11 +42,25 @@ import org.xmlpull.v1.XmlPullParserException;
 import org.xmlpull.v1.XmlPullParserFactory;
 import org.xmlpull.v1.XmlSerializer;
 
+import java.io.BufferedInputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.Reader;
+import java.io.StringReader;
+import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+
+import javax.xml.parsers.SAXParserFactory;
+
 /**
  * XML utility methods.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class Xml {
-    /** @hide */ public Xml() {}
+    private Xml() {}
 
     /**
      * {@link org.xmlpull.v1.XmlPullParser} "relaxed" feature name.
@@ -47,12 +71,46 @@ public class Xml {
     public static String FEATURE_RELAXED = "http://xmlpull.org/v1/doc/features.html#relaxed";
 
     /**
+     * Feature flag: when set, {@link #resolveSerializer(OutputStream)} will
+     * emit binary XML by default.
+     *
+     * @hide
+     */
+    public static final boolean ENABLE_BINARY_DEFAULT = shouldEnableBinaryDefault();
+
+    @android.ravenwood.annotation.RavenwoodReplace
+    private static boolean shouldEnableBinaryDefault() {
+        return SystemProperties.getBoolean("persist.sys.binary_xml", true);
+    }
+
+    private static boolean shouldEnableBinaryDefault$ravenwood() {
+        return true;
+    }
+
+    /**
+     * Feature flag: when set, {@link #resolvePullParser(InputStream)}} will attempt to sniff
+     * using {@code pread} optimization.
+     *
+     * @hide
+     */
+    public static final boolean ENABLE_RESOLVE_OPTIMIZATIONS = shouldEnableResolveOptimizations();
+
+    @android.ravenwood.annotation.RavenwoodReplace
+    private static boolean shouldEnableResolveOptimizations() {
+        return true;
+    }
+
+    private static boolean shouldEnableResolveOptimizations$ravenwood() {
+        return false;
+    }
+
+    /**
      * Parses the given xml string and fires events on the given SAX handler.
      */
     public static void parse(String xml, ContentHandler contentHandler)
             throws SAXException {
         try {
-            XMLReader reader = new ExpatReader();
+            XMLReader reader = newXMLReader();
             reader.setContentHandler(contentHandler);
             reader.parse(new InputSource(new StringReader(xml)));
         } catch (IOException e) {
@@ -66,7 +124,7 @@ public class Xml {
      */
     public static void parse(Reader in, ContentHandler contentHandler)
             throws IOException, SAXException {
-        XMLReader reader = new ExpatReader();
+        XMLReader reader = newXMLReader();
         reader.setContentHandler(contentHandler);
         reader.parse(new InputSource(in));
     }
@@ -77,7 +135,7 @@ public class Xml {
      */
     public static void parse(InputStream in, Encoding encoding,
             ContentHandler contentHandler) throws IOException, SAXException {
-        XMLReader reader = new ExpatReader();
+        XMLReader reader = newXMLReader();
         reader.setContentHandler(contentHandler);
         InputSource source = new InputSource(in);
         source.setEncoding(encoding.expatName);
@@ -87,39 +145,259 @@ public class Xml {
     /**
      * Returns a new pull parser with namespace support.
      */
+    @android.ravenwood.annotation.RavenwoodReplace
     public static XmlPullParser newPullParser() {
         try {
-            KXmlParser parser = new KXmlParser();
+            XmlPullParser parser = newXmlPullParser();
             parser.setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL, true);
             parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true);
             return parser;
         } catch (XmlPullParserException e) {
-            throw new AssertionError();
+            throw new AssertionError(e);
         }
+    }
+
+    /** @hide */
+    public static XmlPullParser newPullParser$ravenwood() {
+        try {
+            // Prebuilt kxml2-android does not support FEATURE_PROCESS_DOCDECL, so omit here;
+            // it's quite rare and all tests are passing
+            XmlPullParser parser = newXmlPullParser();
+            parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true);
+            return parser;
+        } catch (XmlPullParserException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    /**
+     * Creates a new {@link TypedXmlPullParser} which is optimized for use
+     * inside the system, typically by supporting only a basic set of features.
+     * <p>
+     * In particular, the returned parser does not support namespaces, prefixes,
+     * properties, or options.
+     *
+     * @hide
+     */
+    @SuppressWarnings("AndroidFrameworkEfficientXml")
+    public static @NonNull TypedXmlPullParser newFastPullParser() {
+        return XmlUtils.makeTyped(newPullParser());
+    }
+
+    /**
+     * Creates a new {@link XmlPullParser} that reads XML documents using a
+     * custom binary wire protocol which benchmarking has shown to be 8.5x
+     * faster than {@code Xml.newFastPullParser()} for a typical
+     * {@code packages.xml}.
+     *
+     * @hide
+     */
+    @android.ravenwood.annotation.RavenwoodReplace
+    public static @NonNull TypedXmlPullParser newBinaryPullParser() {
+        return new ArtBinaryXmlPullParser();
+    }
+
+    /** @hide */
+    public static TypedXmlPullParser newBinaryPullParser$ravenwood() {
+        // TODO: remove once we're linking against libcore
+        return new BinaryXmlPullParser();
+    }
+
+    /**
+     * Creates a new {@link XmlPullParser} which is optimized for use inside the
+     * system, typically by supporting only a basic set of features.
+     * <p>
+     * This returned instance may be configured to read using an efficient
+     * binary format instead of a human-readable text format, depending on
+     * device feature flags.
+     * <p>
+     * To ensure that both formats are detected and transparently handled
+     * correctly, you must shift to using both {@link #resolveSerializer} and
+     * {@link #resolvePullParser}.
+     *
+     * @hide
+     */
+    public static @NonNull TypedXmlPullParser resolvePullParser(@NonNull InputStream in)
+            throws IOException {
+        final byte[] magic = new byte[4];
+        if (ENABLE_RESOLVE_OPTIMIZATIONS && in instanceof FileInputStream) {
+            try {
+                Os.pread(((FileInputStream) in).getFD(), magic, 0, magic.length, 0);
+            } catch (ErrnoException e) {
+                throw e.rethrowAsIOException();
+            }
+        } else {
+            if (!in.markSupported()) {
+                in = new BufferedInputStream(in);
+            }
+            in.mark(8);
+            in.read(magic);
+            in.reset();
+        }
+
+        final TypedXmlPullParser xml;
+        if (Arrays.equals(magic, BinaryXmlSerializer.PROTOCOL_MAGIC_VERSION_0)) {
+            xml = newBinaryPullParser();
+        } else {
+            xml = newFastPullParser();
+        }
+        try {
+            xml.setInput(in, StandardCharsets.UTF_8.name());
+        } catch (XmlPullParserException e) {
+            throw new IOException(e);
+        }
+        return xml;
     }
 
     /**
      * Creates a new xml serializer.
      */
     public static XmlSerializer newSerializer() {
-        try {
-            return XmlSerializerFactory.instance.newSerializer();
-        } catch (XmlPullParserException e) {
-            throw new AssertionError(e);
+        return newXmlSerializer();
+    }
+
+    /**
+     * Creates a new {@link XmlSerializer} which is optimized for use inside the
+     * system, typically by supporting only a basic set of features.
+     * <p>
+     * In particular, the returned parser does not support namespaces, prefixes,
+     * properties, or options.
+     *
+     * @hide
+     */
+    @SuppressWarnings("AndroidFrameworkEfficientXml")
+    public static @NonNull TypedXmlSerializer newFastSerializer() {
+        return XmlUtils.makeTyped(new FastXmlSerializer());
+    }
+
+    /**
+     * Creates a new {@link XmlSerializer} that writes XML documents using a
+     * custom binary wire protocol which benchmarking has shown to be 4.4x
+     * faster and use 2.8x less disk space than {@code Xml.newFastSerializer()}
+     * for a typical {@code packages.xml}.
+     *
+     * @hide
+     */
+    @android.ravenwood.annotation.RavenwoodReplace
+    public static @NonNull TypedXmlSerializer newBinarySerializer() {
+        return new ArtBinaryXmlSerializer();
+    }
+
+    /** @hide */
+    public static @NonNull TypedXmlSerializer newBinarySerializer$ravenwood() {
+        // TODO: remove once we're linking against libcore
+        return new BinaryXmlSerializer();
+    }
+
+    /**
+     * Creates a new {@link XmlSerializer} which is optimized for use inside the
+     * system, typically by supporting only a basic set of features.
+     * <p>
+     * This returned instance may be configured to write using an efficient
+     * binary format instead of a human-readable text format, depending on
+     * device feature flags.
+     * <p>
+     * To ensure that both formats are detected and transparently handled
+     * correctly, you must shift to using both {@link #resolveSerializer} and
+     * {@link #resolvePullParser}.
+     *
+     * @hide
+     */
+    @android.ravenwood.annotation.RavenwoodReplace
+    public static @NonNull TypedXmlSerializer resolveSerializer(@NonNull OutputStream out)
+            throws IOException {
+        final TypedXmlSerializer xml;
+        if (ENABLE_BINARY_DEFAULT) {
+            xml = newBinarySerializer();
+        } else {
+            xml = newFastSerializer();
+        }
+        xml.setOutput(out, StandardCharsets.UTF_8.name());
+        return xml;
+    }
+
+    /** @hide */
+    public static @NonNull TypedXmlSerializer resolveSerializer$ravenwood(@NonNull OutputStream out)
+            throws IOException {
+        // TODO: remove once we're linking against libcore
+        final TypedXmlSerializer xml = new BinaryXmlSerializer();
+        xml.setOutput(out, StandardCharsets.UTF_8.name());
+        return xml;
+    }
+
+    /**
+     * Copy the first XML document into the second document.
+     * <p>
+     * Implemented by reading all events from the given {@link XmlPullParser}
+     * and writing them directly to the given {@link XmlSerializer}. This can be
+     * useful for transparently converting between underlying wire protocols.
+     *
+     * @hide
+     */
+    public static void copy(@NonNull XmlPullParser in, @NonNull XmlSerializer out)
+            throws XmlPullParserException, IOException {
+        // Some parsers may have already consumed the event that starts the
+        // document, so we manually emit that event here for consistency
+        if (in.getEventType() == XmlPullParser.START_DOCUMENT) {
+            out.startDocument(in.getInputEncoding(), true);
+        }
+
+        while (true) {
+            final int token = in.nextToken();
+            switch (token) {
+                case XmlPullParser.START_DOCUMENT:
+                    out.startDocument(in.getInputEncoding(), true);
+                    break;
+                case XmlPullParser.END_DOCUMENT:
+                    out.endDocument();
+                    return;
+                case XmlPullParser.START_TAG:
+                    out.startTag(normalizeNamespace(in.getNamespace()), in.getName());
+                    for (int i = 0; i < in.getAttributeCount(); i++) {
+                        out.attribute(normalizeNamespace(in.getAttributeNamespace(i)),
+                                in.getAttributeName(i), in.getAttributeValue(i));
+                    }
+                    break;
+                case XmlPullParser.END_TAG:
+                    out.endTag(normalizeNamespace(in.getNamespace()), in.getName());
+                    break;
+                case XmlPullParser.TEXT:
+                    out.text(in.getText());
+                    break;
+                case XmlPullParser.CDSECT:
+                    out.cdsect(in.getText());
+                    break;
+                case XmlPullParser.ENTITY_REF:
+                    out.entityRef(in.getName());
+                    break;
+                case XmlPullParser.IGNORABLE_WHITESPACE:
+                    out.ignorableWhitespace(in.getText());
+                    break;
+                case XmlPullParser.PROCESSING_INSTRUCTION:
+                    out.processingInstruction(in.getText());
+                    break;
+                case XmlPullParser.COMMENT:
+                    out.comment(in.getText());
+                    break;
+                case XmlPullParser.DOCDECL:
+                    out.docdecl(in.getText());
+                    break;
+                default:
+                    throw new IllegalStateException("Unknown token " + token);
+            }
         }
     }
 
-    /** Factory for xml serializers. Initialized on demand. */
-    static class XmlSerializerFactory {
-        static final String TYPE
-                = "org.kxml2.io.KXmlParser,org.kxml2.io.KXmlSerializer";
-        static final XmlPullParserFactory instance;
-        static {
-            try {
-                instance = XmlPullParserFactory.newInstance(TYPE, null);
-            } catch (XmlPullParserException e) {
-                throw new AssertionError(e);
-            }
+    /**
+     * Some parsers may return an empty string {@code ""} when a namespace in
+     * unsupported, which can confuse serializers. This method normalizes empty
+     * strings to be {@code null}.
+     */
+    private static @Nullable String normalizeNamespace(@Nullable String namespace) {
+        if (namespace == null || namespace.isEmpty()) {
+            return null;
+        } else {
+            return namespace;
         }
     }
 
@@ -176,5 +454,46 @@ public class Xml {
         return (parser instanceof AttributeSet)
                 ? (AttributeSet) parser
                 : new XmlPullAttributes(parser);
+    }
+
+    @android.ravenwood.annotation.RavenwoodReplace
+    private static @NonNull XmlSerializer newXmlSerializer() {
+        return XmlObjectFactory.newXmlSerializer();
+    }
+
+    private static @NonNull XmlSerializer newXmlSerializer$ravenwood() {
+        try {
+            return XmlPullParserFactory.newInstance().newSerializer();
+        } catch (XmlPullParserException e) {
+            throw new UnsupportedOperationException(e);
+        }
+    }
+
+    @android.ravenwood.annotation.RavenwoodReplace
+    private static @NonNull XmlPullParser newXmlPullParser() {
+        return XmlObjectFactory.newXmlPullParser();
+    }
+
+    private static @NonNull XmlPullParser newXmlPullParser$ravenwood() {
+        try {
+            return XmlPullParserFactory.newInstance().newPullParser();
+        } catch (XmlPullParserException e) {
+            throw new UnsupportedOperationException(e);
+        }
+    }
+
+    @android.ravenwood.annotation.RavenwoodReplace
+    private static @NonNull XMLReader newXMLReader() {
+        return XmlObjectFactory.newXMLReader();
+    }
+
+    private static @NonNull XMLReader newXMLReader$ravenwood() {
+        try {
+            final SAXParserFactory factory = SAXParserFactory.newInstance();
+            factory.setNamespaceAware(true);
+            return factory.newSAXParser().getXMLReader();
+        } catch (Exception e) {
+            throw new UnsupportedOperationException(e);
+        }
     }
 }

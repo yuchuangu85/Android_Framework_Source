@@ -16,8 +16,21 @@
 
 package android.telephony;
 
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
+import android.content.ContentValues;
+import android.database.Cursor;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.provider.Telephony.CellBroadcasts;
+import android.telephony.CbGeoUtils.Geometry;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Parcelable object containing a received cell broadcast message. There are four different types
@@ -61,9 +74,11 @@ import android.os.Parcelable;
  *
  * @hide
  */
-public class SmsCbMessage implements Parcelable {
+@SystemApi
+public final class SmsCbMessage implements Parcelable {
 
-    protected static final String LOG_TAG = "SMSCB";
+    /** @hide */
+    public static final String LOG_TAG = "SMSCB";
 
     /** Cell wide geographical scope with immediate display (GSM/UMTS only). */
     public static final int GEOGRAPHICAL_SCOPE_CELL_WIDE_IMMEDIATE = 0;
@@ -72,16 +87,34 @@ public class SmsCbMessage implements Parcelable {
     public static final int GEOGRAPHICAL_SCOPE_PLMN_WIDE = 1;
 
     /** Location / service area wide geographical scope (GSM/UMTS only). */
-    public static final int GEOGRAPHICAL_SCOPE_LA_WIDE = 2;
+    public static final int GEOGRAPHICAL_SCOPE_LOCATION_AREA_WIDE = 2;
 
     /** Cell wide geographical scope (GSM/UMTS only). */
     public static final int GEOGRAPHICAL_SCOPE_CELL_WIDE = 3;
+
+    /** @hide */
+    @IntDef(prefix = { "GEOGRAPHICAL_SCOPE_" }, value = {
+            GEOGRAPHICAL_SCOPE_CELL_WIDE_IMMEDIATE,
+            GEOGRAPHICAL_SCOPE_PLMN_WIDE,
+            GEOGRAPHICAL_SCOPE_LOCATION_AREA_WIDE,
+            GEOGRAPHICAL_SCOPE_CELL_WIDE,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface GeographicalScope {}
 
     /** GSM or UMTS format cell broadcast. */
     public static final int MESSAGE_FORMAT_3GPP = 1;
 
     /** CDMA format cell broadcast. */
     public static final int MESSAGE_FORMAT_3GPP2 = 2;
+
+    /** @hide */
+    @IntDef(prefix = { "MESSAGE_FORMAT_" }, value = {
+            MESSAGE_FORMAT_3GPP,
+            MESSAGE_FORMAT_3GPP2
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface MessageFormat {}
 
     /** Normal message priority. */
     public static final int MESSAGE_PRIORITY_NORMAL = 0;
@@ -94,6 +127,22 @@ public class SmsCbMessage implements Parcelable {
 
     /** Emergency message priority. */
     public static final int MESSAGE_PRIORITY_EMERGENCY = 3;
+
+    /** @hide */
+    @IntDef(prefix = { "MESSAGE_PRIORITY_" }, value = {
+            MESSAGE_PRIORITY_NORMAL,
+            MESSAGE_PRIORITY_INTERACTIVE,
+            MESSAGE_PRIORITY_URGENT,
+            MESSAGE_PRIORITY_EMERGENCY,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface MessagePriority {}
+
+    /**
+     * Integer indicating that the maximum wait time is not set.
+     * Based on ATIS-0700041 Section 5.2.8 WAC Geo-Fencing Maximum Wait Time Table 12.
+     */
+    public static final int MAXIMUM_WAIT_TIME_NOT_SET = 255;
 
     /** Format of this message (for interpretation of service category values). */
     private final int mMessageFormat;
@@ -114,6 +163,7 @@ public class SmsCbMessage implements Parcelable {
      * message is not binary 01, the Location Area is included for comparison. If the GS is
      * 00 or 11, the Cell ID is also included. LAC and Cell ID are -1 if not specified.
      */
+    @NonNull
     private final SmsCbLocation mLocation;
 
     /**
@@ -124,46 +174,100 @@ public class SmsCbMessage implements Parcelable {
     private final int mServiceCategory;
 
     /** Message language, as a two-character string, e.g. "en". */
+    @Nullable
     private final String mLanguage;
 
+    /** The 8-bit data coding scheme defined in 3GPP TS 23.038 section 4. */
+    private final int mDataCodingScheme;
+
     /** Message body, as a String. */
+    @Nullable
     private final String mBody;
 
     /** Message priority (including emergency priority). */
     private final int mPriority;
 
     /** ETWS warning notification information (ETWS warnings only). */
+    @Nullable
     private final SmsCbEtwsInfo mEtwsWarningInfo;
 
     /** CMAS warning notification information (CMAS warnings only). */
+    @Nullable
     private final SmsCbCmasInfo mCmasWarningInfo;
 
     /**
+     * Geo-Fencing Maximum Wait Time in second, a device shall allow to determine its position
+     * meeting operator policy. If the device is unable to determine its position meeting operator
+     * policy within the GeoFencing Maximum Wait Time, it shall present the alert to the user and
+     * discontinue further positioning determination for the alert.
+     */
+    private final int mMaximumWaitTimeSec;
+
+    /** UNIX timestamp of when the message was received. */
+    private final long mReceivedTimeMillis;
+
+    /** CMAS warning area coordinates. */
+    private final List<Geometry> mGeometries;
+
+    private final int mSlotIndex;
+
+    private final int mSubId;
+
+    /**
      * Create a new SmsCbMessage with the specified data.
+     * @hide
      */
     public SmsCbMessage(int messageFormat, int geographicalScope, int serialNumber,
-            SmsCbLocation location, int serviceCategory, String language, String body,
-            int priority, SmsCbEtwsInfo etwsWarningInfo, SmsCbCmasInfo cmasWarningInfo) {
+            @NonNull SmsCbLocation location, int serviceCategory, @Nullable String language,
+            @Nullable String body, int priority, @Nullable SmsCbEtwsInfo etwsWarningInfo,
+            @Nullable SmsCbCmasInfo cmasWarningInfo, int slotIndex, int subId) {
+
+        this(messageFormat, geographicalScope, serialNumber, location, serviceCategory, language,
+                0, body, priority, etwsWarningInfo, cmasWarningInfo, 0 /* maximumWaitingTime */,
+                null /* geometries */, System.currentTimeMillis(), slotIndex, subId);
+    }
+
+    /**
+     * Create a new {@link SmsCbMessage} with the specified data, including warning area
+     * coordinates information.
+     */
+    public SmsCbMessage(int messageFormat, int geographicalScope, int serialNumber,
+                        @NonNull SmsCbLocation location, int serviceCategory,
+                        @Nullable String language, int dataCodingScheme, @Nullable String body,
+                        int priority, @Nullable SmsCbEtwsInfo etwsWarningInfo,
+                        @Nullable SmsCbCmasInfo cmasWarningInfo, int maximumWaitTimeSec,
+                        @Nullable List<Geometry> geometries, long receivedTimeMillis, int slotIndex,
+                        int subId) {
         mMessageFormat = messageFormat;
         mGeographicalScope = geographicalScope;
         mSerialNumber = serialNumber;
         mLocation = location;
         mServiceCategory = serviceCategory;
         mLanguage = language;
+        mDataCodingScheme = dataCodingScheme;
         mBody = body;
         mPriority = priority;
         mEtwsWarningInfo = etwsWarningInfo;
         mCmasWarningInfo = cmasWarningInfo;
+        mReceivedTimeMillis = receivedTimeMillis;
+        mGeometries = geometries;
+        mMaximumWaitTimeSec = maximumWaitTimeSec;
+        mSlotIndex = slotIndex;
+        mSubId = subId;
     }
 
-    /** Create a new SmsCbMessage object from a Parcel. */
-    public SmsCbMessage(Parcel in) {
+    /**
+     * Create a new SmsCbMessage object from a Parcel.
+     * @hide
+     */
+    public SmsCbMessage(@NonNull Parcel in) {
         mMessageFormat = in.readInt();
         mGeographicalScope = in.readInt();
         mSerialNumber = in.readInt();
         mLocation = new SmsCbLocation(in);
         mServiceCategory = in.readInt();
         mLanguage = in.readString();
+        mDataCodingScheme = in.readInt();
         mBody = in.readString();
         mPriority = in.readInt();
         int type = in.readInt();
@@ -184,6 +288,12 @@ public class SmsCbMessage implements Parcelable {
                 mEtwsWarningInfo = null;
                 mCmasWarningInfo = null;
         }
+        mReceivedTimeMillis = in.readLong();
+        String geoStr = in.readString();
+        mGeometries = geoStr != null ? CbGeoUtils.parseGeometriesFromString(geoStr) : null;
+        mMaximumWaitTimeSec = in.readInt();
+        mSlotIndex = in.readInt();
+        mSubId = in.readInt();
     }
 
     /**
@@ -200,6 +310,7 @@ public class SmsCbMessage implements Parcelable {
         mLocation.writeToParcel(dest, flags);
         dest.writeInt(mServiceCategory);
         dest.writeString(mLanguage);
+        dest.writeInt(mDataCodingScheme);
         dest.writeString(mBody);
         dest.writeInt(mPriority);
         if (mEtwsWarningInfo != null) {
@@ -214,10 +325,17 @@ public class SmsCbMessage implements Parcelable {
             // no ETWS or CMAS warning information
             dest.writeInt('0');
         }
+        dest.writeLong(mReceivedTimeMillis);
+        dest.writeString(
+                mGeometries != null ? CbGeoUtils.encodeGeometriesToString(mGeometries) : null);
+        dest.writeInt(mMaximumWaitTimeSec);
+        dest.writeInt(mSlotIndex);
+        dest.writeInt(mSubId);
     }
 
-    public static final Parcelable.Creator<SmsCbMessage> CREATOR
-            = new Parcelable.Creator<SmsCbMessage>() {
+    @NonNull
+    public static final Parcelable.Creator<SmsCbMessage> CREATOR =
+            new Parcelable.Creator<SmsCbMessage>() {
         @Override
         public SmsCbMessage createFromParcel(Parcel in) {
             return new SmsCbMessage(in);
@@ -234,7 +352,7 @@ public class SmsCbMessage implements Parcelable {
      *
      * @return Geographical scope
      */
-    public int getGeographicalScope() {
+    public @GeographicalScope int getGeographicalScope() {
         return mGeographicalScope;
     }
 
@@ -258,7 +376,8 @@ public class SmsCbMessage implements Parcelable {
      *
      * @return the geographical location code for duplicate message detection
      */
-    public SmsCbLocation getLocation() {
+    @NonNull
+    public android.telephony.SmsCbLocation getLocation() {
         return mLocation;
     }
 
@@ -279,8 +398,18 @@ public class SmsCbMessage implements Parcelable {
      *
      * @return Language code
      */
+    @Nullable
     public String getLanguageCode() {
         return mLanguage;
+    }
+
+    /**
+     * Get data coding scheme of the message
+     *
+     * @return The 8-bit data coding scheme defined in 3GPP TS 23.038 section 4.
+     */
+    public int getDataCodingScheme() {
+        return mDataCodingScheme;
     }
 
     /**
@@ -288,15 +417,63 @@ public class SmsCbMessage implements Parcelable {
      *
      * @return Body, or null
      */
+    @Nullable
     public String getMessageBody() {
         return mBody;
+    }
+
+    /**
+     * Get the warning area coordinates information represented by polygons and circles.
+     * @return a list of geometries, or an empty list if there is no coordinate information
+     * associated with this message.
+     * @hide
+     */
+    @SystemApi
+    @NonNull
+    public List<Geometry> getGeometries() {
+        if (mGeometries == null) {
+            return new ArrayList<>();
+        }
+        return mGeometries;
+    }
+
+    /**
+     * Get the Geo-Fencing Maximum Wait Time.
+     * @return the time in second.
+     */
+    public int getMaximumWaitingDuration() {
+        return mMaximumWaitTimeSec;
+    }
+
+    /**
+     * Get the time when this message was received.
+     * @return the time in millisecond
+     */
+    public long getReceivedTime() {
+        return mReceivedTimeMillis;
+    }
+
+    /**
+     * Get the slot index associated with this message.
+     * @return the slot index associated with this message
+     */
+    public int getSlotIndex() {
+        return mSlotIndex;
+    }
+
+    /**
+     * Get the subscription id associated with this message.
+     * @return the subscription id associated with this message
+     */
+    public int getSubscriptionId() {
+        return mSubId;
     }
 
     /**
      * Get the message format ({@link #MESSAGE_FORMAT_3GPP} or {@link #MESSAGE_FORMAT_3GPP2}).
      * @return an integer representing 3GPP or 3GPP2 message format
      */
-    public int getMessageFormat() {
+    public @MessageFormat int getMessageFormat() {
         return mMessageFormat;
     }
 
@@ -306,7 +483,7 @@ public class SmsCbMessage implements Parcelable {
      * {@link #MESSAGE_PRIORITY_INTERACTIVE} or {@link #MESSAGE_PRIORITY_URGENT}.
      * @return an integer representing the message priority
      */
-    public int getMessagePriority() {
+    public @MessagePriority int getMessagePriority() {
         return mPriority;
     }
 
@@ -319,6 +496,7 @@ public class SmsCbMessage implements Parcelable {
      *
      * @return an SmsCbEtwsInfo object, or null if this is not an ETWS warning notification
      */
+    @Nullable
     public SmsCbEtwsInfo getEtwsWarningInfo() {
         return mEtwsWarningInfo;
     }
@@ -333,13 +511,14 @@ public class SmsCbMessage implements Parcelable {
      *
      * @return an SmsCbCmasInfo object, or null if this is not a CMAS warning notification
      */
+    @Nullable
     public SmsCbCmasInfo getCmasWarningInfo() {
         return mCmasWarningInfo;
     }
 
     /**
      * Return whether this message is an emergency (PWS) message type.
-     * @return true if the message is a public warning notification; false otherwise
+     * @return true if the message is an emergency notification; false otherwise
      */
     public boolean isEmergencyMessage() {
         return mPriority == MESSAGE_PRIORITY_EMERGENCY;
@@ -368,7 +547,13 @@ public class SmsCbMessage implements Parcelable {
                 + mServiceCategory + ", language=" + mLanguage + ", body=" + mBody
                 + ", priority=" + mPriority
                 + (mEtwsWarningInfo != null ? (", " + mEtwsWarningInfo.toString()) : "")
-                + (mCmasWarningInfo != null ? (", " + mCmasWarningInfo.toString()) : "") + '}';
+                + (mCmasWarningInfo != null ? (", " + mCmasWarningInfo.toString()) : "")
+                + ", maximumWaitingTime=" + mMaximumWaitTimeSec
+                + ", received time=" + mReceivedTimeMillis
+                + ", slotIndex = " + mSlotIndex
+                + ", geo=" + (mGeometries != null
+                ? CbGeoUtils.encodeGeometriesToString(mGeometries) : "null")
+                + '}';
     }
 
     /**
@@ -378,5 +563,189 @@ public class SmsCbMessage implements Parcelable {
     @Override
     public int describeContents() {
         return 0;
+    }
+
+    /**
+     * @return the {@link ContentValues} instance that includes the cell broadcast data.
+     */
+    @NonNull
+    public ContentValues getContentValues() {
+        ContentValues cv = new ContentValues(16);
+        cv.put(CellBroadcasts.SLOT_INDEX, mSlotIndex);
+        cv.put(CellBroadcasts.SUBSCRIPTION_ID, mSubId);
+        cv.put(CellBroadcasts.GEOGRAPHICAL_SCOPE, mGeographicalScope);
+        if (mLocation.getPlmn() != null) {
+            cv.put(CellBroadcasts.PLMN, mLocation.getPlmn());
+        }
+        if (mLocation.getLac() != -1) {
+            cv.put(CellBroadcasts.LAC, mLocation.getLac());
+        }
+        if (mLocation.getCid() != -1) {
+            cv.put(CellBroadcasts.CID, mLocation.getCid());
+        }
+        cv.put(CellBroadcasts.SERIAL_NUMBER, getSerialNumber());
+        cv.put(CellBroadcasts.SERVICE_CATEGORY, getServiceCategory());
+        cv.put(CellBroadcasts.LANGUAGE_CODE, getLanguageCode());
+        cv.put(CellBroadcasts.DATA_CODING_SCHEME, getDataCodingScheme());
+        cv.put(CellBroadcasts.MESSAGE_BODY, getMessageBody());
+        cv.put(CellBroadcasts.MESSAGE_FORMAT, getMessageFormat());
+        cv.put(CellBroadcasts.MESSAGE_PRIORITY, getMessagePriority());
+
+        SmsCbEtwsInfo etwsInfo = getEtwsWarningInfo();
+        if (etwsInfo != null) {
+            cv.put(CellBroadcasts.ETWS_WARNING_TYPE, etwsInfo.getWarningType());
+            cv.put(CellBroadcasts.ETWS_IS_PRIMARY, etwsInfo.isPrimary());
+        }
+
+        SmsCbCmasInfo cmasInfo = getCmasWarningInfo();
+        if (cmasInfo != null) {
+            cv.put(CellBroadcasts.CMAS_MESSAGE_CLASS, cmasInfo.getMessageClass());
+            cv.put(CellBroadcasts.CMAS_CATEGORY, cmasInfo.getCategory());
+            cv.put(CellBroadcasts.CMAS_RESPONSE_TYPE, cmasInfo.getResponseType());
+            cv.put(CellBroadcasts.CMAS_SEVERITY, cmasInfo.getSeverity());
+            cv.put(CellBroadcasts.CMAS_URGENCY, cmasInfo.getUrgency());
+            cv.put(CellBroadcasts.CMAS_CERTAINTY, cmasInfo.getCertainty());
+        }
+
+        cv.put(CellBroadcasts.RECEIVED_TIME, mReceivedTimeMillis);
+
+        if (mGeometries != null) {
+            cv.put(CellBroadcasts.GEOMETRIES, CbGeoUtils.encodeGeometriesToString(mGeometries));
+        } else {
+            cv.put(CellBroadcasts.GEOMETRIES, (String) null);
+        }
+
+        cv.put(CellBroadcasts.MAXIMUM_WAIT_TIME, mMaximumWaitTimeSec);
+
+        return cv;
+    }
+
+    /**
+     * Create a {@link SmsCbMessage} instance from a row in the cell broadcast database.
+     * @param cursor an open SQLite cursor pointing to the row to read
+     * @return a {@link SmsCbMessage} instance.
+     * @throws IllegalArgumentException if one of the required columns is missing
+     */
+    @NonNull
+    public static SmsCbMessage createFromCursor(@NonNull Cursor cursor) {
+        int geoScope = cursor.getInt(
+                cursor.getColumnIndexOrThrow(CellBroadcasts.GEOGRAPHICAL_SCOPE));
+        int serialNum = cursor.getInt(cursor.getColumnIndexOrThrow(CellBroadcasts.SERIAL_NUMBER));
+        int category = cursor.getInt(cursor.getColumnIndexOrThrow(CellBroadcasts.SERVICE_CATEGORY));
+        String language = cursor.getString(
+                cursor.getColumnIndexOrThrow(CellBroadcasts.LANGUAGE_CODE));
+        String body = cursor.getString(cursor.getColumnIndexOrThrow(CellBroadcasts.MESSAGE_BODY));
+        int format = cursor.getInt(cursor.getColumnIndexOrThrow(CellBroadcasts.MESSAGE_FORMAT));
+        int priority = cursor.getInt(cursor.getColumnIndexOrThrow(CellBroadcasts.MESSAGE_PRIORITY));
+        int slotIndex = cursor.getInt(cursor.getColumnIndexOrThrow(CellBroadcasts.SLOT_INDEX));
+        int subId = cursor.getInt(cursor.getColumnIndexOrThrow(CellBroadcasts.SUBSCRIPTION_ID));
+
+        String plmn;
+        int plmnColumn = cursor.getColumnIndex(CellBroadcasts.PLMN);
+        if (plmnColumn != -1 && !cursor.isNull(plmnColumn)) {
+            plmn = cursor.getString(plmnColumn);
+        } else {
+            plmn = null;
+        }
+
+        int lac;
+        int lacColumn = cursor.getColumnIndex(CellBroadcasts.LAC);
+        if (lacColumn != -1 && !cursor.isNull(lacColumn)) {
+            lac = cursor.getInt(lacColumn);
+        } else {
+            lac = -1;
+        }
+
+        int cid;
+        int cidColumn = cursor.getColumnIndex(CellBroadcasts.CID);
+        if (cidColumn != -1 && !cursor.isNull(cidColumn)) {
+            cid = cursor.getInt(cidColumn);
+        } else {
+            cid = -1;
+        }
+
+        SmsCbLocation location = new SmsCbLocation(plmn, lac, cid);
+
+        SmsCbEtwsInfo etwsInfo;
+        int etwsWarningTypeColumn = cursor.getColumnIndex(CellBroadcasts.ETWS_WARNING_TYPE);
+        int etwsIsPrimaryColumn = cursor.getColumnIndex(CellBroadcasts.ETWS_IS_PRIMARY);
+        if (etwsWarningTypeColumn != -1 && !cursor.isNull(etwsWarningTypeColumn)
+                && etwsIsPrimaryColumn != -1 && !cursor.isNull(etwsIsPrimaryColumn)) {
+            int warningType = cursor.getInt(etwsWarningTypeColumn);
+            boolean isPrimary = cursor.getInt(etwsIsPrimaryColumn) != 0;
+            etwsInfo = new SmsCbEtwsInfo(warningType, false, false, isPrimary, null);
+        } else {
+            etwsInfo = null;
+        }
+
+        SmsCbCmasInfo cmasInfo = null;
+        int cmasMessageClassColumn = cursor.getColumnIndex(CellBroadcasts.CMAS_MESSAGE_CLASS);
+        if (cmasMessageClassColumn != -1 && !cursor.isNull(cmasMessageClassColumn)) {
+            int messageClass = cursor.getInt(cmasMessageClassColumn);
+
+            int cmasCategory;
+            int cmasCategoryColumn = cursor.getColumnIndex(CellBroadcasts.CMAS_CATEGORY);
+            if (cmasCategoryColumn != -1 && !cursor.isNull(cmasCategoryColumn)) {
+                cmasCategory = cursor.getInt(cmasCategoryColumn);
+            } else {
+                cmasCategory = SmsCbCmasInfo.CMAS_CATEGORY_UNKNOWN;
+            }
+
+            int responseType;
+            int cmasResponseTypeColumn = cursor.getColumnIndex(CellBroadcasts.CMAS_RESPONSE_TYPE);
+            if (cmasResponseTypeColumn != -1 && !cursor.isNull(cmasResponseTypeColumn)) {
+                responseType = cursor.getInt(cmasResponseTypeColumn);
+            } else {
+                responseType = SmsCbCmasInfo.CMAS_RESPONSE_TYPE_UNKNOWN;
+            }
+
+            int severity;
+            int cmasSeverityColumn = cursor.getColumnIndex(CellBroadcasts.CMAS_SEVERITY);
+            if (cmasSeverityColumn != -1 && !cursor.isNull(cmasSeverityColumn)) {
+                severity = cursor.getInt(cmasSeverityColumn);
+            } else {
+                severity = SmsCbCmasInfo.CMAS_SEVERITY_UNKNOWN;
+            }
+
+            int urgency;
+            int cmasUrgencyColumn = cursor.getColumnIndex(CellBroadcasts.CMAS_URGENCY);
+            if (cmasUrgencyColumn != -1 && !cursor.isNull(cmasUrgencyColumn)) {
+                urgency = cursor.getInt(cmasUrgencyColumn);
+            } else {
+                urgency = SmsCbCmasInfo.CMAS_URGENCY_UNKNOWN;
+            }
+
+            int certainty;
+            int cmasCertaintyColumn = cursor.getColumnIndex(CellBroadcasts.CMAS_CERTAINTY);
+            if (cmasCertaintyColumn != -1 && !cursor.isNull(cmasCertaintyColumn)) {
+                certainty = cursor.getInt(cmasCertaintyColumn);
+            } else {
+                certainty = SmsCbCmasInfo.CMAS_CERTAINTY_UNKNOWN;
+            }
+
+            cmasInfo = new SmsCbCmasInfo(messageClass, cmasCategory, responseType, severity,
+                    urgency, certainty);
+        }
+
+        String geoStr = cursor.getString(cursor.getColumnIndex(CellBroadcasts.GEOMETRIES));
+        List<Geometry> geometries =
+                geoStr != null ? CbGeoUtils.parseGeometriesFromString(geoStr) : null;
+
+        long receivedTimeMillis = cursor.getLong(
+                cursor.getColumnIndexOrThrow(CellBroadcasts.RECEIVED_TIME));
+
+        int maximumWaitTimeSec = cursor.getInt(
+                cursor.getColumnIndexOrThrow(CellBroadcasts.MAXIMUM_WAIT_TIME));
+
+        return new SmsCbMessage(format, geoScope, serialNum, location, category,
+                language, 0, body, priority, etwsInfo, cmasInfo, maximumWaitTimeSec, geometries,
+                receivedTimeMillis, slotIndex, subId);
+    }
+
+    /**
+     * @return {@code True} if this message needs geo-fencing check.
+     */
+    public boolean needGeoFencingCheck() {
+        return mMaximumWaitTimeSec > 0 && mGeometries != null && !mGeometries.isEmpty();
     }
 }

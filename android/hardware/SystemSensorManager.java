@@ -16,11 +16,28 @@
 
 package android.hardware;
 
+import static android.companion.virtual.VirtualDeviceParams.DEVICE_POLICY_CUSTOM;
+import static android.companion.virtual.VirtualDeviceParams.DEVICE_POLICY_DEFAULT;
+import static android.companion.virtual.VirtualDeviceParams.DEVICE_POLICY_INVALID;
+import static android.companion.virtual.VirtualDeviceParams.POLICY_TYPE_SENSORS;
+import static android.content.Context.DEVICE_ID_DEFAULT;
+import static android.content.pm.PackageManager.PERMISSION_GRANTED;
+import static android.hardware.flags.Flags.suspendSensorEventDeliveryOnFrozenPid;
+
+import android.companion.virtual.VirtualDeviceManager;
+import android.compat.Compatibility;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledAfter;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ApplicationInfo;
+import android.hardware.sensor.ISensorClientListener;
+import android.os.Build;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.MemoryFile;
 import android.os.MessageQueue;
@@ -37,9 +54,11 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Sensor manager implementation that communicates with the built-in
@@ -52,16 +71,36 @@ public class SystemSensorManager extends SensorManager {
     private static final boolean DEBUG_DYNAMIC_SENSOR = true;
     private static final int MIN_DIRECT_CHANNEL_BUFFER_SIZE = 104;
     private static final int MAX_LISTENER_COUNT = 128;
+    private static final int CAPPED_SAMPLING_PERIOD_US = 5000;
+    private static final int CAPPED_SAMPLING_RATE_LEVEL = SensorDirectChannel.RATE_NORMAL;
+
+    private static final String HIGH_SAMPLING_RATE_SENSORS_PERMISSION =
+                                        "android.permission.HIGH_SAMPLING_RATE_SENSORS";
+    /**
+     * For apps targeting S and above, a SecurityException is thrown when they do not have
+     * HIGH_SAMPLING_RATE_SENSORS permission, run in debug mode, and request sampling rates that
+     * are faster than 200 Hz.
+     */
+    @ChangeId
+    @EnabledAfter(targetSdkVersion = Build.VERSION_CODES.R)
+    static final long CHANGE_ID_SAMPLING_RATE_SENSORS_PERMISSION = 136069189L;
 
     private static native void nativeClassInit();
     private static native long nativeCreate(String opPackageName);
     private static native boolean nativeGetSensorAtIndex(long nativeInstance,
             Sensor sensor, int index);
+    private static native boolean nativeGetDefaultDeviceSensorAtIndex(long nativeInstance,
+            Sensor sensor, int index);
     private static native void nativeGetDynamicSensors(long nativeInstance, List<Sensor> list);
+    private static native void nativeGetRuntimeSensors(
+            long nativeInstance, int deviceId, List<Sensor> list);
     private static native boolean nativeIsDataInjectionEnabled(long nativeInstance);
+    private static native boolean nativeIsReplayDataInjectionEnabled(long nativeInstance);
+    private static native boolean nativeIsHalBypassReplayDataInjectionEnabled(long nativeInstance);
 
     private static native int nativeCreateDirectChannel(
-            long nativeInstance, long size, int channelType, int fd, HardwareBuffer buffer);
+            long nativeInstance, int deviceId, long size, int channelType, int fd,
+            HardwareBuffer buffer);
     private static native void nativeDestroyDirectChannel(
             long nativeInstance, int channelHandle);
     private static native int nativeConfigDirectChannel(
@@ -69,6 +108,7 @@ public class SystemSensorManager extends SensorManager {
 
     private static native int nativeSetOperationParameter(
             long nativeInstance, int handle, int type, float[] floatValues, int[] intValues);
+    private static native void nativeRegisterClientListener(long nativeInstance, IBinder listener);
 
     private static final Object sLock = new Object();
     @GuardedBy("sLock")
@@ -78,6 +118,10 @@ public class SystemSensorManager extends SensorManager {
 
     private final ArrayList<Sensor> mFullSensorsList = new ArrayList<>();
     private List<Sensor> mFullDynamicSensorsList = new ArrayList<>();
+    private final SparseArray<List<Sensor>> mFullRuntimeSensorListByDevice = new SparseArray<>();
+    private final SparseArray<SparseArray<List<Sensor>>> mRuntimeSensorListByDeviceByType =
+            new SparseArray<>();
+
     private boolean mDynamicSensorListDirty = true;
 
     private final HashMap<Integer, Sensor> mHandleToSensor = new HashMap<>();
@@ -92,14 +136,30 @@ public class SystemSensorManager extends SensorManager {
     private HashMap<DynamicSensorCallback, Handler>
             mDynamicSensorCallbacks = new HashMap<>();
     private BroadcastReceiver mDynamicSensorBroadcastReceiver;
+    private BroadcastReceiver mRuntimeSensorBroadcastReceiver;
+    private VirtualDeviceManager.VirtualDeviceListener mVirtualDeviceListener;
 
     // Looper associated with the context in which this instance was created.
     private final Looper mMainLooper;
     private final int mTargetSdkLevel;
+    private final boolean mIsPackageDebuggable;
     private final Context mContext;
     private final long mNativeInstance;
+    private VirtualDeviceManager mVdm;
 
-    /** {@hide} */
+    private Optional<Boolean> mHasHighSamplingRateSensorsPermission = Optional.empty();
+
+    private static ISensorClientListener sSensorClientListener;
+
+    static {
+        if (suspendSensorEventDeliveryOnFrozenPid()) {
+            sSensorClientListener = new ISensorClientListener.Stub() {
+                // This is an empty implementation, as the service only needs the Binder object.
+            };
+        }
+    }
+
+    /** @hide */
     public SystemSensorManager(Context context, Looper mainLooper) {
         synchronized (sLock) {
             if (!sNativeClassInited) {
@@ -109,24 +169,98 @@ public class SystemSensorManager extends SensorManager {
         }
 
         mMainLooper = mainLooper;
-        mTargetSdkLevel = context.getApplicationInfo().targetSdkVersion;
+        ApplicationInfo appInfo = context.getApplicationInfo();
+        mTargetSdkLevel = appInfo.targetSdkVersion;
         mContext = context;
         mNativeInstance = nativeCreate(context.getOpPackageName());
+        mIsPackageDebuggable = (0 != (appInfo.flags & ApplicationInfo.FLAG_DEBUGGABLE));
 
-        // initialize the sensor list
-        for (int index = 0;; ++index) {
-            Sensor sensor = new Sensor();
-            if (!nativeGetSensorAtIndex(mNativeInstance, sensor, index)) break;
-            mFullSensorsList.add(sensor);
-            mHandleToSensor.put(sensor.getHandle(), sensor);
+        if (suspendSensorEventDeliveryOnFrozenPid()) {
+            if (sSensorClientListener == null) {
+                Log.e(TAG, "sSensorClientListener is null when flag enabled");
+            } else {
+                nativeRegisterClientListener(mNativeInstance, sSensorClientListener.asBinder());
+            }
+        }
+       // initialize the sensor list
+        if (getSensorPolicy(mContext.getDeviceId()) == DEVICE_POLICY_CUSTOM) {
+            createRuntimeSensorListLocked(mContext.getDeviceId());
+        } else {
+            for (int index = 0; ; ++index) {
+                Sensor sensor = new Sensor();
+                if (!nativeGetDefaultDeviceSensorAtIndex(mNativeInstance, sensor, index)) break;
+                mFullSensorsList.add(sensor);
+                mHandleToSensor.put(sensor.getHandle(), sensor);
+            }
         }
     }
 
+    /** @hide */
+    @Override
+    public List<Sensor> getSensorList(int type) {
+        final int deviceId = mContext.getDeviceId();
+        final int sensorPolicy = getSensorPolicy(deviceId);
+        if (sensorPolicy == DEVICE_POLICY_INVALID) {
+            return Collections.emptyList();
+        }
+        if (sensorPolicy == DEVICE_POLICY_DEFAULT) {
+            return super.getSensorList(type);
+        }
+
+        // Cache the per-device lists on demand.
+        List<Sensor> list;
+        synchronized (mFullRuntimeSensorListByDevice) {
+            List<Sensor> fullList = mFullRuntimeSensorListByDevice.get(deviceId);
+            if (fullList == null) {
+                fullList = createRuntimeSensorListLocked(deviceId);
+            }
+            SparseArray<List<Sensor>> deviceSensorListByType =
+                    mRuntimeSensorListByDeviceByType.get(deviceId);
+            list = deviceSensorListByType.get(type);
+            if (list == null) {
+                if (type == Sensor.TYPE_ALL) {
+                    list = fullList;
+                } else {
+                    list = new ArrayList<>();
+                    for (Sensor i : fullList) {
+                        if (i.getType() == type) {
+                            list.add(i);
+                        }
+                    }
+                }
+                list = Collections.unmodifiableList(list);
+                deviceSensorListByType.append(type, list);
+            }
+        }
+        return list;
+    }
 
     /** @hide */
     @Override
     protected List<Sensor> getFullSensorList() {
-        return mFullSensorsList;
+        final int deviceId = mContext.getDeviceId();
+        final int sensorPolicy = getSensorPolicy(deviceId);
+        if (sensorPolicy == DEVICE_POLICY_INVALID) {
+            return List.of();
+        }
+        if (sensorPolicy == DEVICE_POLICY_DEFAULT) {
+            return mFullSensorsList;
+        }
+
+        List<Sensor> fullList;
+        synchronized (mFullRuntimeSensorListByDevice) {
+            fullList = mFullRuntimeSensorListByDevice.get(deviceId);
+            if (fullList == null) {
+                fullList = createRuntimeSensorListLocked(deviceId);
+            }
+        }
+        return fullList;
+    }
+
+    /** @hide */
+    @Override
+    public Sensor getSensorByHandle(int sensorHandle) {
+        return mHandleToSensor.get(sensorHandle);
     }
 
     /** @hide */
@@ -157,9 +291,25 @@ public class SystemSensorManager extends SensorManager {
             return false;
         }
         if (mSensorListeners.size() >= MAX_LISTENER_COUNT) {
-            throw new IllegalStateException("register failed, "
-                + "the sensor listeners size has exceeded the maximum limit "
-                + MAX_LISTENER_COUNT);
+            Log.e(TAG, "Too many sensor listeners! Dump:");
+            Map<String, Integer> listenerCounts = new HashMap<>();
+            synchronized (mSensorListeners) {
+                int i = 0;
+                for (SensorEventListener debugListener : mSensorListeners.keySet()) {
+                    String listenerName = debugListener.toString();
+                    Log.e(TAG, "  " + ++i + ": " + listenerName);
+                    int index = listenerName.indexOf('@');
+                    listenerName = index < 0 ? listenerName
+                            : listenerName.substring(0, index);
+                    listenerCounts.put(
+                            listenerName, listenerCounts.getOrDefault(listenerName, 0) + 1);
+                }
+            }
+            Map.Entry<String, Integer> maxEntry = listenerCounts.entrySet().stream()
+                    .max(Map.Entry.comparingByValue()).get();
+            throw new IllegalStateException("Too many sensor listeners (" + MAX_LISTENER_COUNT
+                    + "). Most common: " + maxEntry.getKey() + " (" + maxEntry.getValue()
+                    + ")");
         }
 
         // Invariants to preserve:
@@ -286,20 +436,41 @@ public class SystemSensorManager extends SensorManager {
         }
     }
 
-    protected boolean initDataInjectionImpl(boolean enable) {
+    protected boolean initDataInjectionImpl(boolean enable, @DataInjectionMode int mode) {
         synchronized (sLock) {
+            boolean isDataInjectionModeEnabled = false;
             if (enable) {
-                boolean isDataInjectionModeEnabled = nativeIsDataInjectionEnabled(mNativeInstance);
+                switch (mode) {
+                    case DATA_INJECTION:
+                        isDataInjectionModeEnabled = nativeIsDataInjectionEnabled(mNativeInstance);
+                        break;
+                    case REPLAY_DATA_INJECTION:
+                        isDataInjectionModeEnabled = nativeIsReplayDataInjectionEnabled(
+                                mNativeInstance);
+                        break;
+                    case HAL_BYPASS_REPLAY_DATA_INJECTION:
+                        isDataInjectionModeEnabled = nativeIsHalBypassReplayDataInjectionEnabled(
+                                mNativeInstance);
+                        break;
+                    default:
+                        break;
+                }
                 // The HAL does not support injection OR SensorService hasn't been set in DI mode.
                 if (!isDataInjectionModeEnabled) {
-                    Log.e(TAG, "Data Injection mode not enabled");
+                    Log.e(TAG, "The correct Data Injection mode has not been enabled");
                     return false;
+                }
+                if (sInjectEventQueue != null && sInjectEventQueue.getDataInjectionMode() != mode) {
+                    // The inject event queue has been initialized for a different type of DI
+                    // close it and create a new one
+                    sInjectEventQueue.dispose();
+                    sInjectEventQueue = null;
                 }
                 // Initialize a client for data_injection.
                 if (sInjectEventQueue == null) {
                     try {
                         sInjectEventQueue = new InjectEventQueue(
-                                mMainLooper, this, mContext.getPackageName());
+                                mMainLooper, this, mode, mContext.getPackageName());
                     } catch (RuntimeException e) {
                         Log.e(TAG, "Cannot create InjectEventQueue: " + e);
                     }
@@ -322,6 +493,12 @@ public class SystemSensorManager extends SensorManager {
             if (sInjectEventQueue == null) {
                 Log.e(TAG, "Data injection mode not activated before calling injectSensorData");
                 return false;
+            }
+            if (sInjectEventQueue.getDataInjectionMode() != HAL_BYPASS_REPLAY_DATA_INJECTION
+                    && !sensor.isDataInjectionSupported()) {
+                // DI mode and Replay DI mode require support from the sensor HAL
+                // HAL Bypass mode doesn't require this.
+                throw new IllegalArgumentException("sensor does not support data injection");
             }
             int ret = sInjectEventQueue.injectSensorData(sensor.getHandle(), values, accuracy,
                                                          timestamp);
@@ -391,23 +568,25 @@ public class SystemSensorManager extends SensorManager {
 
                     Handler mainHandler = new Handler(mContext.getMainLooper());
 
-                    for (Map.Entry<DynamicSensorCallback, Handler> entry :
-                            mDynamicSensorCallbacks.entrySet()) {
-                        final DynamicSensorCallback callback = entry.getKey();
-                        Handler handler =
-                                entry.getValue() == null ? mainHandler : entry.getValue();
+                    synchronized (mDynamicSensorCallbacks) {
+                        for (Map.Entry<DynamicSensorCallback, Handler> entry :
+                                mDynamicSensorCallbacks.entrySet()) {
+                            final DynamicSensorCallback callback = entry.getKey();
+                            Handler handler =
+                                    entry.getValue() == null ? mainHandler : entry.getValue();
 
-                        handler.post(new Runnable() {
-                            @Override
-                            public void run() {
-                                for (Sensor s: addedList) {
-                                    callback.onDynamicSensorConnected(s);
+                            handler.post(new Runnable() {
+                                @Override
+                                public void run() {
+                                    for (Sensor s: addedList) {
+                                        callback.onDynamicSensorConnected(s);
+                                    }
+                                    for (Sensor s: removedList) {
+                                        callback.onDynamicSensorDisconnected(s);
+                                    }
                                 }
-                                for (Sensor s: removedList) {
-                                    callback.onDynamicSensorDisconnected(s);
-                                }
-                            }
-                        });
+                            });
+                        }
                     }
 
                     for (Sensor s: removedList) {
@@ -420,14 +599,54 @@ public class SystemSensorManager extends SensorManager {
         }
     }
 
+    private List<Sensor> createRuntimeSensorListLocked(int deviceId) {
+        setupVirtualDeviceListener();
+        List<Sensor> list = new ArrayList<>();
+        nativeGetRuntimeSensors(mNativeInstance, deviceId, list);
+        mFullRuntimeSensorListByDevice.put(deviceId, list);
+        mRuntimeSensorListByDeviceByType.put(deviceId, new SparseArray<>());
+        for (Sensor s : list) {
+            mHandleToSensor.put(s.getHandle(), s);
+        }
+        return list;
+    }
+
+    private void setupVirtualDeviceListener() {
+        if (mVirtualDeviceListener != null) {
+            return;
+        }
+        if (mVdm == null) {
+            mVdm = mContext.getSystemService(VirtualDeviceManager.class);
+            if (mVdm == null) {
+                return;
+            }
+        }
+        mVirtualDeviceListener = new VirtualDeviceManager.VirtualDeviceListener() {
+            @Override
+            public void onVirtualDeviceClosed(int deviceId) {
+                synchronized (mFullRuntimeSensorListByDevice) {
+                    List<Sensor> removedSensors =
+                            mFullRuntimeSensorListByDevice.removeReturnOld(deviceId);
+                    if (removedSensors != null) {
+                        for (Sensor s : removedSensors) {
+                            cleanupSensorConnection(s);
+                        }
+                    }
+                    mRuntimeSensorListByDeviceByType.remove(deviceId);
+                }
+            }
+        };
+        mVdm.registerVirtualDeviceListener(mContext.getMainExecutor(), mVirtualDeviceListener);
+    }
+
     private void setupDynamicSensorBroadcastReceiver() {
         if (mDynamicSensorBroadcastReceiver == null) {
             mDynamicSensorBroadcastReceiver = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
-                    if (intent.getAction() == Intent.ACTION_DYNAMIC_SENSOR_CHANGED) {
+                    if (intent.getAction().equals(Intent.ACTION_DYNAMIC_SENSOR_CHANGED)) {
                         if (DEBUG_DYNAMIC_SENSOR) {
-                            Log.i(TAG, "DYNS received DYNAMIC_SENSOR_CHANED broadcast");
+                            Log.i(TAG, "DYNS received DYNAMIC_SENSOR_CHANGED broadcast");
                         }
                         // Dynamic sensors probably changed
                         mDynamicSensorListDirty = true;
@@ -438,14 +657,9 @@ public class SystemSensorManager extends SensorManager {
 
             IntentFilter filter = new IntentFilter("dynamic_sensor_change");
             filter.addAction(Intent.ACTION_DYNAMIC_SENSOR_CHANGED);
-            mContext.registerReceiver(mDynamicSensorBroadcastReceiver, filter);
+            mContext.registerReceiver(mDynamicSensorBroadcastReceiver, filter,
+                    Context.RECEIVER_NOT_EXPORTED);
         }
-    }
-
-    private void teardownDynamicSensorBroadcastReceiver() {
-        mDynamicSensorCallbacks.clear();
-        mContext.unregisterReceiver(mDynamicSensorBroadcastReceiver);
-        mDynamicSensorBroadcastReceiver = null;
     }
 
     /** @hide */
@@ -458,22 +672,26 @@ public class SystemSensorManager extends SensorManager {
         if (callback == null) {
             throw new IllegalArgumentException("callback cannot be null");
         }
-        if (mDynamicSensorCallbacks.containsKey(callback)) {
-            // has been already registered, ignore
-            return;
-        }
+        synchronized (mDynamicSensorCallbacks) {
+            if (mDynamicSensorCallbacks.containsKey(callback)) {
+                // has been already registered, ignore
+                return;
+            }
 
-        setupDynamicSensorBroadcastReceiver();
-        mDynamicSensorCallbacks.put(callback, handler);
+            setupDynamicSensorBroadcastReceiver();
+            mDynamicSensorCallbacks.put(callback, handler);
+        }
     }
 
     /** @hide */
     protected void unregisterDynamicSensorCallbackImpl(
             DynamicSensorCallback callback) {
         if (DEBUG_DYNAMIC_SENSOR) {
-            Log.i(TAG, "Removing dynamic sensor listerner");
+            Log.i(TAG, "Removing dynamic sensor listener");
         }
-        mDynamicSensorCallbacks.remove(callback);
+        synchronized (mDynamicSensorCallbacks) {
+            mDynamicSensorCallbacks.remove(callback);
+        }
     }
 
     /*
@@ -540,10 +758,19 @@ public class SystemSensorManager extends SensorManager {
         }
 
         int sensorHandle = (sensor == null) ? -1 : sensor.getHandle();
+        if (sensor != null
+                && isSensorInCappedSet(sensor.getType())
+                && rate > CAPPED_SAMPLING_RATE_LEVEL
+                && mIsPackageDebuggable
+                && !hasHighSamplingRateSensorsPermission()
+                && Compatibility.isChangeEnabled(CHANGE_ID_SAMPLING_RATE_SENSORS_PERMISSION)) {
+            throw new SecurityException("To use the sampling rate level " + rate
+                    + ", app needs to declare the normal permission"
+                    + " HIGH_SAMPLING_RATE_SENSORS.");
+        }
 
         int ret = nativeConfigDirectChannel(
                 mNativeInstance, channel.getNativeHandle(), sensorHandle, rate);
-
         if (rate == SensorDirectChannel.RATE_STOP) {
             return (ret == 0) ? 1 : 0;
         } else {
@@ -554,6 +781,14 @@ public class SystemSensorManager extends SensorManager {
     /** @hide */
     protected SensorDirectChannel createDirectChannelImpl(
             MemoryFile memoryFile, HardwareBuffer hardwareBuffer) {
+        int deviceId = mContext.getDeviceId();
+        final int sensorPolicy = getSensorPolicy(deviceId);
+        if (sensorPolicy == DEVICE_POLICY_INVALID) {
+            throw new IllegalArgumentException("Invalid device id in context");
+        }
+        if (sensorPolicy == DEVICE_POLICY_DEFAULT) {
+            deviceId = DEVICE_ID_DEFAULT;
+        }
         int id;
         int type;
         long size;
@@ -572,14 +807,18 @@ public class SystemSensorManager extends SensorManager {
             }
 
             size = memoryFile.length();
-            id = nativeCreateDirectChannel(
-                    mNativeInstance, size, SensorDirectChannel.TYPE_MEMORY_FILE, fd, null);
+            id = nativeCreateDirectChannel(mNativeInstance, deviceId, size,
+                    SensorDirectChannel.TYPE_MEMORY_FILE, fd, null);
             if (id <= 0) {
                 throw new UncheckedIOException(
                         new IOException("create MemoryFile direct channel failed " + id));
             }
             type = SensorDirectChannel.TYPE_MEMORY_FILE;
         } else if (hardwareBuffer != null) {
+            if (deviceId != DEVICE_ID_DEFAULT) {
+                throw new UnsupportedOperationException(
+                        "HardwareBuffer direct channel is only supported for default device");
+            }
             if (hardwareBuffer.getFormat() != HardwareBuffer.BLOB) {
                 throw new IllegalArgumentException("Format of HardwareBuffer must be BLOB");
             }
@@ -588,7 +827,7 @@ public class SystemSensorManager extends SensorManager {
             }
             if (hardwareBuffer.getWidth() < MIN_DIRECT_CHANNEL_BUFFER_SIZE) {
                 throw new IllegalArgumentException(
-                        "Width if HaradwareBuffer must be greater than "
+                        "Width if HardwareBuffer must be greater than "
                         + MIN_DIRECT_CHANNEL_BUFFER_SIZE);
             }
             if ((hardwareBuffer.getUsage() & HardwareBuffer.USAGE_SENSOR_DIRECT_DATA) == 0) {
@@ -597,7 +836,7 @@ public class SystemSensorManager extends SensorManager {
             }
             size = hardwareBuffer.getWidth();
             id = nativeCreateDirectChannel(
-                    mNativeInstance, size, SensorDirectChannel.TYPE_HARDWARE_BUFFER,
+                    mNativeInstance, deviceId, size, SensorDirectChannel.TYPE_HARDWARE_BUFFER,
                     -1, hardwareBuffer);
             if (id <= 0) {
                 throw new UncheckedIOException(
@@ -619,7 +858,7 @@ public class SystemSensorManager extends SensorManager {
 
     /*
      * BaseEventQueue is the communication channel with the sensor service,
-     * SensorEventQueue, TriggerEventQueue are subclases and there is one-to-one mapping between
+     * SensorEventQueue, TriggerEventQueue are subclasses and there is one-to-one mapping between
      * the queues and the listeners. InjectEventQueue is also a sub-class which is a special case
      * where data is being injected into the sensor HAL through the sensor service. It is not
      * associated with any listener and there is one InjectEventQueue associated with a
@@ -628,7 +867,7 @@ public class SystemSensorManager extends SensorManager {
     private abstract static class BaseEventQueue {
         private static native long nativeInitBaseEventQueue(long nativeManager,
                 WeakReference<BaseEventQueue> eventQWeak, MessageQueue msgQ,
-                String packageName, int mode, String opPackageName);
+                String packageName, int mode, String opPackageName, String attributionTag);
         private static native int nativeEnableSensor(long eventQ, int handle, int rateUs,
                 int maxBatchReportLatencyUs);
         private static native int nativeDisableSensor(long eventQ, int handle);
@@ -640,18 +879,22 @@ public class SystemSensorManager extends SensorManager {
         private long mNativeSensorEventQueue;
         private final SparseBooleanArray mActiveSensors = new SparseBooleanArray();
         protected final SparseIntArray mSensorAccuracies = new SparseIntArray();
+        protected final SparseIntArray mSensorDiscontinuityCounts = new SparseIntArray();
         private final CloseGuard mCloseGuard = CloseGuard.get();
         protected final SystemSensorManager mManager;
 
         protected static final int OPERATING_MODE_NORMAL = 0;
         protected static final int OPERATING_MODE_DATA_INJECTION = 1;
+        protected static final int OPERATING_MODE_REPLAY_DATA_INJECTION = 3;
+        protected static final int OPERATING_MODE_HAL_BYPASS_REPLAY_DATA_INJECTION = 4;
 
         BaseEventQueue(Looper looper, SystemSensorManager manager, int mode, String packageName) {
             if (packageName == null) packageName = "";
             mNativeSensorEventQueue = nativeInitBaseEventQueue(manager.mNativeInstance,
                     new WeakReference<>(this), looper.getQueue(),
-                    packageName, mode, manager.mContext.getOpPackageName());
-            mCloseGuard.open("dispose");
+                    packageName, mode, manager.mContext.getOpPackageName(),
+                    manager.mContext.getAttributionTag());
+            mCloseGuard.open("BaseEventQueue.dispose");
             mManager = manager;
         }
 
@@ -743,6 +986,15 @@ public class SystemSensorManager extends SensorManager {
                 Sensor sensor, int rateUs, int maxBatchReportLatencyUs) {
             if (mNativeSensorEventQueue == 0) throw new NullPointerException();
             if (sensor == null) throw new NullPointerException();
+            if (mManager.isSensorInCappedSet(sensor.getType())
+                    && rateUs < CAPPED_SAMPLING_PERIOD_US
+                    && mManager.mIsPackageDebuggable
+                    && !mManager.hasHighSamplingRateSensorsPermission()
+                    && Compatibility.isChangeEnabled(CHANGE_ID_SAMPLING_RATE_SENSORS_PERMISSION)) {
+                throw new SecurityException("To use the sampling rate of " + rateUs
+                        + " microseconds, app needs to declare the normal permission"
+                        + " HIGH_SAMPLING_RATE_SENSORS.");
+            }
             return nativeEnableSensor(mNativeSensorEventQueue, sensor.getHandle(), rateUs,
                     maxBatchReportLatencyUs);
         }
@@ -758,10 +1010,13 @@ public class SystemSensorManager extends SensorManager {
             if (sensor == null) throw new NullPointerException();
             return nativeDisableSensor(mNativeSensorEventQueue, sensor.getHandle());
         }
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         protected abstract void dispatchSensorEvent(int handle, float[] values, int accuracy,
                 long timestamp);
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         protected abstract void dispatchFlushCompleteEvent(int handle);
 
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         protected void dispatchAdditionalInfoEvent(
                 int handle, int type, int serial, float[] floatValues, int[] intValues) {
             // default implementation is do nothing
@@ -826,10 +1081,22 @@ public class SystemSensorManager extends SensorManager {
 
             // call onAccuracyChanged() only if the value changes
             final int accuracy = mSensorAccuracies.get(handle);
-            if ((t.accuracy >= 0) && (accuracy != t.accuracy)) {
+            if (t.accuracy >= 0 && accuracy != t.accuracy) {
                 mSensorAccuracies.put(handle, t.accuracy);
                 mListener.onAccuracyChanged(t.sensor, t.accuracy);
             }
+
+            // Indicate if the discontinuity count changed
+            t.firstEventAfterDiscontinuity = false;
+            if (t.sensor.getType() == Sensor.TYPE_HEAD_TRACKER) {
+                final int lastCount = mSensorDiscontinuityCounts.get(handle);
+                final int curCount = Float.floatToIntBits(values[6]);
+                if (lastCount >= 0 && lastCount != curCount) {
+                    mSensorDiscontinuityCounts.put(handle, curCount);
+                    t.firstEventAfterDiscontinuity = true;
+                }
+            }
+
             mListener.onSensorChanged(t);
         }
 
@@ -929,8 +1196,12 @@ public class SystemSensorManager extends SensorManager {
     }
 
     final class InjectEventQueue extends BaseEventQueue {
-        public InjectEventQueue(Looper looper, SystemSensorManager manager, String packageName) {
-            super(looper, manager, OPERATING_MODE_DATA_INJECTION, packageName);
+
+        private int mMode;
+        public InjectEventQueue(Looper looper, SystemSensorManager manager,
+                @DataInjectionMode int mode, String packageName) {
+            super(looper, manager, mode, packageName);
+            mMode = mode;
         }
 
         int injectSensorData(int handle, float[] values, int accuracy, long timestamp) {
@@ -956,6 +1227,10 @@ public class SystemSensorManager extends SensorManager {
         protected void removeSensorEvent(Sensor sensor) {
 
         }
+
+        int getDataInjectionMode() {
+            return mMode;
+        }
     }
 
     protected boolean setOperationParameterImpl(SensorAdditionalInfo parameter) {
@@ -964,5 +1239,45 @@ public class SystemSensorManager extends SensorManager {
         return nativeSetOperationParameter(
                 mNativeInstance, handle,
                 parameter.type, parameter.floatValues, parameter.intValues) == 0;
+    }
+
+    private int getSensorPolicy(int deviceId) {
+        if (deviceId == DEVICE_ID_DEFAULT) {
+            return DEVICE_ID_DEFAULT;
+        }
+        if (mVdm == null) {
+            mVdm = mContext.getSystemService(VirtualDeviceManager.class);
+        }
+        if (mVdm == null) {
+            return DEVICE_POLICY_INVALID;
+        }
+        return mVdm.getDevicePolicy(deviceId, POLICY_TYPE_SENSORS);
+    }
+
+    /**
+     * Checks if a sensor should be capped according to HIGH_SAMPLING_RATE_SENSORS
+     * permission.
+     *
+     * This needs to be kept in sync with the list defined on the native side
+     * in frameworks/native/services/sensorservice/SensorService.cpp
+     */
+    private boolean isSensorInCappedSet(int sensorType) {
+        return (sensorType == Sensor.TYPE_ACCELEROMETER
+                || sensorType == Sensor.TYPE_ACCELEROMETER_UNCALIBRATED
+                || sensorType == Sensor.TYPE_GYROSCOPE
+                || sensorType == Sensor.TYPE_GYROSCOPE_UNCALIBRATED
+                || sensorType == Sensor.TYPE_MAGNETIC_FIELD
+                || sensorType == Sensor.TYPE_MAGNETIC_FIELD_UNCALIBRATED);
+    }
+
+    private boolean hasHighSamplingRateSensorsPermission() {
+        if (!mHasHighSamplingRateSensorsPermission.isPresent()) {
+            boolean granted = mContext.getPackageManager().checkPermission(
+                    HIGH_SAMPLING_RATE_SENSORS_PERMISSION,
+                    mContext.getApplicationInfo().packageName) == PERMISSION_GRANTED;
+            mHasHighSamplingRateSensorsPermission = Optional.of(granted);
+        }
+
+        return mHasHighSamplingRateSensorsPermission.get();
     }
 }

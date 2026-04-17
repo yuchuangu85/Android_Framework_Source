@@ -16,11 +16,15 @@
 
 package android.service.autofill;
 
+import static android.service.autofill.Flags.FLAG_AUTOFILL_W_METRICS;
+import static android.service.personalcontext.Flags.FLAG_ENABLE_PERSONAL_CONTEXT_SERVICE;
 import static android.view.autofill.Helper.sVerbose;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.TestApi;
 import android.content.IntentSender;
 import android.os.Bundle;
 import android.os.Parcel;
@@ -41,7 +45,9 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+
 
 /**
  * Describes what happened after the last
@@ -63,14 +69,21 @@ public final class FillEventHistory implements Parcelable {
     private static final String TAG = "FillEventHistory";
 
     /**
-     * Not in parcel. The ID of the autofill session that created the {@link FillResponse}.
+     * The ID of the autofill session that created the {@link FillResponse}.
+     *
+     * TODO: add this to the parcel.
      */
     private final int mSessionId;
 
     @Nullable private final Bundle mClientState;
     @Nullable List<Event> mEvents;
 
-    /** @hide */
+    /**
+     * Returns the unique identifier of this FillEventHistory.
+     *
+     * <p>This is used to differentiate individual FillEventHistory.
+     */
+    @FlaggedApi(FLAG_AUTOFILL_W_METRICS)
     public int getSessionId() {
         return mSessionId;
     }
@@ -110,8 +123,15 @@ public final class FillEventHistory implements Parcelable {
     }
 
     /**
+     * Constructs an instance of {@link FillEventHistory}.
+     *
+     * @param sessionId the session ID this class tracks event history for
+     * @param clientState a optional client state bundle to include, deprcated in favor of {@link
+     *     #addEvent(Event)}
      * @hide
      */
+    @TestApi
+    @FlaggedApi(android.service.personalcontext.Flags.FLAG_ENABLE_PERSONAL_CONTEXT_SERVICE)
     public FillEventHistory(int sessionId, @Nullable Bundle clientState) {
         mClientState = clientState;
         mSessionId = sessionId;
@@ -120,6 +140,23 @@ public final class FillEventHistory implements Parcelable {
     @Override
     public String toString() {
         return mEvents == null ? "no events" : mEvents.toString();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        @SuppressWarnings("unchecked")
+        FillEventHistory that = (FillEventHistory) o;
+        return mSessionId == that.mSessionId && Objects.equals(mEvents, that.mEvents);
+    }
+
+    @Override
+    public int hashCode() {
+        int _hash = 1;
+        _hash = 31 * _hash + mSessionId;
+        _hash = 31 * _hash + (mEvents != null ? mEvents.hashCode() : 0);
+        return _hash;
     }
 
     @Override
@@ -159,12 +196,17 @@ public final class FillEventHistory implements Parcelable {
                     FieldClassification.writeArrayToParcel(parcel,
                             event.mDetectedFieldClassifications);
                 }
+                parcel.writeInt(event.mSaveDialogNotShowReason);
+                parcel.writeInt(event.mUiType);
+                if (Flags.addLastFocusedIdToFillEventHistory()) {
+                    parcel.writeParcelable(event.mFocusedId, 0);
+                }
             }
         }
     }
 
     /**
-     * Description of an event that occured after the latest call to
+     * Description of an event that occurred after the latest call to
      * {@link FillCallback#onSuccess(FillResponse)}.
      */
     public static final class Event {
@@ -224,16 +266,134 @@ public final class FillEventHistory implements Parcelable {
          */
         public static final int TYPE_CONTEXT_COMMITTED = 4;
 
+        /**
+         * A dataset selector was shown.
+         *
+         * <p>This event is fired whenever the autofill UI was presented to the user.</p>
+         */
+        public static final int TYPE_DATASETS_SHOWN = 5;
+
+        /**
+         * The app/user requested for a field to be Autofilled.
+         *
+         * This event is fired when the view has been entered (by user or app) in order
+         * to differentiate from FillRequests that have been pretriggered for FillDialogs.
+         *
+         * For example, the user might navigate away from a screen without tapping any
+         * fields. In this case, a FillRequest/FillResponse has been generated, but was
+         * not used for Autofilling. The user did not intend to see an Autofill result,
+         * but a FillRequest was still generated. This is different from when the user
+         * did tap on a field after the pretriggered FillRequest, this event will appear
+         * in the FillEventHistory, signaling that the user did intend to Autofill
+         * something.
+         */
+        public static final int TYPE_VIEW_REQUESTED_AUTOFILL = 6;
+
+        /**
+         * The FillResponse is discarded. This could only be available in FillEventHistory of
+         * Augmented Autofill and Personal Context.
+         *
+         * This event is fired when both Augmented Autofill service and
+         * {@link android.service.personalcontext.PersonalContextManager} return non-null
+         * FillResponses, and one of them is discarded. OEMs can choose which FillResponse shall
+         * take the priority.
+         */
+        @FlaggedApi(FLAG_ENABLE_PERSONAL_CONTEXT_SERVICE)
+        public static final int TYPE_RESPONSE_DISCARDED = 7;
+
         /** @hide */
         @IntDef(prefix = { "TYPE_" }, value = {
                 TYPE_DATASET_SELECTED,
                 TYPE_DATASET_AUTHENTICATION_SELECTED,
                 TYPE_AUTHENTICATION_SELECTED,
                 TYPE_SAVE_SHOWN,
-                TYPE_CONTEXT_COMMITTED
+                TYPE_CONTEXT_COMMITTED,
+                TYPE_DATASETS_SHOWN,
+                TYPE_VIEW_REQUESTED_AUTOFILL,
+                TYPE_RESPONSE_DISCARDED
         })
         @Retention(RetentionPolicy.SOURCE)
         @interface EventIds{}
+
+        /** No reason for save dialog. */
+        public static final int NO_SAVE_UI_REASON_NONE = 0;
+
+        /** The SaveInfo associated with the FillResponse is null. */
+        public static final int NO_SAVE_UI_REASON_NO_SAVE_INFO = 1;
+
+        /** The service asked to delay save. */
+        public static final int NO_SAVE_UI_REASON_WITH_DELAY_SAVE_FLAG = 2;
+
+        /** There was empty value for required ids. */
+        public static final int NO_SAVE_UI_REASON_HAS_EMPTY_REQUIRED = 3;
+
+        /** No value has been changed. */
+        public static final int NO_SAVE_UI_REASON_NO_VALUE_CHANGED = 4;
+
+        /** Fields failed validation. */
+        public static final int NO_SAVE_UI_REASON_FIELD_VALIDATION_FAILED = 5;
+
+        /** All fields matched contents of datasets. */
+        public static final int NO_SAVE_UI_REASON_DATASET_MATCH = 6;
+
+        /**
+         * Credential Manager is invoked instead of Autofill. When that happens, Save Dialog cannot
+         * be shown, and this will be populated in
+         */
+        @FlaggedApi(FLAG_AUTOFILL_W_METRICS)
+        public static final int NO_SAVE_UI_REASON_USING_CREDMAN = 7;
+
+        /** @hide */
+        @IntDef(prefix = { "NO_SAVE_UI_REASON_" }, value = {
+                NO_SAVE_UI_REASON_NONE,
+                NO_SAVE_UI_REASON_NO_SAVE_INFO,
+                NO_SAVE_UI_REASON_WITH_DELAY_SAVE_FLAG,
+                NO_SAVE_UI_REASON_HAS_EMPTY_REQUIRED,
+                NO_SAVE_UI_REASON_NO_VALUE_CHANGED,
+                NO_SAVE_UI_REASON_FIELD_VALIDATION_FAILED,
+                NO_SAVE_UI_REASON_DATASET_MATCH
+        })
+        @Retention(RetentionPolicy.SOURCE)
+        public @interface NoSaveReason{}
+
+        /** The autofill suggestion presentation is unknown, this will be set for the event
+         * that is unrelated to fill Ui presentation */
+        public static final int UI_TYPE_UNKNOWN = 0;
+
+        /** The autofill suggestion is shown as a menu popup presentation. */
+        public static final int UI_TYPE_MENU = 1;
+
+        /** The autofill suggestion is shown as a keyboard inline presentation. */
+        public static final int UI_TYPE_INLINE = 2;
+
+        /** The autofill suggestion is shown as a dialog presentation. */
+        public static final int UI_TYPE_DIALOG = 3;
+
+        /**
+         * The autofill suggestion is shown os a credman bottom sheet
+         *
+         * <p>Note, this was introduced as bottom sheet even though it applies to all credman UI
+         * types. Instead of exposing this directly to the public, the generic UI_TYPE_CREDMAN is
+         * introduced with the same number.
+         *
+         * @hide
+         */
+        public static final int UI_TYPE_CREDMAN_BOTTOM_SHEET = 4;
+
+        /** Credential Manager suggestions are shown instead of Autofill suggestion */
+        @FlaggedApi(FLAG_AUTOFILL_W_METRICS)
+        public static final int UI_TYPE_CREDENTIAL_MANAGER = 4;
+
+        /** @hide */
+        @IntDef(prefix = { "UI_TYPE_" }, value = {
+                UI_TYPE_UNKNOWN,
+                UI_TYPE_MENU,
+                UI_TYPE_INLINE,
+                UI_TYPE_DIALOG,
+                UI_TYPE_CREDMAN_BOTTOM_SHEET
+        })
+        @Retention(RetentionPolicy.SOURCE)
+        public @interface UiType {}
 
         @EventIds private final int mEventType;
         @Nullable private final String mDatasetId;
@@ -253,6 +413,14 @@ public final class FillEventHistory implements Parcelable {
         @Nullable private final AutofillId[] mDetectedFieldIds;
         @Nullable private final FieldClassification[] mDetectedFieldClassifications;
 
+        @NoSaveReason private final int mSaveDialogNotShowReason;
+
+
+        @UiType
+        private final int mUiType;
+
+        @Nullable private final AutofillId mFocusedId;
+
         /**
          * Returns the type of the event.
          *
@@ -260,6 +428,13 @@ public final class FillEventHistory implements Parcelable {
          */
         public int getType() {
             return mEventType;
+        }
+
+        /** Gets the {@code AutofillId} that's focused at the time of action */
+        @FlaggedApi(FLAG_AUTOFILL_W_METRICS)
+        @Nullable
+        public AutofillId getFocusedId() {
+            return mFocusedId;
         }
 
         /**
@@ -291,6 +466,17 @@ public final class FillEventHistory implements Parcelable {
         @NonNull public Set<String> getSelectedDatasetIds() {
             return mSelectedDatasetIds == null ? Collections.emptySet()
                     : new ArraySet<>(mSelectedDatasetIds);
+        }
+
+        /**
+         * Returns which datasets were shown to the user.
+         *
+         * <p><b>Note: </b>Only set on events of type {@link #TYPE_DATASETS_SHOWN}.
+         */
+        @FlaggedApi(FLAG_AUTOFILL_W_METRICS)
+        @NonNull
+        public Set<String> getShownDatasetIds() {
+            return Collections.emptySet();
         }
 
         /**
@@ -440,6 +626,34 @@ public final class FillEventHistory implements Parcelable {
         }
 
         /**
+         * Returns the reason why a save dialog was not shown.
+         *
+         * <p><b>Note: </b>Only set on events of type {@link #TYPE_CONTEXT_COMMITTED}. For the other
+         * event types, the reason is set to NO_SAVE_UI_REASON_NONE.
+         *
+         * @return The reason why a save dialog was not shown.
+         */
+        @NoSaveReason
+        public int getNoSaveUiReason() {
+            return mSaveDialogNotShowReason;
+        }
+
+        /**
+         * Returns fill suggestion ui presentation type which corresponds to types
+         * defined in {@link android.service.autofill.Presentations}.
+         *
+         * <p><b>Note: </b>Only set on events of type {@link #TYPE_DATASETS_SHOWN} and
+         * {@link #TYPE_DATASET_SELECTED}. For the other event types, the type is set to
+         * {@link #UI_TYPE_UNKNOWN }.
+         *
+         * @return The ui presentation type shown for user.
+         */
+        @UiType
+        public int getUiType() {
+            return mUiType;
+        }
+
+        /**
          * Creates a new event.
          *
          * @param eventType The type of the event
@@ -456,6 +670,7 @@ public final class FillEventHistory implements Parcelable {
          * @param manuallyFilledDatasetIds The ids of datasets that had values matching the
          * respective entry on {@code manuallyFilledFieldIds}.
          * @param detectedFieldClassifications the field classification matches.
+         * @param focusedId the field which was focused at the time of event trigger
          *
          * @throws IllegalArgumentException If the length of {@code changedFieldIds} and
          * {@code changedDatasetIds} doesn't match.
@@ -472,25 +687,114 @@ public final class FillEventHistory implements Parcelable {
                 @Nullable ArrayList<AutofillId> manuallyFilledFieldIds,
                 @Nullable ArrayList<ArrayList<String>> manuallyFilledDatasetIds,
                 @Nullable AutofillId[] detectedFieldIds,
-                @Nullable FieldClassification[] detectedFieldClassifications) {
-            mEventType = Preconditions.checkArgumentInRange(eventType, 0, TYPE_CONTEXT_COMMITTED,
-                    "eventType");
+                @Nullable FieldClassification[] detectedFieldClassifications,
+                @Nullable AutofillId focusedId) {
+            this(eventType, datasetId, clientState, selectedDatasetIds, ignoredDatasetIds,
+                    changedFieldIds, changedDatasetIds, manuallyFilledFieldIds,
+                    manuallyFilledDatasetIds, detectedFieldIds, detectedFieldClassifications,
+                    NO_SAVE_UI_REASON_NONE, focusedId);
+        }
+
+        /**
+         * Creates a new event.
+         *
+         * @param eventType The type of the event
+         * @param datasetId The dataset the event was on, or {@code null} if the event was on the
+         *                  whole response.
+         * @param clientState The client state associated with the event.
+         * @param selectedDatasetIds The ids of datasets selected by the user.
+         * @param ignoredDatasetIds The ids of datasets NOT select by the user.
+         * @param changedFieldIds The ids of fields changed by the user.
+         * @param changedDatasetIds The ids of the datasets that havd values matching the
+         * respective entry on {@code changedFieldIds}.
+         * @param manuallyFilledFieldIds The ids of fields that were manually entered by the user
+         * and belonged to datasets.
+         * @param manuallyFilledDatasetIds The ids of datasets that had values matching the
+         * respective entry on {@code manuallyFilledFieldIds}.
+         * @param detectedFieldClassifications the field classification matches.
+         * @param saveDialogNotShowReason The reason why a save dialog was not shown.
+         * @param focusedId the field which was focused at the time of event trigger
+         *
+         * @throws IllegalArgumentException If the length of {@code changedFieldIds} and
+         * {@code changedDatasetIds} doesn't match.
+         * @throws IllegalArgumentException If the length of {@code manuallyFilledFieldIds} and
+         * {@code manuallyFilledDatasetIds} doesn't match.
+         *
+         * @hide
+         */
+        public Event(int eventType, @Nullable String datasetId, @Nullable Bundle clientState,
+                @Nullable List<String> selectedDatasetIds,
+                @Nullable ArraySet<String> ignoredDatasetIds,
+                @Nullable ArrayList<AutofillId> changedFieldIds,
+                @Nullable ArrayList<String> changedDatasetIds,
+                @Nullable ArrayList<AutofillId> manuallyFilledFieldIds,
+                @Nullable ArrayList<ArrayList<String>> manuallyFilledDatasetIds,
+                @Nullable AutofillId[] detectedFieldIds,
+                @Nullable FieldClassification[] detectedFieldClassifications,
+                int saveDialogNotShowReason,
+                @Nullable AutofillId focusedId) {
+            this(eventType, datasetId, clientState, selectedDatasetIds, ignoredDatasetIds,
+                    changedFieldIds, changedDatasetIds, manuallyFilledFieldIds,
+                    manuallyFilledDatasetIds, detectedFieldIds, detectedFieldClassifications,
+                    saveDialogNotShowReason, UI_TYPE_UNKNOWN, focusedId);
+        }
+
+        /**
+         * Creates a new event.
+         *
+         * @param eventType The type of the event
+         * @param datasetId The dataset the event was on, or {@code null} if the event was on the
+         *                  whole response.
+         * @param clientState The client state associated with the event.
+         * @param selectedDatasetIds The ids of datasets selected by the user.
+         * @param ignoredDatasetIds The ids of datasets NOT select by the user.
+         * @param changedFieldIds The ids of fields changed by the user.
+         * @param changedDatasetIds The ids of the datasets that havd values matching the
+         * respective entry on {@code changedFieldIds}.
+         * @param manuallyFilledFieldIds The ids of fields that were manually entered by the user
+         * and belonged to datasets.
+         * @param manuallyFilledDatasetIds The ids of datasets that had values matching the
+         * respective entry on {@code manuallyFilledFieldIds}.
+         * @param detectedFieldClassifications the field classification matches.
+         * @param saveDialogNotShowReason The reason why a save dialog was not shown.
+         * @param uiType The ui presentation type for fill suggestion.
+         * @param focusedId the field which was focused at the time of event trigger
+         *
+         * @throws IllegalArgumentException If the length of {@code changedFieldIds} and
+         * {@code changedDatasetIds} doesn't match.
+         * @throws IllegalArgumentException If the length of {@code manuallyFilledFieldIds} and
+         * {@code manuallyFilledDatasetIds} doesn't match.
+         *
+         * @hide
+         */
+        public Event(int eventType, @Nullable String datasetId, @Nullable Bundle clientState,
+                @Nullable List<String> selectedDatasetIds,
+                @Nullable ArraySet<String> ignoredDatasetIds,
+                @Nullable ArrayList<AutofillId> changedFieldIds,
+                @Nullable ArrayList<String> changedDatasetIds,
+                @Nullable ArrayList<AutofillId> manuallyFilledFieldIds,
+                @Nullable ArrayList<ArrayList<String>> manuallyFilledDatasetIds,
+                @Nullable AutofillId[] detectedFieldIds,
+                @Nullable FieldClassification[] detectedFieldClassifications,
+                int saveDialogNotShowReason, int uiType, @Nullable AutofillId focusedId) {
+            mEventType = Preconditions.checkArgumentInRange(eventType, 0,
+                    TYPE_VIEW_REQUESTED_AUTOFILL, "eventType");
             mDatasetId = datasetId;
             mClientState = clientState;
             mSelectedDatasetIds = selectedDatasetIds;
             mIgnoredDatasetIds = ignoredDatasetIds;
             if (changedFieldIds != null) {
                 Preconditions.checkArgument(!ArrayUtils.isEmpty(changedFieldIds)
-                        && changedDatasetIds != null
-                        && changedFieldIds.size() == changedDatasetIds.size(),
+                                && changedDatasetIds != null
+                                && changedFieldIds.size() == changedDatasetIds.size(),
                         "changed ids must have same length and not be empty");
             }
             mChangedFieldIds = changedFieldIds;
             mChangedDatasetIds = changedDatasetIds;
             if (manuallyFilledFieldIds != null) {
                 Preconditions.checkArgument(!ArrayUtils.isEmpty(manuallyFilledFieldIds)
-                        && manuallyFilledDatasetIds != null
-                        && manuallyFilledFieldIds.size() == manuallyFilledDatasetIds.size(),
+                                && manuallyFilledDatasetIds != null
+                                && manuallyFilledFieldIds.size() == manuallyFilledDatasetIds.size(),
                         "manually filled ids must have same length and not be empty");
             }
             mManuallyFilledFieldIds = manuallyFilledFieldIds;
@@ -498,12 +802,60 @@ public final class FillEventHistory implements Parcelable {
 
             mDetectedFieldIds = detectedFieldIds;
             mDetectedFieldClassifications = detectedFieldClassifications;
+
+            mSaveDialogNotShowReason = Preconditions.checkArgumentInRange(saveDialogNotShowReason,
+                    NO_SAVE_UI_REASON_NONE, NO_SAVE_UI_REASON_DATASET_MATCH,
+                    "saveDialogNotShowReason");
+            mUiType = uiType;
+            mFocusedId = focusedId;
+        }
+
+        @Override
+        public boolean equals(@android.annotation.Nullable Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            @SuppressWarnings("unchecked")
+            Event that = (Event) o;
+            return mEventType == that.mEventType
+                    && Objects.equals(mDatasetId, that.mDatasetId)
+                    && Objects.equals(mSelectedDatasetIds, that.mSelectedDatasetIds)
+                    && Objects.equals(mIgnoredDatasetIds, that.mIgnoredDatasetIds)
+                    && Objects.equals(mChangedFieldIds, that.mChangedFieldIds)
+                    && Objects.equals(mChangedDatasetIds, that.mChangedDatasetIds)
+                    && Objects.equals(mManuallyFilledFieldIds, that.mManuallyFilledFieldIds)
+                    && Objects.equals(mManuallyFilledDatasetIds, that.mManuallyFilledDatasetIds)
+                    && Arrays.equals(mDetectedFieldIds, that.mDetectedFieldIds)
+                    && mSaveDialogNotShowReason == that.mSaveDialogNotShowReason
+                    && mUiType == that.mUiType
+                    && Objects.equals(mFocusedId, that.mFocusedId);
+        }
+
+        @Override
+        public int hashCode() {
+            int _hash = 1;
+            _hash = 31 * _hash + mEventType;
+            _hash = 31 * _hash + (mDatasetId != null ? mDatasetId.hashCode() : 0);
+            _hash = 31 * _hash + (mSelectedDatasetIds != null ? mSelectedDatasetIds.hashCode() : 0);
+            _hash = 31 * _hash + (mIgnoredDatasetIds != null ? mIgnoredDatasetIds.hashCode() : 0);
+            _hash = 31 * _hash + (mChangedFieldIds != null ? mChangedFieldIds.hashCode() : 0);
+            _hash = 31 * _hash + (mChangedDatasetIds != null ? mChangedDatasetIds.hashCode() : 0);
+            _hash = 31 * _hash + (
+                    mManuallyFilledFieldIds != null ? mManuallyFilledFieldIds.hashCode() : 0);
+            _hash = 31 * _hash + (
+                    mManuallyFilledDatasetIds != null ? mManuallyFilledDatasetIds.hashCode() : 0);
+            _hash = 31 * _hash + (
+                    mDetectedFieldIds != null ? java.util.Arrays.hashCode(mDetectedFieldIds) : 0);
+            _hash = 31 * _hash + mSaveDialogNotShowReason;
+            _hash = 31 * _hash + mUiType;
+            _hash = 31 * _hash + (mFocusedId != null ? mFocusedId.hashCode() : 0);
+            return _hash;
         }
 
         @Override
         public String toString() {
             return "FillEvent [datasetId=" + mDatasetId
-                    + ", type=" + mEventType
+                    + ", type=" + eventToString(mEventType)
+                    + ", uiType=" + uiTypeToString(mUiType)
                     + ", selectedDatasets=" + mSelectedDatasetIds
                     + ", ignoredDatasetIds=" + mIgnoredDatasetIds
                     + ", changedFieldIds=" + mChangedFieldIds
@@ -513,11 +865,48 @@ public final class FillEventHistory implements Parcelable {
                     + ", detectedFieldIds=" + Arrays.toString(mDetectedFieldIds)
                     + ", detectedFieldClassifications ="
                         + Arrays.toString(mDetectedFieldClassifications)
+                    + ", saveDialogNotShowReason=" + mSaveDialogNotShowReason
                     + "]";
+        }
+
+        private static String eventToString(int eventType) {
+            switch (eventType) {
+                case TYPE_DATASET_SELECTED:
+                    return "TYPE_DATASET_SELECTED";
+                case TYPE_DATASET_AUTHENTICATION_SELECTED:
+                    return "TYPE_DATASET_AUTHENTICATION_SELECTED";
+                case TYPE_AUTHENTICATION_SELECTED:
+                    return "TYPE_AUTHENTICATION_SELECTED";
+                case TYPE_SAVE_SHOWN:
+                    return "TYPE_SAVE_SHOWN";
+                case TYPE_CONTEXT_COMMITTED:
+                    return "TYPE_CONTEXT_COMMITTED";
+                case TYPE_DATASETS_SHOWN:
+                    return "TYPE_DATASETS_SHOWN";
+                case TYPE_VIEW_REQUESTED_AUTOFILL:
+                    return "TYPE_VIEW_REQUESTED_AUTOFILL";
+                default:
+                    return "TYPE_UNKNOWN";
+            }
+        }
+
+        private static String uiTypeToString(int uiType) {
+            switch (uiType) {
+                case UI_TYPE_MENU:
+                    return "UI_TYPE_MENU";
+                case UI_TYPE_INLINE:
+                    return "UI_TYPE_INLINE";
+                case UI_TYPE_DIALOG:
+                    return "UI_TYPE_FILL_DIALOG";
+                case UI_TYPE_CREDMAN_BOTTOM_SHEET:
+                    return "UI_TYPE_CREDMAN_BOTTOM_SHEET";
+                default:
+                    return "UI_TYPE_UNKNOWN";
+            }
         }
     }
 
-    public static final Parcelable.Creator<FillEventHistory> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<FillEventHistory> CREATOR =
             new Parcelable.Creator<FillEventHistory>() {
                 @Override
                 public FillEventHistory createFromParcel(Parcel parcel) {
@@ -554,12 +943,19 @@ public final class FillEventHistory implements Parcelable {
                                 (detectedFieldIds != null)
                                 ? FieldClassification.readArrayFromParcel(parcel)
                                 : null;
+                        final int saveDialogNotShowReason = parcel.readInt();
+                        final int uiType = parcel.readInt();
+                        AutofillId focusedId = null;
+                        if (Flags.addLastFocusedIdToFillEventHistory()) {
+                            focusedId = parcel.readParcelable(null, AutofillId.class);
+                        }
 
                         selection.addEvent(new Event(eventType, datasetId, clientState,
                                 selectedDatasetIds, ignoredDatasets,
                                 changedFieldIds, changedDatasetIds,
                                 manuallyFilledFieldIds, manuallyFilledDatasetIds,
-                                detectedFieldIds, detectedFieldClassifications));
+                                detectedFieldIds, detectedFieldClassifications,
+                                saveDialogNotShowReason, uiType, focusedId));
                     }
                     return selection;
                 }

@@ -23,7 +23,7 @@ import android.util.Log;
 /**
  * Adapts an {@link IBulkCursor} to a {@link Cursor} for use in the local process.
  *
- * {@hide}
+ * @hide
  */
 public final class BulkCursorToCursorAdaptor extends AbstractWindowedCursor {
     private static final String TAG = "BulkCursor";

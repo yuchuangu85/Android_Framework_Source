@@ -103,7 +103,7 @@ public final class NfcBarcode extends BasicTagTechnology {
      *     <p>The following 12 bytes are payload:<ul>
      *       <li> In case of a URL payload, the payload is encoded in US-ASCII,
      *            following the limitations defined in RFC3987.
-     *            {@see <a href="http://www.ietf.org/rfc/rfc3987.txt">RFC 3987</a>}</li>
+     *            See <a href="http://www.ietf.org/rfc/rfc3987.txt">RFC 3987</a>.</li>
      *       <li> In case of GS1 EPC data, see <a href="http://www.gs1.org/gsmp/kc/epcglobal/tds/">
      *            GS1 Electronic Product Code (EPC) Tag Data Standard (TDS)</a> for more details.
      *       </li>

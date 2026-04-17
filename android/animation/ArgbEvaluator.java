@@ -16,6 +16,13 @@
 
 package android.animation;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.graphics.Color;
+import android.graphics.ColorSpace;
+import android.util.MathUtils;
+
+import androidx.annotation.ColorLong;
+
 /**
  * This evaluator can be used to perform type interpolation between integer
  * values that represent ARGB colors.
@@ -31,6 +38,7 @@ public class ArgbEvaluator implements TypeEvaluator {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static ArgbEvaluator getInstance() {
         return sInstance;
     }
@@ -86,5 +94,58 @@ public class ArgbEvaluator implements TypeEvaluator {
         b = (float) Math.pow(b, 1.0 / 2.2) * 255.0f;
 
         return Math.round(a) << 24 | Math.round(r) << 16 | Math.round(g) << 8 | Math.round(b);
+    }
+
+    /**
+     * This function returns the calculated in-between long value for a color
+     * given longs that represent the start and end values in the 64-bit
+     * {@link ColorLong} format.
+     *
+     * <p>The interpolation is performed by separating the color into its
+     * individual floating-point components. These components are converted
+     * to the OkLab color space, interpolated linearly, and then converted
+     * back to {@link ColorLong}. The result preserves the {@link android.graphics.ColorSpace}
+     * of the start value.</p>
+     *
+     * @param fraction The fraction from the starting to the ending values.
+     * @param startValue A 64-bit long {@link ColorLong} representing the start color.
+     * @param endValue A 64-bit long {@link ColorLong} representing the end color.
+     * @return A 64-bit long {@link ColorLong} representing the linearly interpolated
+     *         result in the packed long format.
+     * @hide
+     */
+    @ColorLong
+    public static long evaluateColorLong(float fraction, @ColorLong long startValue,
+            @ColorLong long endValue) {
+        ColorSpace colorSpace = ColorSpace.get(ColorSpace.Named.OK_LAB);
+
+        Color startColor = Color.valueOf(startValue).convert(colorSpace);
+        Color endColor = Color.valueOf(endValue).convert(colorSpace);
+
+        // We need to clamp the input fraction since over/undershoot easing curves
+        // can yield fractions outside the 0..1 range, which would in turn cause
+        // Lab/alpha values to be outside the valid color range.
+        float f = Math.max(0.0f, Math.min(1.0f, fraction));
+
+        float startL = startColor.red();
+        float startA = startColor.green();
+        float startB = startColor.blue();
+        float startAlpha = startColor.alpha();
+
+        float endL = endColor.red();
+        float endA = endColor.green();
+        float endB = endColor.blue();
+        float endAlpha = endColor.alpha();
+
+        float l = MathUtils.lerp(startL, endL, f);
+        float a = MathUtils.lerp(startA, endA, f);
+        float b = MathUtils.lerp(startB, endB, f);
+        float alpha = MathUtils.lerp(startAlpha, endAlpha, f);
+
+        return Color.convert(
+                l, a, b, alpha,
+                colorSpace,
+                Color.colorSpace(startValue)
+        );
     }
 }

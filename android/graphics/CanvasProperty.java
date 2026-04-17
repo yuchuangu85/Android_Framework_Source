@@ -16,20 +16,26 @@
 
 package android.graphics;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 import com.android.internal.util.VirtualRefBasePtr;
 
 /**
  * TODO: Make public?
  * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public final class CanvasProperty<T> {
 
     private VirtualRefBasePtr mProperty;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static CanvasProperty<Float> createFloat(float initialValue) {
         return new CanvasProperty<Float>(nCreateFloat(initialValue));
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static CanvasProperty<Paint> createPaint(Paint initialValue) {
         return new CanvasProperty<Paint>(nCreatePaint(initialValue.getNativeInstance()));
     }

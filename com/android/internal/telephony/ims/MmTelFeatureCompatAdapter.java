@@ -61,9 +61,13 @@ public class MmTelFeatureCompatAdapter extends MmTelFeature {
     private static final Map<Integer, Integer> REG_TECH_TO_NET_TYPE = new HashMap<>(2);
 
     static {
+        REG_TECH_TO_NET_TYPE.put(ImsRegistrationImplBase.REGISTRATION_TECH_NR,
+                TelephonyManager.NETWORK_TYPE_NR);
         REG_TECH_TO_NET_TYPE.put(ImsRegistrationImplBase.REGISTRATION_TECH_LTE,
                 TelephonyManager.NETWORK_TYPE_LTE);
         REG_TECH_TO_NET_TYPE.put(ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN,
+                TelephonyManager.NETWORK_TYPE_IWLAN);
+        REG_TECH_TO_NET_TYPE.put(ImsRegistrationImplBase.REGISTRATION_TECH_CROSS_SIM,
                 TelephonyManager.NETWORK_TYPE_IWLAN);
     }
 
@@ -516,7 +520,8 @@ public class MmTelFeatureCompatAdapter extends MmTelFeature {
         Intent intent = new Intent(ImsManager.ACTION_IMS_INCOMING_CALL);
         intent.setPackage(TelephonyManager.PHONE_PROCESS_NAME);
         return PendingIntent.getBroadcast(mContext, 0, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT);
+                // Mutable because information associated with the call is passed back here.
+                PendingIntent.FLAG_MUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
     }
 
     private int convertCapability(int capability, int radioTech) {

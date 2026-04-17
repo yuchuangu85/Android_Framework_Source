@@ -16,12 +16,14 @@
 
 // This file was generated from the C++ include file: SkColorFilter.h
 // Any changes made to this file will be discarded by the build.
-// To change this file, either edit the include, or device/tools/gluemaker/main.cpp, 
-// or one of the auxilary file specifications in device/tools/gluemaker.
+// To change this file, either edit the include, or device/tools/gluemaker/main.cpp,
+// or one of the auxiliary file specifications in device/tools/gluemaker.
 
 package android.graphics;
 
 import android.annotation.ColorInt;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 
 /**
  * A color filter that can be used to simulate simple lighting effects.
@@ -38,6 +40,7 @@ import android.annotation.ColorInt;
  * </pre>
  * The result is pinned to the <code>[0..255]</code> range for each channel.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class LightingColorFilter extends ColorFilter {
     @ColorInt
     private int mMul;
@@ -72,10 +75,11 @@ public class LightingColorFilter extends ColorFilter {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setColorMultiply(@ColorInt int mul) {
         if (mMul != mul) {
             mMul = mul;
-            discardNativeInstance();
+            native_SetLightingFilterMul(getNativeInstance(), mul);
         }
     }
 
@@ -97,10 +101,11 @@ public class LightingColorFilter extends ColorFilter {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setColorAdd(@ColorInt int add) {
         if (mAdd != add) {
             mAdd = add;
-            discardNativeInstance();
+            native_SetLightingFilterAdd(getNativeInstance(), add);
         }
     }
 
@@ -110,4 +115,8 @@ public class LightingColorFilter extends ColorFilter {
     }
 
     private static native long native_CreateLightingFilter(int mul, int add);
+
+    private static native void native_SetLightingFilterAdd(long lightingFilter, int add);
+
+    private static native void native_SetLightingFilterMul(long lightingFilter, int mul);
 }

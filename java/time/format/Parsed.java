@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -61,6 +61,7 @@
  */
 package java.time.format;
 
+import static java.time.format.DateTimeFormatterBuilder.DayPeriod;
 import static java.time.temporal.ChronoField.AMPM_OF_DAY;
 import static java.time.temporal.ChronoField.CLOCK_HOUR_OF_AMPM;
 import static java.time.temporal.ChronoField.CLOCK_HOUR_OF_DAY;
@@ -155,6 +156,10 @@ final class Parsed implements TemporalAccessor {
      * The excess period from time-only parsing.
      */
     Period excessDays = Period.ZERO;
+    /**
+     * The parsed day period.
+     */
+    DayPeriod dayPeriod;
 
     /**
      * Creates an instance.
@@ -172,6 +177,7 @@ final class Parsed implements TemporalAccessor {
         cloned.zone = this.zone;
         cloned.chrono = this.chrono;
         cloned.leapSecond = this.leapSecond;
+        cloned.dayPeriod = this.dayPeriod;
         return cloned;
     }
 
@@ -183,7 +189,7 @@ final class Parsed implements TemporalAccessor {
                 (time != null && time.isSupported(field))) {
             return true;
         }
-        return field != null && (field instanceof ChronoField == false) && field.isSupportedBy(this);
+        return field != null && (!(field instanceof ChronoField)) && field.isSupportedBy(this);
     }
 
     @Override
@@ -216,7 +222,16 @@ final class Parsed implements TemporalAccessor {
             return (R) (date != null ? LocalDate.from(date) : null);
         } else if (query == TemporalQueries.localTime()) {
             return (R) time;
-        } else if (query == TemporalQueries.zone() || query == TemporalQueries.offset()) {
+        } else if (query == TemporalQueries.offset()) {
+            Long offsetSecs = fieldValues.get(OFFSET_SECONDS);
+            if (offsetSecs != null) {
+                return (R) ZoneOffset.ofTotalSeconds(offsetSecs.intValue());
+            }
+            if (zone instanceof ZoneOffset) {
+                return (R)zone;
+            }
+            return query.queryFrom(this);
+        } else if (query == TemporalQueries.zone()) {
             return query.queryFrom(this);
         } else if (query == TemporalQueries.precision()) {
             return null;  // not a complete date/time
@@ -267,8 +282,7 @@ final class Parsed implements TemporalAccessor {
                     TemporalField targetField = entry.getKey();
                     TemporalAccessor resolvedObject = targetField.resolve(fieldValues, this, resolverStyle);
                     if (resolvedObject != null) {
-                        if (resolvedObject instanceof ChronoZonedDateTime) {
-                            ChronoZonedDateTime<?> czdt = (ChronoZonedDateTime<?>) resolvedObject;
+                        if (resolvedObject instanceof ChronoZonedDateTime<?> czdt) {
                             if (zone == null) {
                                 zone = czdt.getZone();
                             } else if (zone.equals(czdt.getZone()) == false) {
@@ -276,8 +290,7 @@ final class Parsed implements TemporalAccessor {
                             }
                             resolvedObject = czdt.toLocalDateTime();
                         }
-                        if (resolvedObject instanceof ChronoLocalDateTime) {
-                            ChronoLocalDateTime<?> cldt = (ChronoLocalDateTime<?>) resolvedObject;
+                        if (resolvedObject instanceof ChronoLocalDateTime<?> cldt) {
                             updateCheckConflict(cldt.toLocalTime(), Period.ZERO);
                             updateCheckConflict(cldt.toLocalDate());
                             changedCount++;
@@ -323,7 +336,8 @@ final class Parsed implements TemporalAccessor {
         }
     }
 
-    //-----------------------------------------------------------------------
+
+//-----------------------------------------------------------------------
     private void resolveInstantFields() {
         // resolve parsed instant seconds to date and time if zone available
         if (fieldValues.containsKey(INSTANT_SECONDS)) {
@@ -340,10 +354,11 @@ final class Parsed implements TemporalAccessor {
     }
 
     private void resolveInstantFields0(ZoneId selectedZone) {
-        Instant instant = Instant.ofEpochSecond(fieldValues.remove(INSTANT_SECONDS));
+        Instant instant = Instant.ofEpochSecond(fieldValues.get(INSTANT_SECONDS));
         ChronoZonedDateTime<?> zdt = chrono.zonedDateTime(instant, selectedZone);
         updateCheckConflict(zdt.toLocalDate());
         updateCheckConflict(INSTANT_SECONDS, SECOND_OF_DAY, (long) zdt.toLocalTime().toSecondOfDay());
+        updateCheckConflict(INSTANT_SECONDS, OFFSET_SECONDS, (long) zdt.getOffset().getTotalSeconds());
     }
 
     //-----------------------------------------------------------------------
@@ -390,7 +405,7 @@ final class Parsed implements TemporalAccessor {
                 updateCheckConflict(AMPM_OF_DAY, HOUR_OF_DAY, Math.addExact(Math.multiplyExact(ap, 12), hap));
             } else {  // STRICT or SMART
                 AMPM_OF_DAY.checkValidValue(ap);
-                HOUR_OF_AMPM.checkValidValue(ap);
+                HOUR_OF_AMPM.checkValidValue(hap);
                 updateCheckConflict(AMPM_OF_DAY, HOUR_OF_DAY, ap * 12 + hap);
             }
         }
@@ -461,6 +476,19 @@ final class Parsed implements TemporalAccessor {
             }
         }
 
+        if (dayPeriod != null && fieldValues.containsKey(HOUR_OF_AMPM)) {
+            long hoap = fieldValues.remove(HOUR_OF_AMPM);
+            if (resolverStyle != ResolverStyle.LENIENT) {
+                HOUR_OF_AMPM.checkValidValue(hoap);
+            }
+            Long mohObj = fieldValues.get(MINUTE_OF_HOUR);
+            long moh = mohObj != null ? Math.floorMod(mohObj, 60) : 0;
+            long excessHours = dayPeriod.includes((Math.floorMod(hoap, 12) + 12) * 60 + moh) ? 12 : 0;
+            long hod = Math.addExact(hoap, excessHours);
+            updateCheckConflict(HOUR_OF_AMPM, HOUR_OF_DAY, hod);
+            dayPeriod = null;
+        }
+
         // convert to time if all four fields available (optimization)
         if (fieldValues.containsKey(HOUR_OF_DAY) && fieldValues.containsKey(MINUTE_OF_HOUR) &&
                 fieldValues.containsKey(SECOND_OF_MINUTE) && fieldValues.containsKey(NANO_OF_SECOND)) {
@@ -497,6 +525,27 @@ final class Parsed implements TemporalAccessor {
                 fieldValues.put(NANO_OF_SECOND, cos * 1_000L);
             }
 
+            // Set the hour-of-day, if not exist and not in STRICT, to the mid point of the day period or am/pm.
+            if (!fieldValues.containsKey(HOUR_OF_DAY) &&
+                    !fieldValues.containsKey(MINUTE_OF_HOUR) &&
+                    !fieldValues.containsKey(SECOND_OF_MINUTE) &&
+                    !fieldValues.containsKey(NANO_OF_SECOND) &&
+                    resolverStyle != ResolverStyle.STRICT) {
+                if (dayPeriod != null) {
+                    long midpoint = dayPeriod.mid();
+                    resolveTime(midpoint / 60, midpoint % 60, 0, 0);
+                    dayPeriod = null;
+                } else if (fieldValues.containsKey(AMPM_OF_DAY)) {
+                    long ap = fieldValues.remove(AMPM_OF_DAY);
+                    if (resolverStyle == ResolverStyle.LENIENT) {
+                        resolveTime(Math.addExact(Math.multiplyExact(ap, 12), 6), 0, 0, 0);
+                    } else {  // SMART
+                        AMPM_OF_DAY.checkValidValue(ap);
+                        resolveTime(ap * 12 + 6, 0, 0, 0);
+                    }
+                }
+            }
+
             // merge hour/minute/second/nano leniently
             Long hod = fieldValues.get(HOUR_OF_DAY);
             if (hod != null) {
@@ -514,6 +563,15 @@ final class Parsed implements TemporalAccessor {
                 long mohVal = (moh != null ? moh : 0);
                 long somVal = (som != null ? som : 0);
                 long nosVal = (nos != null ? nos : 0);
+
+                if (dayPeriod != null && resolverStyle != ResolverStyle.LENIENT) {
+                    // Check whether the hod/mohVal is within the day period
+                    if (!dayPeriod.includes(hod * 60 + mohVal)) {
+                        throw new DateTimeException("Conflict found: Resolved time %02d:%02d".formatted(hod, mohVal) +
+                                " conflicts with " + dayPeriod);
+                    }
+                }
+
                 resolveTime(hod, mohVal, somVal, nosVal);
                 fieldValues.remove(HOUR_OF_DAY);
                 fieldValues.remove(MINUTE_OF_HOUR);
@@ -584,16 +642,17 @@ final class Parsed implements TemporalAccessor {
     }
 
     private void resolveInstant() {
-        // add instant seconds if we have date, time and zone
-        if (date != null && time != null) {
-            if (zone != null) {
-                long instant = date.atTime(time).atZone(zone).getLong(ChronoField.INSTANT_SECONDS);
+        // add instant seconds (if not present) if we have date, time and zone
+        // Offset (if present) will be given priority over the zone.
+        if (!fieldValues.containsKey(INSTANT_SECONDS) && date != null && time != null) {
+            Long offsetSecs = fieldValues.get(OFFSET_SECONDS);
+            if (offsetSecs != null) {
+                ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSecs.intValue());
+                long instant = date.atTime(time).atZone(offset).toEpochSecond();
                 fieldValues.put(INSTANT_SECONDS, instant);
             } else {
-                Long offsetSecs = fieldValues.get(OFFSET_SECONDS);
-                if (offsetSecs != null) {
-                    ZoneOffset offset = ZoneOffset.ofTotalSeconds(offsetSecs.intValue());
-                    long instant = date.atTime(time).atZone(offset).getLong(ChronoField.INSTANT_SECONDS);
+                if (zone != null) {
+                    long instant = date.atTime(time).atZone(zone).toEpochSecond();
                     fieldValues.put(INSTANT_SECONDS, instant);
                 }
             }

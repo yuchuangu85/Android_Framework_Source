@@ -17,11 +17,13 @@
 package android.text;
 
 import android.app.ActivityThread;
-import android.app.Application;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.Resources;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
+import android.ravenwood.annotation.RavenwoodReplace;
 import android.text.style.AbsoluteSizeSpan;
 import android.text.style.AlignmentSpan;
 import android.text.style.BackgroundColorSpan;
@@ -39,6 +41,8 @@ import android.text.style.SuperscriptSpan;
 import android.text.style.TypefaceSpan;
 import android.text.style.URLSpan;
 import android.text.style.UnderlineSpan;
+
+import com.android.internal.util.XmlUtils;
 
 import org.ccil.cowan.tagsoup.HTMLSchema;
 import org.ccil.cowan.tagsoup.Parser;
@@ -61,6 +65,7 @@ import java.util.regex.Pattern;
  * This class processes HTML strings into displayable styled text.
  * Not all HTML tags are supported.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class Html {
     /**
      * Retrieves images for HTML &lt;img&gt; tags.
@@ -502,6 +507,15 @@ public class Html {
         out.append("</p>\n");
     }
 
+    @RavenwoodReplace(blockedBy = ActivityThread.class)
+    private static float getDisplayMetricsDensity() {
+        return ActivityThread.currentApplication().getResources().getDisplayMetrics().density;
+    }
+
+    private static float getDisplayMetricsDensity$ravenwood() {
+        return Resources.getSystem().getDisplayMetrics().density;
+    }
+
     private static void withinParagraph(StringBuilder out, Spanned text, int start, int end) {
         int next;
         for (int i = start; i < end; i = next) {
@@ -548,15 +562,14 @@ public class Html {
                     out.append(((ImageSpan) style[j]).getSource());
                     out.append("\">");
 
-                    // Don't output the dummy character underlying the image.
+                    // Don't output the placeholder character underlying the image.
                     i = next;
                 }
                 if (style[j] instanceof AbsoluteSizeSpan) {
                     AbsoluteSizeSpan s = ((AbsoluteSizeSpan) style[j]);
                     float sizeDip = s.getSize();
                     if (!s.getDip()) {
-                        Application application = ActivityThread.currentApplication();
-                        sizeDip /= application.getResources().getDisplayMetrics().density;
+                        sizeDip /= getDisplayMetricsDensity();
                     }
 
                     // px in CSS is the equivalance of dip in Android
@@ -610,7 +623,7 @@ public class Html {
                 if (style[j] instanceof TypefaceSpan) {
                     String s = ((TypefaceSpan) style[j]).getFamily();
 
-                    if (s.equals("monospace")) {
+                    if ("monospace".equals(s)) {
                         out.append("</tt>");
                     }
                 }
@@ -628,6 +641,7 @@ public class Html {
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static void withinStyle(StringBuilder out, CharSequence text,
                                     int start, int end) {
         for (int i = start; i < end; i++) {
@@ -664,6 +678,7 @@ public class Html {
     }
 }
 
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 class HtmlToSpannedConverter implements ContentHandler {
 
     private static final float[] HEADING_SIZES = {
@@ -838,6 +853,16 @@ class HtmlToSpannedConverter implements ContentHandler {
         }
     }
 
+    @RavenwoodReplace(blockedBy = ActivityThread.class)
+    private static int getFontWeightAdjustment() {
+        return ActivityThread.currentApplication().getResources()
+                .getConfiguration().fontWeightAdjustment;
+    }
+
+    private static int getFontWeightAdjustment$ravenwood() {
+        return Resources.getSystem().getConfiguration().fontWeightAdjustment;
+    }
+
     private void handleEndTag(String tag) {
         if (tag.equalsIgnoreCase("br")) {
             handleBr(mSpannableStringBuilder);
@@ -853,9 +878,11 @@ class HtmlToSpannedConverter implements ContentHandler {
         } else if (tag.equalsIgnoreCase("span")) {
             endCssStyle(mSpannableStringBuilder);
         } else if (tag.equalsIgnoreCase("strong")) {
-            end(mSpannableStringBuilder, Bold.class, new StyleSpan(Typeface.BOLD));
+            end(mSpannableStringBuilder, Bold.class, new StyleSpan(Typeface.BOLD,
+                    getFontWeightAdjustment()));
         } else if (tag.equalsIgnoreCase("b")) {
-            end(mSpannableStringBuilder, Bold.class, new StyleSpan(Typeface.BOLD));
+            end(mSpannableStringBuilder, Bold.class, new StyleSpan(Typeface.BOLD,
+                    getFontWeightAdjustment()));
         } else if (tag.equalsIgnoreCase("em")) {
             end(mSpannableStringBuilder, Italic.class, new StyleSpan(Typeface.ITALIC));
         } else if (tag.equalsIgnoreCase("cite")) {
@@ -1024,7 +1051,7 @@ class HtmlToSpannedConverter implements ContentHandler {
         Heading h = getLast(text, Heading.class);
         if (h != null) {
             setSpanFromMark(text, h, new RelativeSizeSpan(HEADING_SIZES[h.mLevel]),
-                    new StyleSpan(Typeface.BOLD));
+                    new StyleSpan(Typeface.BOLD, getFontWeightAdjustment()));
         }
 
         endBlockElement(text);
@@ -1186,7 +1213,25 @@ class HtmlToSpannedConverter implements ContentHandler {
                 return i;
             }
         }
-        return Color.getHtmlColor(color);
+
+        // If |color| is the name of a color, pass it to Color to convert it. Otherwise,
+        // it may start with "#", "0", "0x", "+", or a digit. All of these cases are
+        // handled below by XmlUtils. (Note that parseColor accepts colors starting
+        // with "#", but it treats them differently from XmlUtils.)
+        if (Character.isLetter(color.charAt(0))) {
+            try {
+                return Color.parseColor(color);
+            } catch (IllegalArgumentException e) {
+                return -1;
+            }
+        }
+
+        try {
+            return XmlUtils.convertValueToInt(color, -1);
+        } catch (NumberFormatException nfe) {
+            return -1;
+        }
+
     }
 
     public void setDocumentLocator(Locator locator) {

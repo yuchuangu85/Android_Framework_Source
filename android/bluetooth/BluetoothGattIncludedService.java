@@ -13,39 +13,32 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package android.bluetooth;
 
+import android.annotation.Hide;
+import android.annotation.NonNull;
+import android.annotation.RequiresNoPermission;
 import android.os.Parcel;
 import android.os.ParcelUuid;
 import android.os.Parcelable;
 
 import java.util.UUID;
 
-/**
- * Represents a Bluetooth GATT Included Service
- *
- * @hide
- */
+/** Represents a Bluetooth GATT Included Service */
+@Hide
 public class BluetoothGattIncludedService implements Parcelable {
 
-    /**
-     * The UUID of this service.
-     */
+    /** The UUID of this service. */
     protected UUID mUuid;
 
-    /**
-     * Instance ID for this service.
-     */
+    /** Instance ID for this service. */
     protected int mInstanceId;
 
-    /**
-     * Service type (Primary/Secondary).
-     */
+    /** Service type (Primary/Secondary). */
     protected int mServiceType;
 
-    /**
-     * Create a new BluetoothGattIncludedService
-     */
+    /** Create a new BluetoothGattIncludedService */
     public BluetoothGattIncludedService(UUID uuid, int instanceId, int serviceType) {
         mUuid = uuid;
         mInstanceId = instanceId;
@@ -59,24 +52,24 @@ public class BluetoothGattIncludedService implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        out.writeParcelable(new ParcelUuid(mUuid), 0);
+        (new ParcelUuid(mUuid)).writeToParcel(out, flags);
         out.writeInt(mInstanceId);
         out.writeInt(mServiceType);
     }
 
-    public static final Parcelable.Creator<BluetoothGattIncludedService> CREATOR =
-            new Parcelable.Creator<BluetoothGattIncludedService>() {
-        public BluetoothGattIncludedService createFromParcel(Parcel in) {
-            return new BluetoothGattIncludedService(in);
-        }
+    public static final @NonNull Creator<BluetoothGattIncludedService> CREATOR =
+            new Creator<>() {
+                public BluetoothGattIncludedService createFromParcel(Parcel in) {
+                    return new BluetoothGattIncludedService(in);
+                }
 
-        public BluetoothGattIncludedService[] newArray(int size) {
-            return new BluetoothGattIncludedService[size];
-        }
-    };
+                public BluetoothGattIncludedService[] newArray(int size) {
+                    return new BluetoothGattIncludedService[size];
+                }
+            };
 
     private BluetoothGattIncludedService(Parcel in) {
-        mUuid = ((ParcelUuid) in.readParcelable(null)).getUuid();
+        mUuid = ParcelUuid.CREATOR.createFromParcel(in).getUuid();
         mInstanceId = in.readInt();
         mServiceType = in.readInt();
     }
@@ -86,6 +79,7 @@ public class BluetoothGattIncludedService implements Parcelable {
      *
      * @return UUID of this service
      */
+    @RequiresNoPermission
     public UUID getUuid() {
         return mUuid;
     }
@@ -93,19 +87,18 @@ public class BluetoothGattIncludedService implements Parcelable {
     /**
      * Returns the instance ID for this service
      *
-     * <p>If a remote device offers multiple services with the same UUID
-     * (ex. multiple battery services for different batteries), the instance
-     * ID is used to distuinguish services.
+     * <p>If a remote device offers multiple services with the same UUID (ex. multiple battery
+     * services for different batteries), the instance ID is used to distinguish services.
      *
      * @return Instance ID of this service
      */
+    @RequiresNoPermission
     public int getInstanceId() {
         return mInstanceId;
     }
 
-    /**
-     * Get the type of this service (primary/secondary)
-     */
+    /** Get the type of this service (primary/secondary) */
+    @RequiresNoPermission
     public int getType() {
         return mServiceType;
     }

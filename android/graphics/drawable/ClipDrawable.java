@@ -16,19 +16,22 @@
 
 package android.graphics.drawable;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.res.Resources;
+import android.content.res.Resources.Theme;
+import android.content.res.TypedArray;
+import android.graphics.Canvas;
+import android.graphics.PixelFormat;
+import android.graphics.Rect;
+import android.util.AttributeSet;
+import android.view.Gravity;
+
 import com.android.internal.R;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
-
-import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.content.res.Resources;
-import android.content.res.TypedArray;
-import android.content.res.Resources.Theme;
-import android.graphics.*;
-import android.view.Gravity;
-import android.util.AttributeSet;
 
 import java.io.IOException;
 
@@ -50,6 +53,7 @@ import java.io.IOException;
  * @attr ref android.R.styleable#ClipDrawable_gravity
  * @attr ref android.R.styleable#ClipDrawable_drawable
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class ClipDrawable extends DrawableWrapper {
     public static final int HORIZONTAL = 1;
     public static final int VERTICAL = 2;
@@ -58,6 +62,7 @@ public class ClipDrawable extends DrawableWrapper {
 
     private final Rect mTmpRect = new Rect();
 
+    @UnsupportedAppUsage
     private ClipState mState;
 
     ClipDrawable() {

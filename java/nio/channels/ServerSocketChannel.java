@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -46,19 +46,24 @@ import java.nio.channels.spi.SelectorProvider;
  * <p> Socket options are configured using the {@link #setOption(SocketOption,Object)
  * setOption} method. Server-socket channels support the following options:
  * <blockquote>
- * <table border summary="Socket options">
+ * <table class="striped">
+ * <caption style="display:none">Socket options</caption>
+ * <thead>
  *   <tr>
- *     <th>Option Name</th>
- *     <th>Description</th>
+ *     <th scope="col">Option Name</th>
+ *     <th scope="col">Description</th>
  *   </tr>
+ * </thead>
+ * <tbody>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_RCVBUF SO_RCVBUF} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#SO_RCVBUF SO_RCVBUF} </th>
  *     <td> The size of the socket receive buffer </td>
  *   </tr>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_REUSEADDR SO_REUSEADDR} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#SO_REUSEADDR SO_REUSEADDR} </th>
  *     <td> Re-use address </td>
  *   </tr>
+ * </tbody>
  * </table>
  * </blockquote>
  * Additional (implementation specific) options may also be supported.
@@ -223,7 +228,7 @@ public abstract class ServerSocketChannel
      * Accepts a connection made to this channel's socket.
      *
      * <p> If this channel is in non-blocking mode then this method will
-     * immediately return <tt>null</tt> if there are no pending connections.
+     * immediately return {@code null} if there are no pending connections.
      * Otherwise it will block indefinitely until a new connection is available
      * or an I/O error occurs.
      *
@@ -239,7 +244,7 @@ public abstract class ServerSocketChannel
      * java.lang.SecurityManager#checkAccept checkAccept} method.  </p>
      *
      * @return  The socket channel for the new connection,
-     *          or <tt>null</tt> if this channel is in non-blocking mode
+     *          or {@code null} if this channel is in non-blocking mode
      *          and no connection is available to be accepted
      *
      * @throws  ClosedChannelException

@@ -17,13 +17,17 @@
 package com.android.internal.widget;
 
 import android.annotation.Nullable;
+import android.annotation.Px;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
+import android.os.Build;
+import android.os.Trace;
 import android.util.AttributeSet;
 import android.view.RemotableViewMethod;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.widget.RemoteViews;
 
 import com.android.internal.R;
@@ -41,9 +45,17 @@ public class MessagingLinearLayout extends ViewGroup {
      */
     private int mSpacing;
 
+    /**
+     * Whether the top padding should be ignored when laying out the children. This is used when the
+     * sender name of the top message is hidden due to it matching the name in the header, to avoid
+     * duplication. By ignoring the padding, we bring the message up directly under the sender name
+     * in the header.
+     */
+    private boolean mIgnorePaddingTop = false;
+
     private int mMaxDisplayedLines = Integer.MAX_VALUE;
 
-    private MessagingLayout mMessagingLayout;
+    private static final boolean TRACE_ONMEASURE = Build.isDebuggable();
 
     public MessagingLinearLayout(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
@@ -67,6 +79,10 @@ public class MessagingLinearLayout extends ViewGroup {
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        if (TRACE_ONMEASURE) {
+            Trace.beginSection("MessagingLinearLayout#onMeasure");
+            trackMeasureSpecs(widthMeasureSpec, heightMeasureSpec);
+        }
         // This is essentially a bottom-up linear layout that only adds children that fit entirely
         // up to a maximum height.
         int targetHeight = MeasureSpec.getSize(heightMeasureSpec);
@@ -84,6 +100,13 @@ public class MessagingLinearLayout extends ViewGroup {
             final View child = getChildAt(i);
             final LayoutParams lp = (LayoutParams) child.getLayoutParams();
             lp.hide = true;
+            // Child always needs to be measured to calculate hide property correctly in onMeasure.
+            child.requestLayout();
+            if (child instanceof MessagingChild) {
+                MessagingChild messagingChild = (MessagingChild) child;
+                // Whenever we encounter the message first, it's always first in the layout
+                messagingChild.setIsFirstInLayout(true);
+            }
         }
 
         totalHeight = mPaddingTop + mPaddingBottom;
@@ -91,6 +114,12 @@ public class MessagingLinearLayout extends ViewGroup {
         int linesRemaining = mMaxDisplayedLines;
         // Starting from the bottom: we measure every view as if it were the only one. If it still
         // fits, we take it, otherwise we stop there.
+        MessagingChild previousChild = null;
+        MessagingChild firstVisibleChild = null;
+        View previousView = null;
+        int previousChildHeight = 0;
+        int previousTotalHeight = 0;
+        int previousLinesConsumed = 0;
         for (int i = count - 1; i >= 0 && totalHeight < targetHeight; i--) {
             if (getChildAt(i).getVisibility() == GONE) {
                 continue;
@@ -99,7 +128,17 @@ public class MessagingLinearLayout extends ViewGroup {
             LayoutParams lp = (LayoutParams) getChildAt(i).getLayoutParams();
             MessagingChild messagingChild = null;
             int spacing = mSpacing;
+            int previousChildIncrease = 0;
             if (child instanceof MessagingChild) {
+                firstVisibleChild = (MessagingChild) child;
+                // We need to remeasure the previous child again if it's not the first anymore
+                if (previousChild != null && previousChild.hasDifferentHeightWhenFirst()) {
+                    previousChild.setIsFirstInLayout(false);
+                    measureChildWithMargins(previousView, widthMeasureSpec, 0, heightMeasureSpec,
+                            previousTotalHeight - previousChildHeight);
+                    previousChildIncrease = previousView.getMeasuredHeight() - previousChildHeight;
+                    linesRemaining -= previousChild.getConsumedLines() - previousLinesConsumed;
+                }
                 messagingChild = (MessagingChild) child;
                 messagingChild.setMaxDisplayedLines(linesRemaining);
                 spacing += messagingChild.getExtraSpacing();
@@ -110,16 +149,26 @@ public class MessagingLinearLayout extends ViewGroup {
 
             final int childHeight = child.getMeasuredHeight();
             int newHeight = Math.max(totalHeight, totalHeight + childHeight + lp.topMargin +
-                    lp.bottomMargin + spacing);
-            first = false;
+                    lp.bottomMargin + spacing + previousChildIncrease);
             int measureType = MessagingChild.MEASURED_NORMAL;
             if (messagingChild != null) {
                 measureType = messagingChild.getMeasuredType();
-                linesRemaining -= messagingChild.getConsumedLines();
             }
-            boolean isShortened = measureType == MessagingChild.MEASURED_SHORTENED;
-            boolean isTooSmall = measureType == MessagingChild.MEASURED_TOO_SMALL;
-            if (newHeight <= targetHeight && !isTooSmall) {
+
+            // We never measure the first item as too small, we want to at least show something.
+            boolean isTooSmall = measureType == MessagingChild.MEASURED_TOO_SMALL && !first;
+            boolean isShortened = measureType == MessagingChild.MEASURED_SHORTENED
+                    || measureType == MessagingChild.MEASURED_TOO_SMALL && first;
+            boolean showView = newHeight <= targetHeight && !isTooSmall;
+            if (showView) {
+                if (messagingChild != null) {
+                    previousLinesConsumed = messagingChild.getConsumedLines();
+                    linesRemaining -= previousLinesConsumed;
+                    previousChild = messagingChild;
+                    previousView = child;
+                    previousChildHeight = childHeight;
+                    previousTotalHeight = totalHeight;
+                }
                 totalHeight = newHeight;
                 measuredWidth = Math.max(measuredWidth,
                         child.getMeasuredWidth() + lp.leftMargin + lp.rightMargin
@@ -129,14 +178,44 @@ public class MessagingLinearLayout extends ViewGroup {
                     break;
                 }
             } else {
+                // We now became too short, let's make sure to reset any previous views to be first
+                // and remeasure it.
+                firstVisibleChild = previousChild;
+                if (previousChild != null && previousChild.hasDifferentHeightWhenFirst()) {
+                    previousChild.setIsFirstInLayout(true);
+                    // We need to remeasure the previous child again since it became first
+                    measureChildWithMargins(previousView, widthMeasureSpec, 0, heightMeasureSpec,
+                            previousTotalHeight - previousChildHeight);
+                    // The totalHeight is already correct here since we only set it during the
+                    // first pass
+                }
                 break;
             }
+            first = false;
         }
 
+        totalHeight = maybeRemoveTopPadding(totalHeight, firstVisibleChild);
         setMeasuredDimension(
                 resolveSize(Math.max(getSuggestedMinimumWidth(), measuredWidth),
                         widthMeasureSpec),
                 Math.max(getSuggestedMinimumHeight(), totalHeight));
+        if (TRACE_ONMEASURE) {
+            Trace.endSection();
+        }
+    }
+
+    private int maybeRemoveTopPadding(int totalHeight, MessagingChild firstVisibleChild) {
+        mIgnorePaddingTop = false;
+        if (firstVisibleChild instanceof MessagingGroup messagingGroup) {
+            // Note: The sender name can only be hidden if this is the first group.
+            if (messagingGroup.hasSenderNameHidden()) {
+                mIgnorePaddingTop = true;
+            }
+        }
+        if (mIgnorePaddingTop) {
+            totalHeight -= mPaddingTop;
+        }
+        return totalHeight;
     }
 
     @Override
@@ -152,7 +231,7 @@ public class MessagingLinearLayout extends ViewGroup {
         final int layoutDirection = getLayoutDirection();
         final int count = getChildCount();
 
-        childTop = mPaddingTop;
+        childTop = mIgnorePaddingTop ? 0 : mPaddingTop;
 
         boolean first = true;
         final boolean shown = isShown();
@@ -200,6 +279,25 @@ public class MessagingLinearLayout extends ViewGroup {
         }
     }
 
+    private void trackMeasureSpecs(int widthMeasureSpec, int heightMeasureSpec) {
+        if (!TRACE_ONMEASURE) {
+            return;
+        }
+
+        final int availableWidth = MeasureSpec.getSize(widthMeasureSpec);
+        final int widthMode = MeasureSpec.getMode(widthMeasureSpec);
+        final int availableHeight = MeasureSpec.getSize(heightMeasureSpec);
+        final int heightMode = MeasureSpec.getMode(heightMeasureSpec);
+        Trace.setCounter("MessagingLinearLayout#onMeasure_widthMeasureSpecSize",
+                availableWidth);
+        Trace.setCounter("MessagingLinearLayout#onMeasure_widthMeasureSpecMode",
+                widthMode);
+        Trace.setCounter("MessagingLinearLayout#onMeasure_heightMeasureSpecSize",
+                availableHeight);
+        Trace.setCounter("MessagingLinearLayout#onMeasure_heightMeasureSpecMode",
+                heightMode);
+    }
+
     @Override
     protected boolean drawChild(Canvas canvas, View child, long drawingTime) {
         final LayoutParams lp = (LayoutParams) child.getLayoutParams();
@@ -210,6 +308,16 @@ public class MessagingLinearLayout extends ViewGroup {
             }
         }
         return super.drawChild(canvas, child, drawingTime);
+    }
+
+    /**
+     * Set the spacing to be applied between views.
+     */
+    public void setSpacing(@Px int spacing) {
+        if (mSpacing != spacing) {
+            mSpacing = spacing;
+            requestLayout();
+        }
     }
 
     @Override
@@ -252,12 +360,40 @@ public class MessagingLinearLayout extends ViewGroup {
         mMaxDisplayedLines = numberLines;
     }
 
-    public void setMessagingLayout(MessagingLayout layout) {
-        mMessagingLayout = layout;
+    public IMessagingLayout getMessagingLayout() {
+        View view = this;
+        while (true) {
+            ViewParent p = view.getParent();
+            if (p instanceof View) {
+                view = (View) p;
+                if (view instanceof IMessagingLayout) {
+                    return (IMessagingLayout) view;
+                }
+            } else {
+                return null;
+            }
+        }
     }
 
-    public MessagingLayout getMessagingLayout() {
-        return mMessagingLayout;
+    @Override
+    public int getBaseline() {
+        // When placed in a horizontal linear layout (as is the case in a single-line MessageGroup),
+        // align with the last visible child (which is the one that will be displayed in the single-
+        // line group.
+        int childCount = getChildCount();
+        for (int i = childCount - 1; i >= 0; i--) {
+            final View child = getChildAt(i);
+            if (isGone(child)) {
+                continue;
+            }
+            final int childBaseline = child.getBaseline();
+            if (childBaseline == -1) {
+                return -1;
+            }
+            MarginLayoutParams lp = (MarginLayoutParams) child.getLayoutParams();
+            return lp.topMargin + childBaseline;
+        }
+        return super.getBaseline();
     }
 
     public interface MessagingChild {
@@ -270,9 +406,24 @@ public class MessagingLinearLayout extends ViewGroup {
         void setMaxDisplayedLines(int lines);
         void hideAnimated();
         boolean isHidingAnimated();
+
+        /**
+         * Set that this view is first in layout. Relevant and only set if
+         * {@link #hasDifferentHeightWhenFirst()}.
+         * @param first is this first?
+         */
+        default void setIsFirstInLayout(boolean first) {}
+
+        /**
+         * @return if this layout has different height it is first in the layout
+         */
+        default boolean hasDifferentHeightWhenFirst() {
+            return false;
+        }
         default int getExtraSpacing() {
             return 0;
         }
+        void recycle();
     }
 
     public static class LayoutParams extends MarginLayoutParams {

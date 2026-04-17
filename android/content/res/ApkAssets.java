@@ -15,13 +15,28 @@
  */
 package android.content.res;
 
+import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.om.OverlayableInfo;
+import android.content.res.loader.AssetsProvider;
+import android.content.res.loader.ResourcesProvider;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
+import android.text.TextUtils;
+import android.util.Log;
 
 import com.android.internal.annotations.GuardedBy;
-import com.android.internal.util.Preconditions;
+import com.android.internal.pm.pkg.component.AconfigFlags;
+
+import dalvik.annotation.optimization.CriticalNative;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.Objects;
 
 /**
  * The loaded, immutable, in-memory representation of an APK.
@@ -33,9 +48,103 @@ import java.io.IOException;
  * making the creation of AssetManagers very cheap.
  * @hide
  */
+@RavenwoodKeepWholeClass
 public final class ApkAssets {
-    @GuardedBy("this") private final long mNativePtr;
-    @GuardedBy("this") private StringBlock mStringBlock;
+    private static final boolean DEBUG = false;
+
+    /**
+     * The apk assets contains framework resource values specified by the system.
+     * This allows some functions to filter out this package when computing what
+     * configurations/resources are available.
+     */
+    public static final int PROPERTY_SYSTEM = 1 << 0;
+
+    /**
+     * The apk assets is a shared library or was loaded as a shared library by force.
+     * The package ids of dynamic apk assets are assigned at runtime instead of compile time.
+     */
+    public static final int PROPERTY_DYNAMIC = 1 << 1;
+
+    /**
+     * The apk assets has been loaded dynamically using a {@link ResourcesProvider}.
+     * Loader apk assets overlay resources like RROs except they are not backed by an idmap.
+     */
+    public static final int PROPERTY_LOADER = 1 << 2;
+
+    /**
+     * The apk assets is a RRO.
+     * An RRO overlays resource values of its target package.
+     */
+    private static final int PROPERTY_OVERLAY = 1 << 3;
+
+    /**
+     * The apk assets is owned by the application running in this process and incremental crash
+     * protections for this APK must be disabled.
+     */
+    public static final int PROPERTY_DISABLE_INCREMENTAL_HARDENING = 1 << 4;
+
+    /**
+     * The apk assets only contain the overlayable declarations information.
+     */
+    public static final int PROPERTY_ONLY_OVERLAYABLES = 1 << 5;
+
+    /** Flags that change the behavior of loaded apk assets. */
+    @IntDef(prefix = { "PROPERTY_" }, value = {
+            PROPERTY_SYSTEM,
+            PROPERTY_DYNAMIC,
+            PROPERTY_LOADER,
+            PROPERTY_OVERLAY,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface PropertyFlags {}
+
+    /** The path used to load the apk assets represents an APK file. */
+    private static final int FORMAT_APK = 0;
+
+    /** The path used to load the apk assets represents an idmap file. */
+    private static final int FORMAT_IDMAP = 1;
+
+    /** The path used to load the apk assets represents an resources.arsc file. */
+    private static final int FORMAT_ARSC = 2;
+
+    /** the path used to load the apk assets represents a directory. */
+    private static final int FORMAT_DIR = 3;
+
+    // Format types that change how the apk assets are loaded.
+    @IntDef(prefix = { "FORMAT_" }, value = {
+            FORMAT_APK,
+            FORMAT_IDMAP,
+            FORMAT_ARSC,
+            FORMAT_DIR
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface FormatType {}
+
+    @GuardedBy("this")
+    private long mNativePtr;  // final, except cleared in finalizer.
+
+    @Nullable
+    @GuardedBy("this")
+    private StringBlock mStringBlock;  // null or closed if mNativePtr = 0.
+
+    @PropertyFlags
+    private final int mFlags;
+
+    private final boolean mIsOverlay;
+
+    @Nullable
+    private final AssetsProvider mAssets;
+
+    @NonNull
+    private String mName;
+
+    private static final int UPTODATE_FALSE = 0;
+    private static final int UPTODATE_TRUE = 1;
+    private static final int UPTODATE_ALWAYS_TRUE = 2;
+
+    // Start with the only value that may change later and would force a native call to
+    // double check it.
+    private int mPreviousUpToDateResult = UPTODATE_TRUE;
 
     /**
      * Creates a new ApkAssets instance from the given path on disk.
@@ -45,55 +154,77 @@ public final class ApkAssets {
      * @throws IOException if a disk I/O error or parsing error occurred.
      */
     public static @NonNull ApkAssets loadFromPath(@NonNull String path) throws IOException {
-        return new ApkAssets(path, false /*system*/, false /*forceSharedLib*/, false /*overlay*/);
+        return loadFromPath(path, 0 /* flags */);
     }
 
     /**
      * Creates a new ApkAssets instance from the given path on disk.
      *
      * @param path The path to an APK on disk.
-     * @param system When true, the APK is loaded as a system APK (framework).
+     * @param flags flags that change the behavior of loaded apk assets
      * @return a new instance of ApkAssets.
      * @throws IOException if a disk I/O error or parsing error occurred.
      */
-    public static @NonNull ApkAssets loadFromPath(@NonNull String path, boolean system)
+    public static @NonNull ApkAssets loadFromPath(@NonNull String path, @PropertyFlags int flags)
             throws IOException {
-        return new ApkAssets(path, system, false /*forceSharedLib*/, false /*overlay*/);
+        return new ApkAssets(FORMAT_APK, path, flags, null /* assets */);
     }
 
     /**
      * Creates a new ApkAssets instance from the given path on disk.
      *
      * @param path The path to an APK on disk.
-     * @param system When true, the APK is loaded as a system APK (framework).
-     * @param forceSharedLibrary When true, any packages within the APK with package ID 0x7f are
-     *                           loaded as a shared library.
+     * @param flags flags that change the behavior of loaded apk assets
+     * @param assets The assets provider that overrides the loading of file-based resources
      * @return a new instance of ApkAssets.
      * @throws IOException if a disk I/O error or parsing error occurred.
      */
-    public static @NonNull ApkAssets loadFromPath(@NonNull String path, boolean system,
-            boolean forceSharedLibrary) throws IOException {
-        return new ApkAssets(path, system, forceSharedLibrary, false /*overlay*/);
+    public static @NonNull ApkAssets loadFromPath(@NonNull String path, @PropertyFlags int flags,
+            @Nullable AssetsProvider assets) throws IOException {
+        return new ApkAssets(FORMAT_APK, path, flags, assets);
     }
 
     /**
-     * Creates a new ApkAssets instance from the given file descriptor. Not for use by applications.
+     * Creates a new ApkAssets instance from the given file descriptor.
      *
      * Performs a dup of the underlying fd, so you must take care of still closing
      * the FileDescriptor yourself (and can do that whenever you want).
      *
      * @param fd The FileDescriptor of an open, readable APK.
      * @param friendlyName The friendly name used to identify this ApkAssets when logging.
-     * @param system When true, the APK is loaded as a system APK (framework).
-     * @param forceSharedLibrary When true, any packages within the APK with package ID 0x7f are
-     *                           loaded as a shared library.
+     * @param flags flags that change the behavior of loaded apk assets
+     * @param assets The assets provider that overrides the loading of file-based resources
      * @return a new instance of ApkAssets.
      * @throws IOException if a disk I/O error or parsing error occurred.
      */
     public static @NonNull ApkAssets loadFromFd(@NonNull FileDescriptor fd,
-            @NonNull String friendlyName, boolean system, boolean forceSharedLibrary)
+            @NonNull String friendlyName, @PropertyFlags int flags,
+            @Nullable AssetsProvider assets) throws IOException {
+        return new ApkAssets(FORMAT_APK, fd, friendlyName, flags, assets);
+    }
+
+    /**
+     * Creates a new ApkAssets instance from the given file descriptor.
+     *
+     * Performs a dup of the underlying fd, so you must take care of still closing
+     * the FileDescriptor yourself (and can do that whenever you want).
+     *
+     * @param fd The FileDescriptor of an open, readable APK.
+     * @param friendlyName The friendly name used to identify this ApkAssets when logging.
+     * @param offset The location within the file that the apk starts. This must be 0 if length is
+     *               {@link AssetFileDescriptor#UNKNOWN_LENGTH}.
+     * @param length The number of bytes of the apk, or {@link AssetFileDescriptor#UNKNOWN_LENGTH}
+     *               if it extends to the end of the file.
+     * @param flags flags that change the behavior of loaded apk assets
+     * @param assets The assets provider that overrides the loading of file-based resources
+     * @return a new instance of ApkAssets.
+     * @throws IOException if a disk I/O error or parsing error occurred.
+     */
+    public static @NonNull ApkAssets loadFromFd(@NonNull FileDescriptor fd,
+            @NonNull String friendlyName, long offset, long length, @PropertyFlags int flags,
+            @Nullable AssetsProvider assets)
             throws IOException {
-        return new ApkAssets(fd, friendlyName, system, forceSharedLibrary);
+        return new ApkAssets(FORMAT_APK, fd, friendlyName, offset, length, flags, assets);
     }
 
     /**
@@ -101,40 +232,166 @@ public final class ApkAssets {
      * is encoded within the IDMAP.
      *
      * @param idmapPath Path to the IDMAP of an overlay APK.
-     * @param system When true, the APK is loaded as a system APK (framework).
+     * @param flags flags that change the behavior of loaded apk assets
      * @return a new instance of ApkAssets.
      * @throws IOException if a disk I/O error or parsing error occurred.
      */
-    public static @NonNull ApkAssets loadOverlayFromPath(@NonNull String idmapPath, boolean system)
-            throws IOException {
-        return new ApkAssets(idmapPath, system, false /*forceSharedLibrary*/, true /*overlay*/);
+    public static @NonNull ApkAssets loadOverlayFromPath(@NonNull String idmapPath,
+            @PropertyFlags int flags) throws IOException {
+        return new ApkAssets(FORMAT_IDMAP, idmapPath, flags, null /* assets */);
     }
 
-    private ApkAssets(@NonNull String path, boolean system, boolean forceSharedLib, boolean overlay)
-            throws IOException {
-        Preconditions.checkNotNull(path, "path");
-        mNativePtr = nativeLoad(path, system, forceSharedLib, overlay);
+    /**
+     * Creates a new ApkAssets instance from the given file descriptor representing a resources.arsc
+     * for use with a {@link ResourcesProvider}.
+     *
+     * Performs a dup of the underlying fd, so you must take care of still closing
+     * the FileDescriptor yourself (and can do that whenever you want).
+     *
+     * @param fd The FileDescriptor of an open, readable resources.arsc.
+     * @param friendlyName The friendly name used to identify this ApkAssets when logging.
+     * @param flags flags that change the behavior of loaded apk assets
+     * @param assets The assets provider that overrides the loading of file-based resources
+     * @return a new instance of ApkAssets.
+     * @throws IOException if a disk I/O error or parsing error occurred.
+     */
+    public static @NonNull ApkAssets loadTableFromFd(@NonNull FileDescriptor fd,
+            @NonNull String friendlyName, @PropertyFlags int flags,
+            @Nullable AssetsProvider assets) throws IOException {
+        return new ApkAssets(FORMAT_ARSC, fd, friendlyName, flags, assets);
+    }
+
+    /**
+     * Creates a new ApkAssets instance from the given file descriptor representing a resources.arsc
+     * for use with a {@link ResourcesProvider}.
+     *
+     * Performs a dup of the underlying fd, so you must take care of still closing
+     * the FileDescriptor yourself (and can do that whenever you want).
+     *
+     * @param fd The FileDescriptor of an open, readable resources.arsc.
+     * @param friendlyName The friendly name used to identify this ApkAssets when logging.
+     * @param offset The location within the file that the table starts. This must be 0 if length is
+     *               {@link AssetFileDescriptor#UNKNOWN_LENGTH}.
+     * @param length The number of bytes of the table, or {@link AssetFileDescriptor#UNKNOWN_LENGTH}
+     *               if it extends to the end of the file.
+     * @param flags flags that change the behavior of loaded apk assets
+     * @param assets The assets provider that overrides the loading of file-based resources
+     * @return a new instance of ApkAssets.
+     * @throws IOException if a disk I/O error or parsing error occurred.
+     */
+    public static @NonNull ApkAssets loadTableFromFd(@NonNull FileDescriptor fd,
+            @NonNull String friendlyName, long offset, long length, @PropertyFlags int flags,
+            @Nullable AssetsProvider assets) throws IOException {
+        return new ApkAssets(FORMAT_ARSC, fd, friendlyName, offset, length, flags, assets);
+    }
+
+    /**
+     * Creates a new ApkAssets instance from the given directory path. The directory should have the
+     * file structure of an APK.
+     *
+     * @param path The path to a directory on disk.
+     * @param flags flags that change the behavior of loaded apk assets
+     * @param assets The assets provider that overrides the loading of file-based resources
+     * @return a new instance of ApkAssets.
+     * @throws IOException if a disk I/O error or parsing error occurred.
+     */
+    public static @NonNull ApkAssets loadFromDir(@NonNull String path,
+            @PropertyFlags int flags, @Nullable AssetsProvider assets) throws IOException {
+        return new ApkAssets(FORMAT_DIR, path, flags, assets);
+    }
+
+    /**
+     * Generates an entirely empty ApkAssets. Needed because the ApkAssets instance and presence
+     * is required for a lot of APIs, and it's easier to have a non-null reference rather than
+     * tracking a separate identifier.
+     *
+     * @param flags flags that change the behavior of loaded apk assets
+     * @param assets The assets provider that overrides the loading of file-based resources
+     */
+    @NonNull
+    public static ApkAssets loadEmptyForLoader(@PropertyFlags int flags,
+            @Nullable AssetsProvider assets) {
+        return new ApkAssets(flags, assets);
+    }
+
+    private ApkAssets(@FormatType int format, @NonNull String path, @PropertyFlags int flags,
+            @Nullable AssetsProvider assets) throws IOException {
+        this(format, flags, assets, path);
+        Objects.requireNonNull(path, "path");
+        mNativePtr = nativeLoad(format, path, flags, assets);
         mStringBlock = new StringBlock(nativeGetStringBlock(mNativePtr), true /*useSparse*/);
     }
 
-    private ApkAssets(@NonNull FileDescriptor fd, @NonNull String friendlyName, boolean system,
-            boolean forceSharedLib) throws IOException {
-        Preconditions.checkNotNull(fd, "fd");
-        Preconditions.checkNotNull(friendlyName, "friendlyName");
-        mNativePtr = nativeLoadFromFd(fd, friendlyName, system, forceSharedLib);
+    private ApkAssets(@FormatType int format, @NonNull FileDescriptor fd,
+            @NonNull String friendlyName, @PropertyFlags int flags, @Nullable AssetsProvider assets)
+            throws IOException {
+        this(format, flags, assets, friendlyName);
+        Objects.requireNonNull(fd, "fd");
+        Objects.requireNonNull(friendlyName, "friendlyName");
+        mNativePtr = nativeLoadFd(format, fd, friendlyName, flags, assets);
         mStringBlock = new StringBlock(nativeGetStringBlock(mNativePtr), true /*useSparse*/);
     }
 
+    private ApkAssets(@FormatType int format, @NonNull FileDescriptor fd,
+            @NonNull String friendlyName, long offset, long length, @PropertyFlags int flags,
+            @Nullable AssetsProvider assets) throws IOException {
+        this(format, flags, assets, friendlyName);
+        Objects.requireNonNull(fd, "fd");
+        Objects.requireNonNull(friendlyName, "friendlyName");
+        mNativePtr = nativeLoadFdOffsets(format, fd, friendlyName, offset, length, flags, assets);
+        mStringBlock = new StringBlock(nativeGetStringBlock(mNativePtr), true /*useSparse*/);
+    }
+
+    private ApkAssets(@PropertyFlags int flags, @Nullable AssetsProvider assets) {
+        this(FORMAT_APK, flags, assets, "empty");
+        mNativePtr = nativeLoadEmpty(flags, assets);
+        mStringBlock = null;
+    }
+
+    private ApkAssets(@FormatType int format, @PropertyFlags int flags,
+            @Nullable AssetsProvider assets, @NonNull String name) {
+        mFlags = flags;
+        mAssets = assets;
+        mIsOverlay = format == FORMAT_IDMAP;
+        if (DEBUG) mName = name;
+    }
+
+    @UnsupportedAppUsage
     public @NonNull String getAssetPath() {
         synchronized (this) {
-            return nativeGetAssetPath(mNativePtr);
+            return TextUtils.emptyIfNull(nativeGetAssetPath(mNativePtr));
         }
     }
 
-    CharSequence getStringFromPool(int idx) {
+    /** @hide */
+    public @NonNull String getDebugName() {
         synchronized (this) {
-            return mStringBlock.get(idx);
+            return mNativePtr == 0 ? "<destroyed>" : nativeGetDebugName(mNativePtr);
         }
+    }
+
+    @Nullable
+    CharSequence getStringFromPool(int idx) {
+        if (mStringBlock == null) {
+            return null;
+        }
+
+        synchronized (this) {
+            return mStringBlock.getSequence(idx);
+        }
+    }
+
+    /** Returns whether this apk assets was loaded using a {@link ResourcesProvider}. */
+    public boolean isForLoader() {
+        return (mFlags & PROPERTY_LOADER) != 0;
+    }
+
+    /**
+     * Returns the assets provider that overrides the loading of assets present in this apk assets.
+     */
+    @Nullable
+    public AssetsProvider getAssetsProvider() {
+        return mAssets;
     }
 
     /**
@@ -147,13 +404,13 @@ public final class ApkAssets {
      * @throws IOException if the file was not found or an error occurred retrieving it.
      */
     public @NonNull XmlResourceParser openXml(@NonNull String fileName) throws IOException {
-        Preconditions.checkNotNull(fileName, "fileName");
+        Objects.requireNonNull(fileName, "fileName");
         synchronized (this) {
             long nativeXmlPtr = nativeOpenXml(mNativePtr, fileName);
-            try (XmlBlock block = new XmlBlock(null, nativeXmlPtr)) {
+            try (XmlBlock block = new XmlBlock(null, nativeXmlPtr, true)) {
                 XmlResourceParser parser = block.newParser();
                 // If nativeOpenXml doesn't throw, it will always return a valid native pointer,
-                // which makes newParser always return non-null. But let's be paranoid.
+                // which makes newParser always return non-null. But let's be careful.
                 if (parser == null) {
                     throw new AssertionError("block.newParser() returned a null parser");
                 }
@@ -162,34 +419,138 @@ public final class ApkAssets {
         }
     }
 
+    /** @hide */
+    @Nullable
+    public OverlayableInfo getOverlayableInfo(String overlayableName) throws IOException {
+        synchronized (this) {
+            return nativeGetOverlayableInfo(mNativePtr, overlayableName);
+        }
+    }
+
+    /** @hide */
+    public boolean definesOverlayable() throws IOException {
+        synchronized (this) {
+            return nativeDefinesOverlayable(mNativePtr);
+        }
+    }
+
+    private static double intervalMs(long beginNs, long endNs) {
+        return (endNs - beginNs) / 1000000.0;
+    }
+
     /**
      * Returns false if the underlying APK was changed since this ApkAssets was loaded.
      */
     public boolean isUpToDate() {
-        synchronized (this) {
-            return nativeIsUpToDate(mNativePtr);
+        // This function is performance-critical - it's called multiple times on every Resources
+        // object creation, and on few other cache accesses - so it's important to avoid the native
+        // call when we know for sure what it will return (which is the case for both ALWAYS_TRUE
+        // and FALSE).
+        if (mPreviousUpToDateResult != UPTODATE_TRUE) {
+            return mPreviousUpToDateResult == UPTODATE_ALWAYS_TRUE;
         }
+        final long beforeTs, afterLockTs, afterNativeTs, afterUnlockTs;
+        if (DEBUG) beforeTs = System.nanoTime();
+        final int res;
+        synchronized (this) {
+            if (DEBUG) afterLockTs = System.nanoTime();
+            res = nativeIsUpToDate(mNativePtr);
+            if (DEBUG) afterNativeTs = System.nanoTime();
+        }
+        if (DEBUG) {
+            afterUnlockTs = System.nanoTime();
+            if (afterUnlockTs - beforeTs >= 10L * 1000000) {
+                Log.d("ApkAssets", "isUpToDate(" + mName + ") took "
+                        + intervalMs(beforeTs, afterUnlockTs)
+                        + " ms: " + intervalMs(beforeTs, afterLockTs)
+                        + " / " + intervalMs(afterLockTs, afterNativeTs)
+                        + " / " + intervalMs(afterNativeTs, afterUnlockTs));
+            }
+        }
+        mPreviousUpToDateResult = res;
+        return res != UPTODATE_FALSE;
+    }
+
+    public boolean isSystem() {
+        return (mFlags & PROPERTY_SYSTEM) != 0;
+    }
+
+    public boolean isSharedLib() {
+        return (mFlags & PROPERTY_DYNAMIC) != 0;
+    }
+
+    public boolean isOverlay() {
+        return mIsOverlay;
     }
 
     @Override
     public String toString() {
-        return "ApkAssets{path=" + getAssetPath() + "}";
+        return "ApkAssets{path=" + getDebugName() + "}";
     }
 
     @Override
     protected void finalize() throws Throwable {
-        nativeDestroy(mNativePtr);
+        close();
     }
 
-    private static native long nativeLoad(
-            @NonNull String path, boolean system, boolean forceSharedLib, boolean overlay)
-            throws IOException;
-    private static native long nativeLoadFromFd(@NonNull FileDescriptor fd,
-            @NonNull String friendlyName, boolean system, boolean forceSharedLib)
-            throws IOException;
+    /**
+     * Closes this class and the contained {@link #mStringBlock}.
+     */
+    public void close() {
+        synchronized (this) {
+            if (mNativePtr != 0) {
+                if (mStringBlock != null) {
+                    mStringBlock.close();
+                }
+                nativeDestroy(mNativePtr);
+                mNativePtr = 0;
+            }
+        }
+    }
+
+    void dump(PrintWriter pw, String prefix) {
+        pw.println(prefix + "class=" + getClass());
+        pw.println(prefix + "debugName=" + getDebugName());
+        pw.println(prefix + "assetPath=" + getAssetPath());
+    }
+
+    /**
+     * This exists as a function the native layer can call through jni to determine which android
+     * feature flags are enabled.
+     *
+     * @param flagNames An array of all the names the native layer needs to know the status of
+     * @return An array that parallels the flagNames parameter and contains if each flag is enabled
+     */
+    private static boolean[] getFlagValuesForNative(@NonNull String[] flagNames) {
+        boolean[] values = new boolean[flagNames.length];
+        for (int i = 0; i < flagNames.length; i++) {
+            Boolean value = AconfigFlags.getInstance().getFlagValue(flagNames[i]);
+            if (value == null) {
+                Log.w("ApkAssets", "Couldn't find flag value for native: " + flagNames[i]);
+            } else {
+                values[i] = value;
+            }
+        }
+        return values;
+    }
+
+    private static native long nativeLoad(@FormatType int format, @NonNull String path,
+            @PropertyFlags int flags, @Nullable AssetsProvider asset) throws IOException;
+    private static native long nativeLoadEmpty(@PropertyFlags int flags,
+            @Nullable AssetsProvider asset);
+    private static native long nativeLoadFd(@FormatType int format, @NonNull FileDescriptor fd,
+            @NonNull String friendlyName, @PropertyFlags int flags,
+            @Nullable AssetsProvider asset) throws IOException;
+    private static native long nativeLoadFdOffsets(@FormatType int format,
+            @NonNull FileDescriptor fd, @NonNull String friendlyName, long offset, long length,
+            @PropertyFlags int flags, @Nullable AssetsProvider asset) throws IOException;
     private static native void nativeDestroy(long ptr);
     private static native @NonNull String nativeGetAssetPath(long ptr);
+    private static native @NonNull String nativeGetDebugName(long ptr);
     private static native long nativeGetStringBlock(long ptr);
-    private static native boolean nativeIsUpToDate(long ptr);
+    @CriticalNative private static native int nativeIsUpToDate(long ptr);
     private static native long nativeOpenXml(long ptr, @NonNull String fileName) throws IOException;
+    private static native @Nullable OverlayableInfo nativeGetOverlayableInfo(long ptr,
+            String overlayableName) throws IOException;
+    private static native boolean nativeDefinesOverlayable(long ptr) throws IOException;
 }

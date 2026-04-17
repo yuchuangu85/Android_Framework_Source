@@ -17,21 +17,24 @@
 
 package android.filterfw.core;
 
-import android.filterfw.core.Frame;
+import android.compat.annotation.UnsupportedAppUsage;
 
 /**
  * @hide
  */
 public abstract class Program {
 
+    @UnsupportedAppUsage
     public abstract void process(Frame[] inputs, Frame output);
 
+    @UnsupportedAppUsage
     public void process(Frame input, Frame output) {
         Frame[] inputs = new Frame[1];
         inputs[0] = input;
         process(inputs, output);
     }
 
+    @UnsupportedAppUsage
     public abstract void setHostValue(String variableName, Object value);
 
     public abstract Object getHostValue(String variableName);

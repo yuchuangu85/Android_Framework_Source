@@ -30,8 +30,11 @@ import java.util.Collections;
  * A class implementing a container for data associated with a measurement event.
  * Events are delivered to registered instances of {@link Listener}.
  *
+ * @deprecated use {@link GnssMeasurementsEvent} instead.
+ *
  * @hide
  */
+@Deprecated
 @SystemApi
 public class GpsMeasurementsEvent implements Parcelable {
 
@@ -103,13 +106,13 @@ public class GpsMeasurementsEvent implements Parcelable {
         return mReadOnlyMeasurements;
     }
 
-    public static final Creator<GpsMeasurementsEvent> CREATOR =
+    public static final @android.annotation.NonNull Creator<GpsMeasurementsEvent> CREATOR =
             new Creator<GpsMeasurementsEvent>() {
         @Override
         public GpsMeasurementsEvent createFromParcel(Parcel in) {
             ClassLoader classLoader = getClass().getClassLoader();
 
-            GpsClock clock = in.readParcelable(classLoader);
+            GpsClock clock = in.readParcelable(classLoader, android.location.GpsClock.class);
 
             int measurementsLength = in.readInt();
             GpsMeasurement[] measurementsArray = new GpsMeasurement[measurementsLength];
@@ -140,6 +143,7 @@ public class GpsMeasurementsEvent implements Parcelable {
         parcel.writeTypedArray(measurementsArray, flags);
     }
 
+    @NonNull
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder("[ GpsMeasurementsEvent:\n\n");

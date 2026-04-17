@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,46 +57,51 @@ import java.nio.channels.spi.SelectorProvider;
  * setOption} method. A datagram channel to an Internet Protocol socket supports
  * the following options:
  * <blockquote>
- * <table border summary="Socket options">
+ * <table class="striped">
+ * <caption style="display:none">Socket options</caption>
+ * <thead>
  *   <tr>
- *     <th>Option Name</th>
- *     <th>Description</th>
+ *     <th scope="col">Option Name</th>
+ *     <th scope="col">Description</th>
  *   </tr>
+ * </thead>
+ * <tbody>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_SNDBUF SO_SNDBUF} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#SO_SNDBUF SO_SNDBUF} </th>
  *     <td> The size of the socket send buffer </td>
  *   </tr>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_RCVBUF SO_RCVBUF} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#SO_RCVBUF SO_RCVBUF} </th>
  *     <td> The size of the socket receive buffer </td>
  *   </tr>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_REUSEADDR SO_REUSEADDR} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#SO_REUSEADDR SO_REUSEADDR} </th>
  *     <td> Re-use address </td>
  *   </tr>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_BROADCAST SO_BROADCAST} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#SO_BROADCAST SO_BROADCAST} </th>
  *     <td> Allow transmission of broadcast datagrams </td>
  *   </tr>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#IP_TOS IP_TOS} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#IP_TOS IP_TOS} </th>
  *     <td> The Type of Service (ToS) octet in the Internet Protocol (IP) header </td>
  *   </tr>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#IP_MULTICAST_IF IP_MULTICAST_IF} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#IP_MULTICAST_IF IP_MULTICAST_IF} </th>
  *     <td> The network interface for Internet Protocol (IP) multicast datagrams </td>
  *   </tr>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#IP_MULTICAST_TTL
- *       IP_MULTICAST_TTL} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#IP_MULTICAST_TTL
+ *       IP_MULTICAST_TTL} </th>
  *     <td> The <em>time-to-live</em> for Internet Protocol (IP) multicast
  *       datagrams </td>
  *   </tr>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#IP_MULTICAST_LOOP
- *       IP_MULTICAST_LOOP} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#IP_MULTICAST_LOOP
+ *       IP_MULTICAST_LOOP} </th>
  *     <td> Loopback for Internet Protocol (IP) multicast datagrams </td>
  *   </tr>
+ * </tbody>
  * </table>
  * </blockquote>
  * Additional (implementation specific) options may also be supported.
@@ -187,8 +192,8 @@ public abstract class DatagramChannel
      * operations.
      *
      * <p> Datagram channels support reading and writing, so this method
-     * returns <tt>(</tt>{@link SelectionKey#OP_READ} <tt>|</tt>&nbsp;{@link
-     * SelectionKey#OP_WRITE}<tt>)</tt>.  </p>
+     * returns {@code (}{@link SelectionKey#OP_READ} {@code |}&nbsp;{@link
+     * SelectionKey#OP_WRITE}{@code )}.
      *
      * @return  The valid-operation set
      */
@@ -274,6 +279,9 @@ public abstract class DatagramChannel
      *
      * @return  This datagram channel
      *
+     * @throws  AlreadyConnectedException
+     *          If this channel is already connected
+     *
      * @throws  ClosedChannelException
      *          If this channel is closed
      *
@@ -286,6 +294,12 @@ public abstract class DatagramChannel
      *          while the connect operation is in progress, thereby
      *          closing the channel and setting the current thread's
      *          interrupt status
+     *
+     * @throws  UnresolvedAddressException
+     *          If the given remote address is not fully resolved
+     *
+     * @throws  UnsupportedAddressTypeException
+     *          If the type of the given remote address is not supported
      *
      * @throws  SecurityException
      *          If a security manager has been installed
@@ -341,7 +355,7 @@ public abstract class DatagramChannel
      * copied into the given byte buffer and its source address is returned.
      * If this channel is in non-blocking mode and a datagram is not
      * immediately available then this method immediately returns
-     * <tt>null</tt>.
+     * {@code null}.
      *
      * <p> The datagram is transferred into the given byte buffer starting at
      * its current position, as if by a regular {@link
@@ -371,7 +385,7 @@ public abstract class DatagramChannel
      *         The buffer into which the datagram is to be transferred
      *
      * @return  The datagram's source address,
-     *          or <tt>null</tt> if this channel is in non-blocking mode
+     *          or {@code null} if this channel is in non-blocking mode
      *          and no datagram was immediately available
      *
      * @throws  ClosedChannelException
@@ -439,6 +453,10 @@ public abstract class DatagramChannel
      *           zero if there was insufficient room for the datagram in the
      *           underlying output buffer
      *
+     * @throws  AlreadyConnectedException
+     *          If this channel is connected to a different address
+     *          from that specified by {@code target}
+     *
      * @throws  ClosedChannelException
      *          If this channel is closed
      *
@@ -451,6 +469,12 @@ public abstract class DatagramChannel
      *          while the read operation is in progress, thereby
      *          closing the channel and setting the current thread's
      *          interrupt status
+     *
+     * @throws  UnresolvedAddressException
+     *          If the given remote address is not fully resolved
+     *
+     * @throws  UnsupportedAddressTypeException
+     *          If the type of the given remote address is not supported
      *
      * @throws  SecurityException
      *          If a security manager has been installed

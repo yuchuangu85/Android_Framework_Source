@@ -27,7 +27,7 @@ import android.util.AttributeSet;
 import java.util.Calendar;
 
 /**
- * Like AnalogClock, but digital.  Shows seconds.
+ * Like AnalogClock, but digital.
  *
  * @deprecated It is recommended you use {@link TextClock} instead.
  */
@@ -75,7 +75,7 @@ public class DigitalClock extends TextView {
 
         mHandler = new Handler();
 
-        /**
+        /*
          * requests a tick on the next hard-second boundary
          */
         mTicker = new Runnable() {

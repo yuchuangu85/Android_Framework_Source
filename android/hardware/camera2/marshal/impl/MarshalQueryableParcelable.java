@@ -75,7 +75,6 @@ public class MarshalQueryableParcelable<T extends Parcelable>
             }
 
             Parcel parcel = Parcel.obtain();
-            byte[] parcelContents;
 
             try {
                 value.writeToParcel(parcel, /*flags*/0);
@@ -85,17 +84,15 @@ public class MarshalQueryableParcelable<T extends Parcelable>
                             "Parcelable " + value + " must not have file descriptors");
                 }
 
-                parcelContents = parcel.marshall();
+                final int position = buffer.position();
+                parcel.marshall(buffer);
+                if (buffer.position() == position) {
+                    throw new AssertionError("No data marshaled for " + value);
+                }
             }
             finally {
                 parcel.recycle();
             }
-
-            if (parcelContents.length == 0) {
-                throw new AssertionError("No data marshaled for " + value);
-            }
-
-            buffer.put(parcelContents);
         }
 
         @Override

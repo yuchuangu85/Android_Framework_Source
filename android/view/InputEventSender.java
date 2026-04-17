@@ -16,13 +16,22 @@
 
 package android.view;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.MessageQueue;
 import android.util.Log;
 
 import dalvik.system.CloseGuard;
 
+import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.RunnableFuture;
 
 /**
  * Provides a low-level mechanism for an application to send input events.
@@ -35,21 +44,22 @@ public abstract class InputEventSender {
 
     private long mSenderPtr;
 
-    // We keep references to the input channel and message queue objects here so that
-    // they are not GC'd while the native peer of the receiver is using them.
-    private InputChannel mInputChannel;
-    private MessageQueue mMessageQueue;
+    // We keep a reference to the message queue object (indirectly through Handler) here so that
+    // it is not GC'd while the native peer of the receiver is using it.
+    private Handler mHandler;
 
     private static native long nativeInit(WeakReference<InputEventSender> sender,
             InputChannel inputChannel, MessageQueue messageQueue);
     private static native void nativeDispose(long senderPtr);
     private static native boolean nativeSendKeyEvent(long senderPtr, int seq, KeyEvent event);
     private static native boolean nativeSendMotionEvent(long senderPtr, int seq, MotionEvent event);
+    private static native IBinder nativeGetToken(long receiverPtr);
 
     /**
      * Creates an input event sender bound to the specified input channel.
      *
-     * @param inputChannel The input channel.
+     * @param inputChannel The input channel. This channel will be consumed, so if you want to reuse
+     *                     it, make a copy before passing it to this constructor.
      * @param looper The looper to use when invoking callbacks.
      */
     public InputEventSender(InputChannel inputChannel, Looper looper) {
@@ -60,12 +70,11 @@ public abstract class InputEventSender {
             throw new IllegalArgumentException("looper must not be null");
         }
 
-        mInputChannel = inputChannel;
-        mMessageQueue = looper.getQueue();
+        mHandler = new Handler(looper);
         mSenderPtr = nativeInit(new WeakReference<InputEventSender>(this),
-                inputChannel, mMessageQueue);
+                inputChannel, looper.getQueue());
 
-        mCloseGuard.open("dispose");
+        mCloseGuard.open("InputEventSender.dispose");
     }
 
     @Override
@@ -96,8 +105,7 @@ public abstract class InputEventSender {
             nativeDispose(mSenderPtr);
             mSenderPtr = 0;
         }
-        mInputChannel = null;
-        mMessageQueue = null;
+        mHandler = null;
     }
 
     /**
@@ -110,8 +118,18 @@ public abstract class InputEventSender {
     }
 
     /**
-     * Sends an input event.
-     * Must be called on the same Looper thread to which the sender is attached.
+     * Called when timeline is sent to the publisher.
+     *
+     * @param inputEventId The id of the input event that caused the frame being reported
+     * @param gpuCompletedTime The time when the frame left the app process
+     * @param presentTime The time when the frame was presented on screen
+     */
+    public void onTimelineReported(int inputEventId, long gpuCompletedTime, long presentTime) {
+    }
+
+    /**
+     * Sends an input event. Can be called from any thread. Do not call this if the looper thread
+     * is blocked! It would cause a deadlock.
      *
      * @param seq The input event sequence number.
      * @param event The input event to send.
@@ -128,16 +146,64 @@ public abstract class InputEventSender {
             return false;
         }
 
-        if (event instanceof KeyEvent) {
-            return nativeSendKeyEvent(mSenderPtr, seq, (KeyEvent)event);
-        } else {
-            return nativeSendMotionEvent(mSenderPtr, seq, (MotionEvent)event);
+        if (mHandler.getLooper().isCurrentThread()) {
+            return sendInputEventInternal(seq, event);
+        }
+        // This is being called on another thread. Post a runnable to the looper thread
+        // with the event injection, and wait until it's processed.
+        final RunnableFuture<Boolean> task = new FutureTask<>(new Callable<Boolean>() {
+            @Override
+            public Boolean call() throws Exception {
+                return sendInputEventInternal(seq, event);
+            }
+        });
+        mHandler.post(task);
+        try {
+            return task.get();
+        } catch (InterruptedException exc) {
+            throw new IllegalStateException("Interrupted while sending " + event + ": " + exc);
+        } catch (ExecutionException exc) {
+            throw new IllegalStateException("Couldn't send " + event + ": " + exc);
+        }
+    }
+
+    private boolean sendInputEventInternal(int seq, InputEvent event) {
+        try {
+            if (event instanceof KeyEvent) {
+                return nativeSendKeyEvent(mSenderPtr, seq, (KeyEvent) event);
+            } else {
+                return nativeSendMotionEvent(mSenderPtr, seq, (MotionEvent) event);
+            }
+        } finally {
+            Reference.reachabilityFence(this);
+        }
+    }
+
+    /**
+     * @return Returns a token to identify the input channel.
+     */
+    public IBinder getToken() {
+        if (mSenderPtr == 0) {
+            return null;
+        }
+        try {
+            return nativeGetToken(mSenderPtr);
+        } finally {
+            Reference.reachabilityFence(this);
         }
     }
 
     // Called from native code.
     @SuppressWarnings("unused")
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void dispatchInputEventFinished(int seq, boolean handled) {
         onInputEventFinished(seq, handled);
+    }
+
+    // Called from native code.
+    @SuppressWarnings("unused")
+    private void dispatchTimelineReported(
+            int inputEventId, long gpuCompletedTime, long presentTime) {
+        onTimelineReported(inputEventId, gpuCompletedTime, presentTime);
     }
 }

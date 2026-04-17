@@ -16,6 +16,8 @@
 
 package android.view;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -117,6 +119,7 @@ public abstract class InputFilter extends IInputFilter.Stub {
      *
      * @param looper The looper to run callbacks on.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public InputFilter(Looper looper) {
         mH = new H(looper);
     }
@@ -170,7 +173,7 @@ public abstract class InputFilter extends IInputFilter.Stub {
         try {
             mHost.sendInputEvent(event, policyFlags);
         } catch (RemoteException re) {
-            /* ignore */
+            onSendInputEventException(re);
         }
     }
 
@@ -186,6 +189,7 @@ public abstract class InputFilter extends IInputFilter.Stub {
      * @param event The input event that was received.
      * @param policyFlags The input event policy flags.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void onInputEvent(InputEvent event, int policyFlags) {
         sendInputEvent(event, policyFlags);
     }
@@ -208,6 +212,15 @@ public abstract class InputFilter extends IInputFilter.Stub {
      * </p>
      */
     public void onUninstalled() {
+    }
+
+    /**
+     * Called when a exception is raised when the filter sends the input event.
+     *
+     * @param exception The exception
+     */
+    public void onSendInputEventException(Exception exception) {
+        /* ignore */
     }
 
     private final class H extends Handler {

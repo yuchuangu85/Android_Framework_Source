@@ -16,17 +16,27 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.telephony.PhoneNumberUtils;
+import android.telephony.SmsMessage;
+
 import com.android.internal.telephony.GsmAlphabet;
 import com.android.internal.telephony.cat.Duration.TimeUnit;
 import com.android.internal.telephony.uicc.IccUtils;
 
-import android.content.res.Resources;
-import android.content.res.Resources.NotFoundException;
+import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
-abstract class ValueParser {
+
+/**
+ *  Util class that parses different entities from the ctlvs ComprehensionTlv List
+ * @hide
+ */
+public abstract class ValueParser {
 
     /**
      * Search for a Command Details object from a list.
@@ -61,6 +71,7 @@ abstract class ValueParser {
      *         Command Details object is found, ResultException is thrown.
      * @throws ResultException
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     static DeviceIdentities retrieveDeviceIdentities(ComprehensionTlv ctlv)
             throws ResultException {
 
@@ -213,6 +224,7 @@ abstract class ValueParser {
      * @return A list of TextAttribute objects
      * @throws ResultException
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     static List<TextAttribute> retrieveTextAttribute(ComprehensionTlv ctlv)
             throws ResultException {
         ArrayList<TextAttribute> lst = new ArrayList<TextAttribute>();
@@ -273,7 +285,9 @@ abstract class ValueParser {
      * @return String corresponding to the alpha identifier
      * @throws ResultException
      */
-    static String retrieveAlphaId(ComprehensionTlv ctlv) throws ResultException {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    static String retrieveAlphaId(ComprehensionTlv ctlv, boolean noAlphaUsrCnf)
+            throws ResultException {
 
         if (ctlv != null) {
             byte[] rawValue = ctlv.getRawValue();
@@ -296,15 +310,31 @@ abstract class ValueParser {
              * the terminal MAY give information to the user
              * noAlphaUsrCnf defines if you need to show user confirmation or not
              */
-            boolean noAlphaUsrCnf = false;
-            Resources resource = Resources.getSystem();
-            try {
-                noAlphaUsrCnf = resource.getBoolean(
-                        com.android.internal.R.bool.config_stkNoAlphaUsrCnf);
-            } catch (NotFoundException e) {
-                noAlphaUsrCnf = false;
-            }
             return (noAlphaUsrCnf ? null : CatService.STK_DEFAULT);
+        }
+    }
+
+    /**
+     * Retrieves text's coding scheme from the Text COMPREHENSION-TLV object.
+     *
+     * @param ctlv A Text COMPREHENSION-TLV object
+     * @return 0x00 if GSM 7-bit packed
+     *         0x04 if GSM 8-bit unpacked
+     *         0x08 if UCS2
+     * @throws ResultException if coding scheme is not supported or data length is 0
+     */
+    public static byte retrieveTextCodingScheme(ComprehensionTlv ctlv) throws ResultException {
+        byte[] rawValue = ctlv.getRawValue();
+        int valueIndex = ctlv.getValueIndex();
+
+        try {
+            byte codingScheme = (byte) (rawValue[valueIndex] & 0x0c);
+            if (codingScheme != 0x00 && codingScheme != 0x04 && codingScheme != 0x08) {
+                throw new ResultException(ResultCode.CMD_DATA_NOT_UNDERSTOOD);
+            }
+            return codingScheme;
+        } catch (IndexOutOfBoundsException e) {
+            throw new ResultException(ResultCode.CMD_DATA_NOT_UNDERSTOOD);
         }
     }
 
@@ -316,6 +346,7 @@ abstract class ValueParser {
      * @return A Java String object decoded from the Text object
      * @throws ResultException
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     static String retrieveTextString(ComprehensionTlv ctlv) throws ResultException {
         byte[] rawValue = ctlv.getRawValue();
         int valueIndex = ctlv.getValueIndex();
@@ -354,4 +385,61 @@ abstract class ValueParser {
             throw new ResultException(ResultCode.CMD_DATA_NOT_UNDERSTOOD);
         }
     }
+
+    /**
+     * Retrieve's the tpdu from the ctlv and creates the SmsMessage from pdu.
+     * @param ctlv  ComprehensionTlv value
+     * @return message SmsMessage to retrieve the destAddress and Text
+     * @throws ResultException
+     * @hide
+     */
+    public static SmsMessage retrieveTpduAsSmsMessage(ComprehensionTlv ctlv)
+            throws ResultException {
+        if (ctlv != null) {
+            byte[] rawValue = ctlv.getRawValue();
+            int valueIndex = ctlv.getValueIndex();
+            int length = ctlv.getLength();
+            if (length != 0) {
+                try {
+                    byte[] pdu = Arrays.copyOfRange(rawValue, valueIndex, (valueIndex + length));
+                    ByteArrayOutputStream bo = new ByteArrayOutputStream(pdu.length + 1);
+                    /* Framework's TPdu Parser expects the TPdu be prepended with SC-Address.
+                     * else the parser will throw an exception. So prepending TPdu with 0,
+                     * which indicates that there is no SC address and its length is 0.
+                     * This way Parser will skip parsing for SC-Address
+                     */
+                    bo.write(0x00);
+                    bo.write(pdu, 0, pdu.length);
+                    byte[] frameworkPdu = bo.toByteArray();
+                    //ToDO handle for 3GPP2 format bug: b/243123533
+                    SmsMessage message = SmsMessage.createFromPdu(frameworkPdu,
+                            SmsMessage.FORMAT_3GPP);
+                    return message;
+                } catch (IndexOutOfBoundsException e) {
+                    throw new ResultException(ResultCode.CMD_DATA_NOT_UNDERSTOOD);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Retrieves address from an Address COMPREHENSION-TLV object
+     *
+     * @param ctlv An Address COMPREHENSION-TLV object
+     * @return Address instance
+     * @throws ResultException If the valueIndex and length of ctlv are incorrect.
+     */
+    public static String retrieveAddress(ComprehensionTlv ctlv) throws ResultException {
+        try {
+            return PhoneNumberUtils.calledPartyBCDToString(
+                    ctlv.getRawValue(),
+                    ctlv.getValueIndex(),
+                    ctlv.getLength(),
+                    PhoneNumberUtils.BCD_EXTENDED_TYPE_EF_ADN);
+        } catch (IndexOutOfBoundsException e) {
+            throw new ResultException(ResultCode.CMD_DATA_NOT_UNDERSTOOD);
+        }
+    }
+
 }

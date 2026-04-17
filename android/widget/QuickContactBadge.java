@@ -16,6 +16,7 @@
 
 package android.widget;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.AsyncQueryHandler;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -46,6 +47,7 @@ public class QuickContactBadge extends ImageView implements OnClickListener {
     private Uri mContactUri;
     private String mContactEmail;
     private String mContactPhone;
+    @UnsupportedAppUsage
     private Drawable mOverlay;
     private QueryHandler mQueryHandler;
     private Drawable mDefaultAvatar;
@@ -394,8 +396,9 @@ public class QuickContactBadge extends ImageView implements OnClickListener {
                 // Prompt user to add this person to contacts
                 final Intent intent = new Intent(Intents.SHOW_OR_CREATE_CONTACT, createUri);
                 if (extras != null) {
-                    extras.remove(EXTRA_URI_CONTENT);
-                    intent.putExtras(extras);
+                    Bundle bundle = new Bundle(extras);
+                    bundle.remove(EXTRA_URI_CONTENT);
+                    intent.putExtras(bundle);
                 }
                 getContext().startActivity(intent);
             }

@@ -16,6 +16,7 @@
 
 package com.android.internal.widget;
 
+import android.companion.virtualdevice.flags.Flags;
 import android.content.res.Resources;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
@@ -51,7 +52,7 @@ import android.widget.AbsListView;
  * <ul>
  * <li>Delay after entering activation area before auto-scrolling begins, see
  * {@link #setActivationDelay}. Default value is
- * {@link ViewConfiguration#getTapTimeout()} to avoid conflicting with taps.
+ * {@link ViewConfiguration#getTapTimeoutMillis()} to avoid conflicting with taps.
  * <li>Location of activation areas, see {@link #setEdgeType}. Default value is
  * {@link #EDGE_TYPE_INSIDE_EXTEND}.
  * <li>Size of activation areas relative to view size, see
@@ -190,7 +191,6 @@ public abstract class AutoScrollHelper implements View.OnTouchListener {
     private static final float DEFAULT_MAXIMUM_EDGE = NO_MAX;
     private static final float DEFAULT_RELATIVE_EDGE = 0.2f;
     private static final float DEFAULT_RELATIVE_VELOCITY = 1f;
-    private static final int DEFAULT_ACTIVATION_DELAY = ViewConfiguration.getTapTimeout();
     private static final int DEFAULT_RAMP_UP_DURATION = 500;
     private static final int DEFAULT_RAMP_DOWN_DURATION = 500;
 
@@ -218,7 +218,9 @@ public abstract class AutoScrollHelper implements View.OnTouchListener {
         setMaximumEdges(DEFAULT_MAXIMUM_EDGE, DEFAULT_MAXIMUM_EDGE);
         setRelativeEdges(DEFAULT_RELATIVE_EDGE, DEFAULT_RELATIVE_EDGE);
         setRelativeVelocity(DEFAULT_RELATIVE_VELOCITY, DEFAULT_RELATIVE_VELOCITY);
-        setActivationDelay(DEFAULT_ACTIVATION_DELAY);
+        setActivationDelay(Flags.viewconfigurationApis()
+                ? ViewConfiguration.get(mTarget.getContext()).getTapTimeoutMillis()
+                : ViewConfiguration.getTapTimeout());
         setRampUpDuration(DEFAULT_RAMP_UP_DURATION);
         setRampDownDuration(DEFAULT_RAMP_DOWN_DURATION);
     }
@@ -399,7 +401,7 @@ public abstract class AutoScrollHelper implements View.OnTouchListener {
     /**
      * Sets the delay after entering an activation edge before activation of
      * auto-scrolling. By default, the activation delay is set to
-     * {@link ViewConfiguration#getTapTimeout()}.
+     * {@link ViewConfiguration#getTapTimeoutMillis()}.
      * <p>
      * Specifying a delay of zero will start auto-scrolling immediately after
      * the touch position enters an activation edge.

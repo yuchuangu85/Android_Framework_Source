@@ -16,6 +16,8 @@
 
 package android.util;
 
+import android.annotation.Nullable;
+
 import java.lang.reflect.Array;
 import java.util.Collection;
 import java.util.Iterator;
@@ -29,6 +31,7 @@ import java.util.Set;
  * structure like {@link ArrayMap}.
  * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 abstract class MapCollections<K, V> {
     EntrySet mEntrySet;
     KeySet mKeySet;
@@ -249,7 +252,7 @@ abstract class MapCollections<K, V> {
         }
 
         @Override
-        public boolean equals(Object object) {
+        public boolean equals(@Nullable Object object) {
             return equalsSetHelper(this, object);
         }
 
@@ -339,7 +342,7 @@ abstract class MapCollections<K, V> {
         }
 
         @Override
-        public boolean equals(Object object) {
+        public boolean equals(@Nullable Object object) {
             return equalsSetHelper(this, object);
         }
 
@@ -352,7 +355,12 @@ abstract class MapCollections<K, V> {
             }
             return result;
         }
-    };
+
+        @Override
+        public String toString() {
+            return toStringHelper(0, this, "KeySet");
+        }
+    }
 
     final class ValuesCollection implements Collection<V> {
 
@@ -453,7 +461,12 @@ abstract class MapCollections<K, V> {
         public <T> T[] toArray(T[] array) {
             return toArrayHelper(array, 1);
         }
-    };
+
+        @Override
+        public String toString() {
+            return toStringHelper(1, this, "ValuesCollection");
+        }
+    }
 
     public static <K, V> boolean containsAllHelper(Map<K, V> map, Collection<?> collection) {
         Iterator<?> it = collection.iterator();
@@ -508,6 +521,29 @@ abstract class MapCollections<K, V> {
             array[N] = null;
         }
         return array;
+    }
+
+    private String toStringHelper(int offset, Object thing, String thingName) {
+        int size = colGetSize();
+        if (size == 0) {
+            return "[]";
+        }
+
+        StringBuilder buffer = new StringBuilder(size * 14);
+        buffer.append('[');
+        for (int i = 0; i < size; i++) {
+            if (i > 0) {
+                buffer.append(", ");
+            }
+            Object entry = colGetEntry(i, offset);
+            if (entry != thing) {
+                buffer.append(entry);
+            } else {
+                buffer.append("(this ").append(thingName).append(")");
+            }
+        }
+        buffer.append(']');
+        return buffer.toString();
     }
 
     public static <T> boolean equalsSetHelper(Set<T> set, Object object) {

@@ -19,11 +19,13 @@ package android.view.inputmethod;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
 
 /**
  * Information given to an {@link InputMethod} about a client connecting
  * to it.
  */
+@RavenwoodKeepWholeClass
 public final class InputBinding implements Parcelable {
     static final String TAG = "InputBinding";
     
@@ -135,7 +137,7 @@ public final class InputBinding implements Parcelable {
     /**
      * Used to make this class parcelable.
      */
-    public static final Parcelable.Creator<InputBinding> CREATOR = new Parcelable.Creator<InputBinding>() {
+    public static final @android.annotation.NonNull Parcelable.Creator<InputBinding> CREATOR = new Parcelable.Creator<InputBinding>() {
         public InputBinding createFromParcel(Parcel source) {
             return new InputBinding(source);
         }

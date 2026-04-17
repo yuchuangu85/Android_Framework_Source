@@ -16,6 +16,7 @@
 
 package android.text.style;
 
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface WrapTogetherSpan
 extends ParagraphStyle
 {

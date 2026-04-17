@@ -26,7 +26,7 @@ import android.os.RemoteException;
  * both process and language boundaries. Application code should use the Cursor
  * interface directly.
  *
- * {@hide}
+ * @hide
  */
 public interface IBulkCursor extends IInterface  {
     /**

@@ -17,9 +17,10 @@
 package android.text;
 
 /**
- * When an object of a type is attached to an Editable, its methods will
+ * When an object of this type is attached to an Editable, its methods will
  * be called when the text is changed.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface TextWatcher extends NoCopySpan {
     /**
      * This method is called to notify you that, within <code>s</code>,

@@ -15,8 +15,10 @@
  */
 package android.speech.tts;
 
-import org.xmlpull.v1.XmlPullParserException;
+import static android.provider.Settings.Secure.getString;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
@@ -27,9 +29,6 @@ import android.content.pm.ServiceInfo;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
-
-import static android.provider.Settings.Secure.getString;
-
 import android.provider.Settings;
 import android.speech.tts.TextToSpeech.Engine;
 import android.speech.tts.TextToSpeech.EngineInfo;
@@ -37,6 +36,8 @@ import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.Xml;
+
+import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -101,6 +102,7 @@ public class TtsEngines {
         sNormalizeCountry = Collections.unmodifiableMap(normalizeCountry);
     }
 
+    @UnsupportedAppUsage
     public TtsEngines(Context ctx) {
         mContext = ctx;
     }
@@ -155,6 +157,7 @@ public class TtsEngines {
      *
      * @return A list of engine info objects. The list can be empty, but never {@code null}.
      */
+    @UnsupportedAppUsage
     public List<EngineInfo> getEngines() {
         PackageManager pm = mContext.getPackageManager();
         Intent intent = new Intent(Engine.INTENT_ACTION_TTS_SERVICE);
@@ -194,6 +197,7 @@ public class TtsEngines {
     /**
      * @return an intent that can launch the settings activity for a given tts engine.
      */
+    @UnsupportedAppUsage
     public Intent getSettingsIntent(String engine) {
         PackageManager pm = mContext.getPackageManager();
         Intent intent = new Intent(Engine.INTENT_ACTION_TTS_SERVICE);
@@ -327,6 +331,7 @@ public class TtsEngines {
      * @param engineName the engine to return the locale for.
      * @return the locale preference for this engine. Will be non null.
      */
+    @UnsupportedAppUsage
     public Locale getLocalePrefForEngine(String engineName) {
         return getLocalePrefForEngine(engineName,
                 getString(mContext.getContentResolver(), Settings.Secure.TTS_DEFAULT_LOCALE));
@@ -376,6 +381,7 @@ public class TtsEngines {
      * country codes ({@link Locale#getISO3Language()} and {@link Locale#getISO3Country()}),
      * if it fails to do so, we return null.
      */
+    @UnsupportedAppUsage
     public Locale parseLocaleString(String localeString) {
         String language = "", country = "", variant = "";
         if (!TextUtils.isEmpty(localeString)) {
@@ -436,6 +442,7 @@ public class TtsEngines {
      * This method tries to convert three-letter language and country codes into their two-letter
      * equivalents. If it fails to do so, it keeps the value from the TTS locale.
      */
+    @UnsupportedAppUsage
     public static Locale normalizeTTSLocale(Locale ttsLocale) {
         String language = ttsLocale.getLanguage();
         if (!TextUtils.isEmpty(language)) {
@@ -514,7 +521,9 @@ public class TtsEngines {
      * the passed locale is null, an empty string will be serialized; that empty string, when
      * read back, will evaluate to {@link Locale#getDefault()}.
      */
-    public synchronized void updateLocalePrefForEngine(String engineName, Locale newLocale) {
+    @UnsupportedAppUsage
+    public synchronized void updateLocalePrefForEngine(
+            @NonNull String engineName, Locale newLocale) {
         final String prefList = Settings.Secure.getString(mContext.getContentResolver(),
                 Settings.Secure.TTS_DEFAULT_LOCALE);
         if (DBG) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -38,10 +38,10 @@ import java.io.EOFException;
  *
  * @see         InflaterInputStream
  * @author      David Connelly
+ * @since 1.1
  *
  */
-public
-class GZIPInputStream extends InflaterInputStream {
+public class GZIPInputStream extends InflaterInputStream {
     /**
      * CRC-32 for uncompressed data.
      */
@@ -65,49 +65,65 @@ class GZIPInputStream extends InflaterInputStream {
 
     /**
      * Creates a new input stream with the specified buffer size.
+     *
+     * Android-note: Android limits the number of UnbufferedIO operations that can be performed, so
+     * consider using buffered inputs with this class. More information can be found in the
+     * <a href="https://developer.android.com/reference/android/os/StrictMode.ThreadPolicy.Builder#detectUnbufferedIo()">
+     * UnbufferedIO</a> and
+     * <a href="https://developer.android.com/reference/android/os/StrictMode"> StrictMode</a>
+     * documentation.
+     *
      * @param in the input stream
      * @param size the input buffer size
      *
-     * @exception ZipException if a GZIP format error has occurred or the
+     * @throws    ZipException if a GZIP format error has occurred or the
      *                         compression method used is unsupported
-     * @exception IOException if an I/O error has occurred
-     * @exception IllegalArgumentException if {@code size <= 0}
+     * @throws    IOException if an I/O error has occurred
+     * @throws    IllegalArgumentException if {@code size <= 0}
      */
     public GZIPInputStream(InputStream in, int size) throws IOException {
-        super(in, new Inflater(true), size);
-        // Android-changed: Unconditionally close external inflaters (b/26462400)
+        super(in, in != null ? new Inflater(true) : null, size);
+        // Android-removed: Unconditionally close external inflaters (b/26462400)
         // usesDefaultInflater = true;
-        readHeader(in);
+        // BEGIN Android-changed: Do not rely on finalization to inf.end().
+        // readHeader(in);
+        try {
+            readHeader(in);
+        } catch (Exception e) {
+            inf.end();
+            throw e;
+        }
+        // END Android-changed: Do not rely on finalization to inf.end().
     }
 
     /**
      * Creates a new input stream with a default buffer size.
      * @param in the input stream
      *
-     * @exception ZipException if a GZIP format error has occurred or the
+     * @throws    ZipException if a GZIP format error has occurred or the
      *                         compression method used is unsupported
-     * @exception IOException if an I/O error has occurred
+     * @throws    IOException if an I/O error has occurred
      */
     public GZIPInputStream(InputStream in) throws IOException {
         this(in, 512);
     }
 
     /**
-     * Reads uncompressed data into an array of bytes. If <code>len</code> is not
+     * Reads uncompressed data into an array of bytes. If {@code len} is not
      * zero, the method will block until some input can be decompressed; otherwise,
-     * no bytes are read and <code>0</code> is returned.
+     * no bytes are read and {@code 0} is returned.
      * @param buf the buffer into which the data is read
-     * @param off the start offset in the destination array <code>b</code>
+     * @param off the start offset in the destination array {@code b}
      * @param len the maximum number of bytes read
      * @return  the actual number of bytes read, or -1 if the end of the
      *          compressed input stream is reached
      *
-     * @exception  NullPointerException If <code>buf</code> is <code>null</code>.
-     * @exception  IndexOutOfBoundsException If <code>off</code> is negative,
-     * <code>len</code> is negative, or <code>len</code> is greater than
-     * <code>buf.length - off</code>
-     * @exception ZipException if the compressed input data is corrupt.
-     * @exception IOException if an I/O error has occurred.
+     * @throws     NullPointerException If {@code buf} is {@code null}.
+     * @throws     IndexOutOfBoundsException If {@code off} is negative,
+     * {@code len} is negative, or {@code len} is greater than
+     * {@code buf.length - off}
+     * @throws    ZipException if the compressed input data is corrupt.
+     * @throws    IOException if an I/O error has occurred.
      *
      */
     public int read(byte[] buf, int off, int len) throws IOException {
@@ -130,7 +146,7 @@ class GZIPInputStream extends InflaterInputStream {
     /**
      * Closes this input stream and releases any system resources associated
      * with the stream.
-     * @exception IOException if an I/O error has occurred
+     * @throws    IOException if an I/O error has occurred
      */
     public void close() throws IOException {
         if (!closed) {
@@ -143,16 +159,16 @@ class GZIPInputStream extends InflaterInputStream {
     /**
      * GZIP header magic number.
      */
-    public final static int GZIP_MAGIC = 0x8b1f;
+    public static final int GZIP_MAGIC = 0x8b1f;
 
     /*
      * File header flags.
      */
-    private final static int FTEXT      = 1;    // Extra text
-    private final static int FHCRC      = 2;    // Header CRC
-    private final static int FEXTRA     = 4;    // Extra field
-    private final static int FNAME      = 8;    // File name
-    private final static int FCOMMENT   = 16;   // File comment
+    private static final int FTEXT      = 1;    // Extra text
+    private static final int FHCRC      = 2;    // Header CRC
+    private static final int FEXTRA     = 4;    // Extra field
+    private static final int FNAME      = 8;    // File name
+    private static final int FCOMMENT   = 16;   // File comment
 
     /*
      * Reads GZIP member header and returns the total byte number

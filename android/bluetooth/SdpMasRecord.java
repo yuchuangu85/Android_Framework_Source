@@ -1,23 +1,26 @@
 /*
-* Copyright (C) 2015 Samsung System LSI
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-*      http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ * Copyright (C) 2015 Samsung System LSI
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package android.bluetooth;
 
+import android.annotation.Hide;
+import android.annotation.RequiresNoPermission;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-/** @hide */
+@Hide
 public class SdpMasRecord implements Parcelable {
     private final int mMasInstanceId;
     private final int mL2capPsm;
@@ -35,7 +38,8 @@ public class SdpMasRecord implements Parcelable {
         public static final int MMS = 0x08;
     }
 
-    public SdpMasRecord(int masInstanceId,
+    public SdpMasRecord(
+            int masInstanceId,
             int l2capPsm,
             int rfcommChannelNumber,
             int profileVersion,
@@ -67,34 +71,42 @@ public class SdpMasRecord implements Parcelable {
         return 0;
     }
 
+    @RequiresNoPermission
     public int getMasInstanceId() {
         return mMasInstanceId;
     }
 
+    @RequiresNoPermission
     public int getL2capPsm() {
         return mL2capPsm;
     }
 
+    @RequiresNoPermission
     public int getRfcommCannelNumber() {
         return mRfcommChannelNumber;
     }
 
+    @RequiresNoPermission
     public int getProfileVersion() {
         return mProfileVersion;
     }
 
+    @RequiresNoPermission
     public int getSupportedFeatures() {
         return mSupportedFeatures;
     }
 
+    @RequiresNoPermission
     public int getSupportedMessageTypes() {
         return mSupportedMessageTypes;
     }
 
+    @RequiresNoPermission
     public boolean msgSupported(int msg) {
         return (mSupportedMessageTypes & msg) != 0;
     }
 
+    @RequiresNoPermission
     public String getServiceName() {
         return mServiceName;
     }
@@ -107,7 +119,7 @@ public class SdpMasRecord implements Parcelable {
         dest.writeInt(mProfileVersion);
         dest.writeInt(mSupportedFeatures);
         dest.writeInt(mSupportedMessageTypes);
-        dest.writeString(mServiceName);
+        BluetoothUtils.writeStringToParcel(dest, mServiceName);
     }
 
     @Override
@@ -115,36 +127,37 @@ public class SdpMasRecord implements Parcelable {
         String ret = "Bluetooth MAS SDP Record:\n";
 
         if (mMasInstanceId != -1) {
-            ret += "Mas Instance Id: " + mMasInstanceId + "\n";
+            ret = ret + "Mas Instance Id: " + mMasInstanceId + "\n";
         }
         if (mRfcommChannelNumber != -1) {
-            ret += "RFCOMM Chan Number: " + mRfcommChannelNumber + "\n";
+            ret = ret + "RFCOMM Chan Number: " + mRfcommChannelNumber + "\n";
         }
         if (mL2capPsm != -1) {
-            ret += "L2CAP PSM: " + mL2capPsm + "\n";
+            ret = ret + "L2CAP PSM: " + mL2capPsm + "\n";
         }
         if (mServiceName != null) {
-            ret += "Service Name: " + mServiceName + "\n";
+            ret = ret + "Service Name: " + mServiceName + "\n";
         }
         if (mProfileVersion != -1) {
-            ret += "Profile version: " + mProfileVersion + "\n";
+            ret = ret + "Profile version: " + mProfileVersion + "\n";
         }
         if (mSupportedMessageTypes != -1) {
-            ret += "Supported msg types: " + mSupportedMessageTypes + "\n";
+            ret = ret + "Supported msg types: " + mSupportedMessageTypes + "\n";
         }
         if (mSupportedFeatures != -1) {
-            ret += "Supported features: " + mSupportedFeatures + "\n";
+            ret = ret + "Supported features: " + mSupportedFeatures + "\n";
         }
         return ret;
     }
 
-    public static final Parcelable.Creator CREATOR = new Parcelable.Creator() {
-        public SdpMasRecord createFromParcel(Parcel in) {
-            return new SdpMasRecord(in);
-        }
+    public static final Parcelable.Creator CREATOR =
+            new Parcelable.Creator() {
+                public SdpMasRecord createFromParcel(Parcel in) {
+                    return new SdpMasRecord(in);
+                }
 
-        public SdpRecord[] newArray(int size) {
-            return new SdpRecord[size];
-        }
-    };
+                public SdpRecord[] newArray(int size) {
+                    return new SdpRecord[size];
+                }
+            };
 }

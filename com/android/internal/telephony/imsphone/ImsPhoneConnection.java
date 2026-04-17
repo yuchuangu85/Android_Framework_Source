@@ -16,9 +16,13 @@
 
 package com.android.internal.telephony.imsphone;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.net.Uri;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -32,25 +36,36 @@ import android.telecom.VideoProfile;
 import android.telephony.CarrierConfigManager;
 import android.telephony.DisconnectCause;
 import android.telephony.PhoneNumberUtils;
-import android.telephony.Rlog;
 import android.telephony.ServiceState;
+import android.telephony.TelephonyManager;
+import android.telephony.ims.AudioCodecAttributes;
 import android.telephony.ims.ImsCallProfile;
+import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.ImsStreamMediaProfile;
+import android.telephony.ims.RtpHeaderExtension;
+import android.telephony.ims.RtpHeaderExtensionType;
 import android.text.TextUtils;
 
 import com.android.ims.ImsCall;
 import com.android.ims.ImsException;
 import com.android.ims.internal.ImsVideoCallProviderWrapper;
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.Connection;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.UUSInfo;
+import com.android.internal.telephony.emergency.EmergencyNumberTracker;
+import com.android.telephony.Rlog;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Objects;
+import java.util.Set;
 
 /**
- * {@hide}
+ * @hide
  */
 public class ImsPhoneConnection extends Connection implements
         ImsVideoCallProviderWrapper.ImsVideoProviderWrapperCallback {
@@ -60,11 +75,15 @@ public class ImsPhoneConnection extends Connection implements
 
     //***** Instance Variables
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private ImsPhoneCallTracker mOwner;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private ImsPhoneCall mParent;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private ImsCall mImsCall;
-    private Bundle mExtras = new Bundle();
+    private final Bundle mExtras = new Bundle();
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean mDisconnected;
 
     /*
@@ -80,7 +99,7 @@ public class ImsPhoneConnection extends Connection implements
 
     private UUSInfo mUusInfo;
     private Handler mHandler;
-    private Messenger mHandlerMessenger;
+    private final Messenger mHandlerMessenger;
 
     private PowerManager.WakeLock mPartialWakeLock;
 
@@ -91,6 +110,8 @@ public class ImsPhoneConnection extends Connection implements
     private int mDtmfToneDelay = 0;
 
     private boolean mIsEmergency = false;
+
+    private boolean mIsWpsCall = false;
 
     /**
      * Used to indicate that video state changes detected by
@@ -121,7 +142,23 @@ public class ImsPhoneConnection extends Connection implements
      * currently available, but mobile data is off and the carrier is metering data for video
      * calls.
      */
-    private boolean mIsVideoEnabled = true;
+    private boolean mIsLocalVideoCapable = true;
+
+    /**
+     * When the call is in a disconnected, state, will be set to the {@link ImsReasonInfo}
+     * associated with the disconnection, if known.
+     */
+    private ImsReasonInfo mImsReasonInfo;
+
+    /**
+     * Used to indicate that this call is held by remote party.
+     */
+    private boolean mIsHeldByRemote = false;
+
+    /**
+     * Used to indicate if both the user and carrier config have enabled the business composer.
+     */
+    private boolean mIsBusinessComposerFeatureEnabled = false;
 
     //***** Event Constants
     private static final int EVENT_DTMF_DONE = 1;
@@ -131,7 +168,7 @@ public class ImsPhoneConnection extends Connection implements
     private static final int EVENT_DTMF_DELAY_DONE = 5;
 
     //***** Constants
-    private static final int PAUSE_DELAY_MILLIS = 3 * 1000;
+    @VisibleForTesting static final int PAUSE_DELAY_MILLIS = 3 * 1000;
     private static final int WAKE_LOCK_TIMEOUT_MILLIS = 60*1000;
 
     //***** Inner Classes
@@ -175,6 +212,7 @@ public class ImsPhoneConnection extends Connection implements
         mHandler = new MyHandler(mOwner.getLooper());
         mHandlerMessenger = new Messenger(mHandler);
         mImsCall = imsCall;
+        mIsAdhocConference = isMultiparty();
 
         if ((imsCall != null) && (imsCall.getCallProfile() != null)) {
             mAddress = imsCall.getCallProfile().getCallExtra(ImsCallProfile.EXTRA_OI);
@@ -183,6 +221,8 @@ public class ImsPhoneConnection extends Connection implements
                     imsCall.getCallProfile().getCallExtraInt(ImsCallProfile.EXTRA_OIR));
             mCnapNamePresentation = ImsCallProfile.OIRToPresentation(
                     imsCall.getCallProfile().getCallExtraInt(ImsCallProfile.EXTRA_CNAP));
+            setNumberVerificationStatus(toTelecomVerificationStatus(
+                    imsCall.getCallProfile().getCallerNumberVerificationStatus()));
             updateMediaCapabilities(imsCall);
         } else {
             mNumberPresentation = PhoneConstants.PRESENTATION_UNKNOWN;
@@ -192,6 +232,10 @@ public class ImsPhoneConnection extends Connection implements
         mIsIncoming = !isUnknown;
         mCreateTime = System.currentTimeMillis();
         mUusInfo = null;
+
+        if (com.android.server.telecom.flags.Flags.businessCallComposer()) {
+            setIsBusinessComposerFeatureEnabled(phone);
+        }
 
         // Ensure any extras set on the ImsCallProfile at the start of the call are cached locally
         // in the ImsPhoneConnection.  This isn't going to inform any listeners (since the original
@@ -212,13 +256,15 @@ public class ImsPhoneConnection extends Connection implements
 
     /** This is an MO call, created when dialing */
     public ImsPhoneConnection(Phone phone, String dialString, ImsPhoneCallTracker ct,
-            ImsPhoneCall parent, boolean isEmergency) {
+            ImsPhoneCall parent, boolean isEmergency, boolean isWpsCall,
+            ImsPhone.ImsDialArgs dialArgs) {
         super(PhoneConstants.PHONE_TYPE_IMS);
         createWakeLock(phone.getContext());
         acquireWakeLock();
 
         mOwner = ct;
         mHandler = new MyHandler(mOwner.getLooper());
+        mHandlerMessenger = new Messenger(mHandler);
 
         mDialString = dialString;
 
@@ -237,6 +283,18 @@ public class ImsPhoneConnection extends Connection implements
         parent.attachFake(this, ImsPhoneCall.State.DIALING);
 
         mIsEmergency = isEmergency;
+        if (isEmergency) {
+            setEmergencyCallInfo(mOwner, dialArgs);
+
+            if (getEmergencyNumberInfo() == null) {
+                // There was no emergency number info found for this call, however it is
+                // still marked as an emergency number. This may happen if it was a redialed
+                // non-detectable emergency call from IMS.
+                setNonDetectableEmergencyCallInfo(dialArgs.eccCategory, new ArrayList<String>());
+            }
+        }
+
+        mIsWpsCall = isWpsCall;
 
         fetchDtmfToneDelay(phone);
 
@@ -246,12 +304,37 @@ public class ImsPhoneConnection extends Connection implements
         }
     }
 
-    public void dispose() {
+    /** This is an MO conference call, created when dialing */
+    public ImsPhoneConnection(Phone phone, String[] participantsToDial, ImsPhoneCallTracker ct,
+            ImsPhoneCall parent, boolean isEmergency) {
+        super(PhoneConstants.PHONE_TYPE_IMS);
+        createWakeLock(phone.getContext());
+        acquireWakeLock();
+
+        mOwner = ct;
+        mHandler = new MyHandler(mOwner.getLooper());
+        mHandlerMessenger = new Messenger(mHandler);
+
+        mDialString = mAddress = Connection.ADHOC_CONFERENCE_ADDRESS;
+        mParticipantsToDial = participantsToDial;
+        mIsAdhocConference = true;
+
+        mIsIncoming = false;
+        mCnapName = null;
+        mCnapNamePresentation = PhoneConstants.PRESENTATION_ALLOWED;
+        mNumberPresentation = PhoneConstants.PRESENTATION_ALLOWED;
+        mCreateTime = System.currentTimeMillis();
+
+        mParent = parent;
+        parent.attachFake(this, ImsPhoneCall.State.DIALING);
+
+        if (phone.getContext().getResources().getBoolean(
+                com.android.internal.R.bool.config_use_voip_mode_for_ims)) {
+            setAudioModeIsVoip(true);
+        }
     }
 
-    static boolean
-    equalsHandlesNulls (Object a, Object b) {
-        return (a == null) ? (b == null) : a.equals (b);
+    public void dispose() {
     }
 
     static boolean
@@ -264,7 +347,7 @@ public class ImsPhoneConnection extends Connection implements
         capabilities = removeCapability(capabilities,
                 Connection.Capability.SUPPORTS_VT_LOCAL_BIDIRECTIONAL);
 
-        if (!mIsVideoEnabled) {
+        if (!mIsLocalVideoCapable) {
             Rlog.i(LOG_TAG, "applyLocalCallCapabilities - disabling video (overidden)");
             return capabilities;
         }
@@ -283,6 +366,8 @@ public class ImsPhoneConnection extends Connection implements
         Rlog.w(LOG_TAG, "applyRemoteCallCapabilities - remoteProfile = "+remoteProfile);
         capabilities = removeCapability(capabilities,
                 Connection.Capability.SUPPORTS_VT_REMOTE_BIDIRECTIONAL);
+        capabilities = removeCapability(capabilities,
+                Connection.Capability.SUPPORTS_RTT_REMOTE);
 
         switch (remoteProfile.mCallType) {
             case ImsCallProfile.CALL_TYPE_VT:
@@ -292,6 +377,10 @@ public class ImsPhoneConnection extends Connection implements
                         Connection.Capability.SUPPORTS_VT_REMOTE_BIDIRECTIONAL);
                 break;
         }
+
+        if (remoteProfile.getMediaProfile().getRttMode() == ImsStreamMediaProfile.RTT_MODE_FULL) {
+            capabilities = addCapability(capabilities, Connection.Capability.SUPPORTS_RTT_REMOTE);
+        }
         return capabilities;
     }
 
@@ -300,6 +389,7 @@ public class ImsPhoneConnection extends Connection implements
         return mDialString;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public ImsPhoneCall getCall() {
         return mParent;
@@ -326,7 +416,18 @@ public class ImsPhoneConnection extends Connection implements
     }
 
     public void setDisconnectCause(int cause) {
+        Rlog.d(LOG_TAG, "setDisconnectCause: cause=" + cause);
         mCause = cause;
+    }
+
+    /** Get the disconnect cause for connection*/
+    public int getDisconnectCause() {
+        Rlog.d(LOG_TAG, "getDisconnectCause: cause=" + mCause);
+        return mCause;
+    }
+
+    public boolean isIncomingCallAutoRejected() {
+        return mCause == DisconnectCause.INCOMING_AUTO_REJECTED ? true : false;
     }
 
     @Override
@@ -334,6 +435,7 @@ public class ImsPhoneConnection extends Connection implements
       return null;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public ImsPhoneCallTracker getOwner () {
         return mOwner;
     }
@@ -361,6 +463,32 @@ public class ImsPhoneConnection extends Connection implements
             }
         } else {
             throw new CallStateException("phone not ringing");
+        }
+    }
+
+    @Override
+    public void transfer(String number, boolean isConfirmationRequired) throws CallStateException {
+        try {
+            if (mImsCall != null) {
+                mImsCall.transfer(number, isConfirmationRequired);
+            } else {
+                throw new CallStateException("no valid ims call to transfer");
+            }
+        } catch (ImsException e) {
+            throw new CallStateException("cannot transfer call");
+        }
+    }
+
+    @Override
+    public void consultativeTransfer(Connection other) throws CallStateException {
+        try {
+            if (mImsCall != null) {
+                mImsCall.consultativeTransfer(((ImsPhoneConnection) other).getImsCall());
+            } else {
+                throw new CallStateException("no valid ims call to transfer");
+            }
+        } catch (ImsException e) {
+            throw new CallStateException("cannot transfer call");
         }
     }
 
@@ -424,8 +552,7 @@ public class ImsPhoneConnection extends Connection implements
     /**
      * Called when this Connection is being hung up locally (eg, user pressed "end")
      */
-    void
-    onHangupLocal() {
+    public void onHangupLocal() {
         mCause = DisconnectCause.LOCAL;
     }
 
@@ -439,6 +566,7 @@ public class ImsPhoneConnection extends Connection implements
         return onDisconnect();
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean onDisconnect() {
         boolean changed = false;
 
@@ -458,8 +586,14 @@ public class ImsPhoneConnection extends Connection implements
                 Rlog.d(LOG_TAG, "onDisconnect: no parent");
             }
             synchronized (this) {
+                if (mRttTextHandler != null) {
+                    mRttTextHandler.tearDown();
+                }
                 if (mImsCall != null) mImsCall.close();
                 mImsCall = null;
+                if (mImsVideoCallProviderWrapper != null) {
+                    mImsVideoCallProviderWrapper.tearDown();
+                }
             }
         }
         releaseWakeLock();
@@ -610,12 +744,14 @@ public class ImsPhoneConnection extends Connection implements
         notifyPostDialListeners();
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void
     createWakeLock(Context context) {
         PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
         mPartialWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, LOG_TAG);
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void
     acquireWakeLock() {
         Rlog.d(LOG_TAG, "acquireWakeLock");
@@ -658,6 +794,7 @@ public class ImsPhoneConnection extends Connection implements
         return null;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public synchronized boolean isMultiparty() {
         return mImsCall != null && mImsCall.isMultiparty();
@@ -697,6 +834,7 @@ public class ImsPhoneConnection extends Connection implements
      * @return {@code true} if the {@link ImsPhoneConnection} or its media capabilities have been
      *     changed, and {@code false} otherwise.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean update(ImsCall imsCall, ImsPhoneCall.State state) {
         if (state == ImsPhoneCall.State.ACTIVE) {
             // If the state of the call is active, but there is a pending request to the RIL to hold
@@ -731,6 +869,14 @@ public class ImsPhoneConnection extends Connection implements
         boolean updateExtras = updateExtras(imsCall);
 
         return updateParent || updateAddressDisplay || updateMediaCapabilities || updateExtras;
+    }
+
+    /**
+     * Re-evaluate whether ringback should be playing.
+     */
+    public void maybeChangeRingbackState() {
+        Rlog.i(LOG_TAG, "maybeChangeRingbackState");
+        mParent.maybeChangeRingbackState(mImsCall);
     }
 
     @Override
@@ -908,11 +1054,13 @@ public class ImsPhoneConnection extends Connection implements
                         startRttTextProcessing();
                         onRttInitiated();
                         changed = true;
+                        mOwner.getPhone().getVoiceCallSessionStats().onRttStarted(this);
                     } else if (!mIsRttEnabledForCall && mRttTextHandler != null) {
                         Rlog.d(LOG_TAG, "updateMediaCapabilities -- turning RTT off, profile="
                                 + negotiatedCallProfile);
                         mRttTextHandler.tearDown();
                         mRttTextHandler = null;
+                        mRttTextStream = null;
                         onRttTerminated();
                         changed = true;
                     }
@@ -952,6 +1100,53 @@ public class ImsPhoneConnection extends Connection implements
                 changed = true;
             }
 
+            if (!mOwner.isViLteDataMetered()) {
+                Rlog.v(LOG_TAG, "data is not metered");
+            } else {
+                if (mImsVideoCallProviderWrapper != null) {
+                    mImsVideoCallProviderWrapper.setIsVideoEnabled(
+                            hasCapabilities(Connection.Capability.SUPPORTS_VT_LOCAL_BIDIRECTIONAL));
+                }
+            }
+
+            boolean mediaAttributesChanged = false;
+
+            // Metrics for audio codec
+            if (localCallProfile != null
+                    && localCallProfile.mMediaProfile.mAudioQuality != mAudioCodec) {
+                mAudioCodec = localCallProfile.mMediaProfile.mAudioQuality;
+                mOwner.getPhone().getVoiceCallSessionStats().onAudioCodecChanged(this, mAudioCodec);
+                changed = true;
+                mediaAttributesChanged = true;
+            }
+
+            if (localCallProfile != null
+                    && localCallProfile.mMediaProfile.getAudioCodecAttributes() != null) {
+                AudioCodecAttributes audioCodecAttributes =
+                        localCallProfile.mMediaProfile.getAudioCodecAttributes();
+
+                if (Math.abs(mAudioCodecBitrateKbps
+                        - audioCodecAttributes.getBitrateRangeKbps().getUpper()) > THRESHOLD) {
+                    mAudioCodecBitrateKbps = audioCodecAttributes.getBitrateRangeKbps().getUpper();
+                    changed = true;
+                    mediaAttributesChanged = true;
+                }
+                if (Math.abs(mAudioCodecBandwidthKhz
+                        - audioCodecAttributes.getBandwidthRangeKhz().getUpper()) > THRESHOLD) {
+                    mAudioCodecBandwidthKhz =
+                            audioCodecAttributes.getBandwidthRangeKhz().getUpper();
+                    changed = true;
+                    mediaAttributesChanged = true;
+                }
+            }
+
+            if (mediaAttributesChanged) {
+                Rlog.i(LOG_TAG, "updateMediaCapabilities: mediate attributes changed: codec = "
+                        + mAudioCodec + ", bitRate=" + mAudioCodecBitrateKbps + ", bandwidth="
+                        + mAudioCodecBandwidthKhz);
+                notifyMediaAttributesChanged();
+            }
+
             int newAudioQuality =
                     getAudioQualityFromCallProfile(localCallProfile, remoteCallProfile);
             if (getAudioQuality() != newAudioQuality) {
@@ -970,11 +1165,34 @@ public class ImsPhoneConnection extends Connection implements
             mImsVideoCallProviderWrapper.onVideoStateChanged(newVideoState);
         }
         setVideoState(newVideoState);
+        mOwner.getPhone().getVoiceCallSessionStats().onVideoStateChange(this, newVideoState);
     }
 
-    public void sendRttModifyRequest(android.telecom.Connection.RttTextStream textStream) {
-        getImsCall().sendRttModifyRequest();
+
+    /**
+     * Send a RTT upgrade request to the remote party.
+     * @param textStream RTT text stream to use
+     */
+    public void startRtt(android.telecom.Connection.RttTextStream textStream) {
+        ImsCall imsCall = getImsCall();
+        if (imsCall == null) {
+            Rlog.w(LOG_TAG, "startRtt failed, imsCall is null");
+            return;
+        }
+        imsCall.sendRttModifyRequest(true);
         setCurrentRttTextStream(textStream);
+    }
+
+    /**
+     * Terminate the current RTT session.
+     */
+    public void stopRtt() {
+        ImsCall imsCall = getImsCall();
+        if (imsCall == null) {
+            Rlog.w(LOG_TAG, "stopRtt failed, imsCall is null");
+            return;
+        }
+        imsCall.sendRttModifyRequest(false);
     }
 
     /**
@@ -986,7 +1204,10 @@ public class ImsPhoneConnection extends Connection implements
     public void sendRttModifyResponse(android.telecom.Connection.RttTextStream textStream) {
         boolean accept = textStream != null;
         ImsCall imsCall = getImsCall();
-
+        if (imsCall == null) {
+            Rlog.w(LOG_TAG, "sendRttModifyResponse failed, imsCall is null");
+            return;
+        }
         imsCall.sendRttModifyResponse(accept);
         if (accept) {
             setCurrentRttTextStream(textStream);
@@ -1011,6 +1232,14 @@ public class ImsPhoneConnection extends Connection implements
         mRttTextHandler.sendToInCall(message);
     }
 
+    public void onRttAudioIndicatorChanged(ImsStreamMediaProfile profile) {
+        Bundle extras = new Bundle();
+        extras.putBoolean(android.telecom.Connection.EXTRA_IS_RTT_AUDIO_PRESENT,
+                profile.isReceivingRttAudio());
+        onConnectionEvent(android.telecom.Connection.EVENT_RTT_AUDIO_INDICATION_CHANGED,
+                extras);
+    }
+
     public void setCurrentRttTextStream(android.telecom.Connection.RttTextStream rttTextStream) {
         synchronized (this) {
             mRttTextStream = rttTextStream;
@@ -1019,6 +1248,20 @@ public class ImsPhoneConnection extends Connection implements
                 createRttTextHandler();
             }
         }
+    }
+
+    /**
+     * Get the corresponding EmergencyNumberTracker associated with the connection.
+     * @return the EmergencyNumberTracker
+     */
+    public EmergencyNumberTracker getEmergencyNumberTracker() {
+        if (mOwner != null) {
+            Phone phone = mOwner.getPhone();
+            if (phone != null) {
+                return phone.getEmergencyNumberTracker();
+            }
+        }
+        return null;
     }
 
     public boolean hasRttTextStream() {
@@ -1046,30 +1289,59 @@ public class ImsPhoneConnection extends Connection implements
     // Make sure to synchronize on ImsPhoneConnection.this before calling.
     private void createRttTextHandler() {
         mRttTextHandler = new ImsRttTextHandler(Looper.getMainLooper(),
-                (message) -> getImsCall().sendRttMessage(message));
+                (message) -> {
+                    ImsCall imsCall = getImsCall();
+                    if (imsCall != null) {
+                        imsCall.sendRttMessage(message);
+                    } else {
+                        Rlog.w(LOG_TAG, "createRttTextHandler: imsCall is null");
+                    }
+                });
         mRttTextHandler.initialize(mRttTextStream);
     }
 
     /**
-     * Updates the wifi state based on the {@link ImsCallProfile#EXTRA_CALL_RAT_TYPE}.
-     * The call is considered to be a WIFI call if the extra value is
-     * {@link ServiceState#RIL_RADIO_TECHNOLOGY_IWLAN}.
+     * Updates the IMS call rat based on the {@link ImsCallProfile#EXTRA_CALL_RAT_TYPE}.
      *
      * @param extras The ImsCallProfile extras.
      */
-    private void updateWifiStateFromExtras(Bundle extras) {
-        if (extras.containsKey(ImsCallProfile.EXTRA_CALL_RAT_TYPE) ||
-                extras.containsKey(ImsCallProfile.EXTRA_CALL_RAT_TYPE_ALT)) {
+    private void updateImsCallRatFromExtras(Bundle extras) {
+        if (extras == null) {
+            return;
+        }
+        if (extras.containsKey(ImsCallProfile.EXTRA_CALL_NETWORK_TYPE)
+                || extras.containsKey(ImsCallProfile.EXTRA_CALL_RAT_TYPE)
+                || extras.containsKey(ImsCallProfile.EXTRA_CALL_RAT_TYPE_ALT)) {
 
             ImsCall call = getImsCall();
-            boolean isWifi = false;
+            int networkType = TelephonyManager.NETWORK_TYPE_UNKNOWN;
             if (call != null) {
-                isWifi = call.isWifiCall();
+                networkType = call.getNetworkType();
             }
 
-            // Report any changes
-            if (isWifi() != isWifi) {
-                setWifi(isWifi);
+            // Report any changes for network type change
+            setCallRadioTech(ServiceState.networkTypeToRilRadioTechnology(networkType));
+        }
+    }
+
+    private void updateEmergencyCallFromExtras(Bundle extras) {
+        if (extras == null) {
+            return;
+        }
+        if (extras.getBoolean(ImsCallProfile.EXTRA_EMERGENCY_CALL)) {
+            setIsNetworkIdentifiedEmergencyCall(true);
+        }
+    }
+
+    private void updateForwardedNumberFromExtras(Bundle extras) {
+        if (extras == null) {
+            return;
+        }
+        if (extras.containsKey(ImsCallProfile.EXTRA_FORWARDED_NUMBER)) {
+            String[] forwardedNumberArray =
+                    extras.getStringArray(ImsCallProfile.EXTRA_FORWARDED_NUMBER);
+            if (forwardedNumberArray != null) {
+                mForwardedNumber = new ArrayList<String>(Arrays.asList(forwardedNumberArray));
             }
         }
     }
@@ -1081,26 +1353,244 @@ public class ImsPhoneConnection extends Connection implements
      * @param imsCall The call to check for changes in extras.
      * @return Whether the extras fields have been changed.
      */
-     boolean updateExtras(ImsCall imsCall) {
+    boolean updateExtras(ImsCall imsCall) {
         if (imsCall == null) {
             return false;
         }
-
         final ImsCallProfile callProfile = imsCall.getCallProfile();
         final Bundle extras = callProfile != null ? callProfile.mCallExtras : null;
         if (extras == null && DBG) {
             Rlog.d(LOG_TAG, "Call profile extras are null.");
         }
-
         final boolean changed = !areBundlesEqual(extras, mExtras);
         if (changed) {
-            updateWifiStateFromExtras(extras);
-
+            updateImsCallRatFromExtras(extras);
+            updateEmergencyCallFromExtras(extras);
+            updateForwardedNumberFromExtras(extras);
             mExtras.clear();
-            mExtras.putAll(extras);
+            if (extras != null) {
+                mExtras.putAll(extras);
+            }
+            if (com.android.server.telecom.flags.Flags.businessCallComposer()) {
+                maybeInjectBusinessComposerExtras(mExtras);
+            }
+
+            if (android.telecom.flags.Flags.isUsingVideoRingback()) {
+                maybeInjectIsUsingVideoRingbackExtras(mExtras);
+            }
+
+            if (android.telecom.flags.Flags.isUsingUnidirectionalVideoService()) {
+                maybeInjectIsUsingUnidirectionalVideoServiceExtras(mExtras);
+            }
+
+            if (android.telecom.flags.Flags.isUsingCrs()) {
+                maybeInjectVideoCustomizedRingingSignalCallExtras(mExtras);
+            }
             setConnectionExtras(mExtras);
         }
         return changed;
+    }
+
+    /**
+     * The Ims Vendor is responsible for setting the ImsCallProfile business call composer
+     * values (ImsCallProfile.EXTRA_IS_BUSINESS_CALL and
+     * ImsCallProfile.EXTRA_ASSERTED_DISPLAY_NAME). This helper notifies Telecom of the business
+     * composer values which will then be injected into the android.telecom.Call object.
+     */
+    @VisibleForTesting
+    public void maybeInjectBusinessComposerExtras(Bundle extras) {
+        if (extras == null) {
+            return;
+        }
+        // Telephony should check that the business composer features is on BEFORE
+        // propagating the business call extras.  This prevents the user from getting
+        // business call info when they turned the feature off.
+        if (!mIsBusinessComposerFeatureEnabled) {
+            Rlog.i(LOG_TAG, "mIBCE: business composer feature is NOT enabled");
+            return;
+        }
+        try {
+            if (extras.containsKey(ImsCallProfile.EXTRA_IS_BUSINESS_CALL)
+                    && !extras.containsKey(android.telecom.Call.EXTRA_IS_BUSINESS_CALL)) {
+                boolean v = extras.getBoolean(ImsCallProfile.EXTRA_IS_BUSINESS_CALL);
+                Rlog.i(LOG_TAG, String.format("mIBCE: EXTRA_IS_BUSINESS_CALL=[%s]", v));
+                extras.putBoolean(android.telecom.Call.EXTRA_IS_BUSINESS_CALL, v);
+            }
+
+            if (extras.containsKey(ImsCallProfile.EXTRA_ASSERTED_DISPLAY_NAME)
+                    && !extras.containsKey(android.telecom.Call.EXTRA_ASSERTED_DISPLAY_NAME)) {
+                String v = extras.getString(ImsCallProfile.EXTRA_ASSERTED_DISPLAY_NAME);
+                Rlog.i(LOG_TAG, String.format("mIBCE: ASSERTED_DISPLAY_NAME=[%s]", v));
+                extras.putString(android.telecom.Call.EXTRA_ASSERTED_DISPLAY_NAME, v);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * The Ims Vendor is responsible for setting the ImsCallProfile video color ring back tone
+     * value (ImsCallProfile.EXTRA_IS_USING_VIDEO_RINGBACK). This helper notifies
+     * Telecom of the video color ring back tone value which will then be injected into
+     * the android.telecom.Call object.
+     */
+    @VisibleForTesting
+    public void maybeInjectIsUsingVideoRingbackExtras(Bundle extras) {
+        if (extras == null) {
+            return;
+        }
+
+        if (!isVideoRingbackEnabledByConfig(mOwner.getPhone())) {
+            return;
+        }
+        try {
+            if (extras.containsKey(ImsCallProfile.EXTRA_IS_USING_VIDEO_RINGBACK)) {
+                boolean v = extras.getBoolean(ImsCallProfile.EXTRA_IS_USING_VIDEO_RINGBACK);
+                Rlog.i(LOG_TAG, String.format("EXTRA_IS_USING_VIDEO_RINGBACK=[%s]", v));
+                extras.putBoolean(android.telecom.Call.EXTRA_IS_USING_VIDEO_RINGBACK, v);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * The Ims Vendor is responsible for setting the ImsCallProfile Unidirectional Video Service
+     * value (ImsCallProfile.EXTRA_IS_USING_UNIDIRECTIONAL_VIDEO_SERVICE). This helper notifies
+     * Telecom of the Unidirectional Video Service value which will then be injected into
+     * the android.telecom.Call object.
+     */
+    @VisibleForTesting
+    public void maybeInjectIsUsingUnidirectionalVideoServiceExtras(Bundle extras) {
+        if (extras == null) {
+            return;
+        }
+
+        if (!isUnidirectionalVideoServiceEnabledByConfig(mOwner.getPhone())) {
+            return;
+        }
+        try {
+            if (extras.containsKey(ImsCallProfile.EXTRA_IS_USING_UNIDIRECTIONAL_VIDEO_SERVICE)) {
+                boolean v = extras.getBoolean(
+                        ImsCallProfile.EXTRA_IS_USING_UNIDIRECTIONAL_VIDEO_SERVICE);
+                Rlog.i(LOG_TAG,
+                        String.format("EXTRA_IS_USING_UNIDIRECTIONAL_VIDEO_SERVICE=[%s]", v));
+                extras.putBoolean(android.telecom.Call.EXTRA_IS_USING_UNIDIRECTIONAL_VIDEO_SERVICE,
+                        v);
+            }
+        } catch (Exception e) {
+            Rlog.e(LOG_TAG, "maybeInjectIsUsingUVSExtras: Exception " + e);
+        }
+    }
+
+    /**
+     * The Ims Vendor is responsible for setting the ImsCallProfile Video Customized Ringing
+     * Signal values (ImsCallProfile.EXTRA_CRS_MEDIA_TYPE, ImsCallProfile.EXTRA_CRS_MODE).
+     * This helper notifies Telecom of the business video CRS values which will then be
+     * injected into the android.telecom.Call object.
+     */
+    @VisibleForTesting
+    public void maybeInjectVideoCustomizedRingingSignalCallExtras(Bundle extras) {
+        if (extras == null) {
+            return;
+        }
+        if (!isVideoCustomizedRingingSignalEnabledByConfig(mOwner.getPhone())) {
+            return;
+        }
+        try {
+            if (extras.containsKey(ImsCallProfile.EXTRA_CRS_MEDIA_TYPE)) {
+                int v = extras.getInt(ImsCallProfile.EXTRA_CRS_MEDIA_TYPE);
+                Rlog.i(LOG_TAG, String.format("mICRS: EXTRA_CRS_MEDIA_TYPE=[%s]", v));
+                extras.putInt(android.telecom.Call.EXTRA_CRS_MEDIA_TYPE, v);
+            }
+
+            if (extras.containsKey(ImsCallProfile.EXTRA_CRS_AUDIO_MODE)) {
+                int v = extras.getInt(ImsCallProfile.EXTRA_CRS_AUDIO_MODE);
+                Rlog.i(LOG_TAG, String.format("mICRS: EXTRA_CRS_MODE=[%s]", v));
+                extras.putInt(android.telecom.Call.EXTRA_CRS_AUDIO_MODE, v);
+            }
+        } catch (Exception e) {
+            Rlog.e(LOG_TAG,
+                    "mICRS: maybeInjectVideoCustomizedRingingSignalCallExtras: Exception " + e);
+        }
+    }
+
+    @VisibleForTesting
+    public boolean getIsBusinessComposerFeatureEnabled() {
+        return mIsBusinessComposerFeatureEnabled;
+    }
+
+    @VisibleForTesting
+    public void setIsBusinessComposerFeatureEnabled(Phone phone) {
+        mIsBusinessComposerFeatureEnabled = isBusinessComposerEnabledByConfig(phone)
+                && isBusinessOnlyCallComposerEnabledByUser(phone);
+        Rlog.i(LOG_TAG, String.format(
+                "setIsBusinessComposerFeatureEnabled:  mIsBusinessComposerFeatureEnabled=[%b], "
+                        + "phone=[%s]", mIsBusinessComposerFeatureEnabled, phone));
+    }
+
+    /**
+     * Returns whether the carrier supports and has enabled the business composer
+     */
+    @VisibleForTesting
+    public boolean isBusinessComposerEnabledByConfig(Phone phone) {
+        return isCarrierEnabledByConfig(phone,
+                CarrierConfigManager.KEY_SUPPORTS_BUSINESS_CALL_COMPOSER_BOOL);
+    }
+
+    /**
+     * Returns whether the carrier supports based on the config
+     */
+    private boolean isCarrierEnabledByConfig(Phone phone, String carrierConfig) {
+        PersistableBundle b = null;
+        CarrierConfigManager configMgr = phone.getContext().getSystemService(
+                CarrierConfigManager.class);
+
+        if (configMgr != null) {
+            // If an invalid subId is used, this bundle will contain default values.
+            b = configMgr.getConfigForSubId(phone.getSubId());
+        }
+        if (b != null) {
+            return b.getBoolean(carrierConfig);
+        } else {
+            // Return static default defined in CarrierConfigManager.
+            return CarrierConfigManager.getDefaultConfig().getBoolean(carrierConfig);
+        }
+    }
+
+    /**
+     * Checks if video ringback is enabled in the carrier configuration.
+     */
+    private boolean isVideoRingbackEnabledByConfig(Phone phone) {
+        return isCarrierEnabledByConfig(phone,
+                CarrierConfigManager.KEY_SUPPORTS_VIDEO_RINGBACK_BOOL);
+    }
+
+    /**
+     * Returns whether the carrier supports and has enabled unidirectional video service call
+     */
+    private boolean isUnidirectionalVideoServiceEnabledByConfig(Phone phone) {
+        return isCarrierEnabledByConfig(phone,
+                CarrierConfigManager.KEY_SUPPORTS_UNIDIRECTIONAL_VIDEO_SERVICE_BOOL);
+    }
+
+    /**
+     * Returns whether the user has enabled the business composer
+     */
+    @VisibleForTesting
+    public boolean isBusinessOnlyCallComposerEnabledByUser(Phone phone) {
+        if (phone == null || phone.getContext() == null) {
+            return false;
+        }
+        TelephonyManager tm = (TelephonyManager)
+                phone.getContext().getSystemService(Context.TELEPHONY_SERVICE);
+        if (tm == null) {
+            Rlog.e(LOG_TAG, "isBusinessOnlyCallComposerEnabledByUser: TelephonyManager is null");
+            return false;
+        }
+        return tm.getCallComposerStatus() == TelephonyManager.CALL_COMPOSER_STATUS_BUSINESS_ONLY
+                || tm.getCallComposerStatus() == TelephonyManager.CALL_COMPOSER_STATUS_ON;
     }
 
     private static boolean areBundlesEqual(Bundle extras, Bundle newExtras) {
@@ -1153,7 +1643,7 @@ public class ImsPhoneConnection extends Connection implements
                 || localCallProfile.mMediaProfile.mAudioQuality
                         == ImsStreamMediaProfile.AUDIO_QUALITY_EVRC_WB
                 || isEvsCodecHighDef)
-                && remoteCallProfile.mRestrictCause == ImsCallProfile.CALL_RESTRICT_CAUSE_NONE;
+                && remoteCallProfile.getRestrictCause() == ImsCallProfile.CALL_RESTRICT_CAUSE_NONE;
         return isHighDef ? AUDIO_QUALITY_HIGH_DEFINITION : AUDIO_QUALITY_STANDARD;
     }
 
@@ -1172,6 +1662,8 @@ public class ImsPhoneConnection extends Connection implements
         sb.append(getTelecomCallId());
         sb.append(" address: ");
         sb.append(Rlog.pii(LOG_TAG, getAddress()));
+        sb.append(" isAdhocConf: ");
+        sb.append(isAdhocConference() ? "Y" : "N");
         sb.append(" ImsCall: ");
         synchronized (this) {
             if (mImsCall == null) {
@@ -1199,6 +1691,21 @@ public class ImsPhoneConnection extends Connection implements
      */
     protected boolean isEmergency() {
         return mIsEmergency;
+    }
+
+    protected boolean isWpsCall() {
+        return mIsWpsCall;
+    }
+
+    /**
+     * Indicates whether current phone connection is cross sim calling or not
+     * @return boolean: true if cross sim calling, false otherwise
+     */
+    public boolean isCrossSimCall() {
+        if (mImsCall == null) {
+            return mExtras.getBoolean(ImsCallProfile.EXTRA_IS_CROSS_SIM_CALL);
+        }
+        return mImsCall.isCrossSimCall();
     }
 
     /**
@@ -1300,7 +1807,30 @@ public class ImsPhoneConnection extends Connection implements
      */
     public void handleMergeComplete() {
         mIsMergeInProcess = false;
-        onConnectionEvent(android.telecom.Connection.EVENT_MERGE_COMPLETE, null);
+    }
+
+    /**
+     * Mark the call is held by remote party and inform to the UI.
+     */
+    public void setRemotelyHeld() {
+        mIsHeldByRemote = true;
+        onConnectionEvent(android.telecom.Connection.EVENT_CALL_REMOTELY_HELD, null);
+    }
+
+    /**
+     * Mark the call is Unheld by remote party and inform to the UI.
+     */
+    public void setRemotelyUnheld() {
+        mIsHeldByRemote = false;
+        onConnectionEvent(android.telecom.Connection.EVENT_CALL_REMOTELY_UNHELD, null);
+    }
+
+    /**
+     * @return whether the remote party is holding the call.
+     */
+    public boolean isHeldByRemote() {
+        Rlog.i(LOG_TAG, "isHeldByRemote=" + mIsHeldByRemote);
+        return mIsHeldByRemote;
     }
 
     public void changeToPausedState() {
@@ -1319,14 +1849,96 @@ public class ImsPhoneConnection extends Connection implements
         mShouldIgnoreVideoStateChanges = false;
     }
 
-    public void handleDataEnabledChange(boolean isDataEnabled) {
-        mIsVideoEnabled = isDataEnabled;
-        Rlog.i(LOG_TAG, "handleDataEnabledChange: isDataEnabled=" + isDataEnabled
+    public void setLocalVideoCapable(boolean isVideoEnabled) {
+        mIsLocalVideoCapable = isVideoEnabled;
+        Rlog.i(LOG_TAG, "setLocalVideoCapable: mIsLocalVideoCapable = " + mIsLocalVideoCapable
                 + "; updating local video availability.");
         updateMediaCapabilities(getImsCall());
-        if (mImsVideoCallProviderWrapper != null) {
-            mImsVideoCallProviderWrapper.setIsVideoEnabled(
-                    hasCapabilities(Connection.Capability.SUPPORTS_VT_LOCAL_BIDIRECTIONAL));
+    }
+
+    /**
+     * Sends RTP header extension data.
+     * @param rtpHeaderExtensions the RTP header extension data to send.
+     */
+    public void sendRtpHeaderExtensions(@NonNull Set<RtpHeaderExtension> rtpHeaderExtensions) {
+        if (mImsCall == null) {
+            Rlog.w(LOG_TAG, "sendRtpHeaderExtensions: Not an IMS call");
+            return;
         }
+        Rlog.i(LOG_TAG, "sendRtpHeaderExtensions: numExtensions = " + rtpHeaderExtensions.size());
+        mImsCall.sendRtpHeaderExtensions(rtpHeaderExtensions);
+    }
+
+    /**
+     * @return the RTP header extensions accepted for this call.
+     */
+    public Set<RtpHeaderExtensionType> getAcceptedRtpHeaderExtensions() {
+        if (mImsCall == null || mImsCall.getCallProfile() == null) {
+            return Collections.EMPTY_SET;
+        }
+        return mImsCall.getCallProfile().getAcceptedRtpHeaderExtensionTypes();
+    }
+
+    /**
+     * For a connection being disconnected, sets the {@link ImsReasonInfo} which describes the
+     * reason for the disconnection.
+     * @param imsReasonInfo The IMS reason info.
+     */
+    public void setImsReasonInfo(@Nullable ImsReasonInfo imsReasonInfo) {
+        mImsReasonInfo = imsReasonInfo;
+    }
+
+    /**
+     * @return the {@link ImsReasonInfo} describing why this connection disconnected, or
+     * {@code null} otherwise.
+     */
+    public @Nullable ImsReasonInfo getImsReasonInfo() {
+        return mImsReasonInfo;
+    }
+
+    /**
+     * Converts an {@link ImsCallProfile} verification status to a
+     * {@link android.telecom.Connection} verification status.
+     * @param verificationStatus The {@link ImsCallProfile} verification status.
+     * @return The telecom verification status.
+     */
+    public static @android.telecom.Annotation.VerificationStatus int toTelecomVerificationStatus(
+            @ImsCallProfile.VerificationStatus int verificationStatus) {
+        switch (verificationStatus) {
+            case ImsCallProfile.VERIFICATION_STATUS_PASSED:
+                return android.telecom.Connection.VERIFICATION_STATUS_PASSED;
+            case ImsCallProfile.VERIFICATION_STATUS_FAILED:
+                return android.telecom.Connection.VERIFICATION_STATUS_FAILED;
+            case ImsCallProfile.VERIFICATION_STATUS_NOT_VERIFIED:
+                // fall through on purpose
+            default:
+                return android.telecom.Connection.VERIFICATION_STATUS_NOT_VERIFIED;
+        }
+    }
+
+    /**
+     * The priority of the call to the user. A higher number means higher priority.
+     */
+    protected int getCallPriority() {
+        if (isEmergency()) {
+            return 2;
+        } else if (isWpsCall()) {
+            return 1;
+        }
+        return 0;
+    }
+
+    private boolean isVideoCustomizedRingingSignalEnabledByConfig(Phone phone) {
+        CarrierConfigManager configMgr = phone.getContext().getSystemService(
+                CarrierConfigManager.class);
+        if (configMgr != null) {
+            PersistableBundle b = configMgr.getConfigForSubId(phone.getSubId());
+            if (b != null) {
+                return b.getBoolean(
+                        CarrierConfigManager.KEY_SUPPORTS_CUSTOMIZED_RINGING_SIGNAL_BOOL);
+            }
+        }
+        return CarrierConfigManager.getDefaultConfig().getBoolean(
+                CarrierConfigManager.KEY_SUPPORTS_CUSTOMIZED_RINGING_SIGNAL_BOOL);
     }
 }

@@ -121,7 +121,7 @@ public class FocusFinder {
      * <p>
      * For example: normal focus navigation would stay within a ViewGroup marked as
      * touchscreenBlocksFocus and keyboardNavigationCluster until a cluster-jump out.
-     * @return the "effective" root of {@param focused}
+     * @return the "effective" root of {@code focused}
      */
     private ViewGroup getEffectiveRoot(ViewGroup root, View focused) {
         if (focused == null || focused == root) {
@@ -129,7 +129,7 @@ public class FocusFinder {
         }
         ViewGroup effective = null;
         ViewParent nextParent = focused.getParent();
-        do {
+        while (nextParent instanceof ViewGroup) {
             if (nextParent == root) {
                 return effective != null ? effective : root;
             }
@@ -143,7 +143,7 @@ public class FocusFinder {
                 effective = vg;
             }
             nextParent = nextParent.getParent();
-        } while (nextParent instanceof ViewGroup);
+        }
         return root;
     }
 
@@ -311,13 +311,23 @@ public class FocusFinder {
         }
 
         final int count = focusables.size();
+        if (count < 2) {
+            return null;
+        }
+        View next = null;
+        final boolean[] looped = new boolean[1];
         switch (direction) {
             case View.FOCUS_FORWARD:
-                return getNextFocusable(focused, focusables, count);
+                next = getNextFocusable(focused, focusables, count, looped);
+                break;
             case View.FOCUS_BACKWARD:
-                return getPreviousFocusable(focused, focusables, count);
+                next = getPreviousFocusable(focused, focusables, count, looped);
+                break;
         }
-        return focusables.get(count - 1);
+        if (root != null && root.mAttachInfo != null && root == root.getRootView()) {
+            root.mAttachInfo.mNextFocusLooped = looped[0];
+        }
+        return next != null ? next : focusables.get(count - 1);
     }
 
     private void setFocusBottomRight(ViewGroup root, Rect focusedRect) {
@@ -372,30 +382,34 @@ public class FocusFinder {
         return closest;
     }
 
-    private static View getNextFocusable(View focused, ArrayList<View> focusables, int count) {
+    private static View getNextFocusable(View focused, ArrayList<View> focusables, int count,
+            boolean[] outLooped) {
+        if (count < 2) {
+            return null;
+        }
         if (focused != null) {
             int position = focusables.lastIndexOf(focused);
             if (position >= 0 && position + 1 < count) {
                 return focusables.get(position + 1);
             }
         }
-        if (!focusables.isEmpty()) {
-            return focusables.get(0);
-        }
-        return null;
+        outLooped[0] = true;
+        return focusables.get(0);
     }
 
-    private static View getPreviousFocusable(View focused, ArrayList<View> focusables, int count) {
+    private static View getPreviousFocusable(View focused, ArrayList<View> focusables, int count,
+            boolean[] outLooped) {
+        if (count < 2) {
+            return null;
+        }
         if (focused != null) {
             int position = focusables.indexOf(focused);
             if (position > 0) {
                 return focusables.get(position - 1);
             }
         }
-        if (!focusables.isEmpty()) {
-            return focusables.get(count - 1);
-        }
-        return null;
+        outLooped[0] = true;
+        return focusables.get(count - 1);
     }
 
     private static View getNextKeyboardNavigationCluster(

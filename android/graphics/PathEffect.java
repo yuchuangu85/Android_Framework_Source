@@ -21,6 +21,7 @@ package android.graphics;
  * the geometry of a drawing primitive before it is transformed by the
  * canvas' matrix and drawn.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class PathEffect {
 
     protected void finalize() throws Throwable {

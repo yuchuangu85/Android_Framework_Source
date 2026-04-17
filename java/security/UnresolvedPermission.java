@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,13 +41,12 @@ import java.security.cert.*;
  */
 
 public final class UnresolvedPermission extends Permission
-implements java.io.Serializable
-{
+implements java.io.Serializable {
 
     public UnresolvedPermission(String type,
-                                String name,
-                                String actions,
-                                java.security.cert.Certificate certs[]) { super(""); }
+            String name,
+            String actions,
+            java.security.cert.Certificate certs[]) { super(""); }
 
     public boolean implies(Permission p) { return false; }
 

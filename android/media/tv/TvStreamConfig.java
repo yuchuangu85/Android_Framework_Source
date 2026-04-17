@@ -16,10 +16,14 @@
 
 package android.media.tv;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
+
+import java.util.Objects;
 
 /**
  * @hide
@@ -42,7 +46,7 @@ public class TvStreamConfig implements Parcelable {
      */
     private int mGeneration;
 
-    public static final Parcelable.Creator<TvStreamConfig> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<TvStreamConfig> CREATOR =
             new Parcelable.Creator<TvStreamConfig>() {
         @Override
         public TvStreamConfig createFromParcel(Parcel source) {
@@ -87,6 +91,7 @@ public class TvStreamConfig implements Parcelable {
         return mGeneration;
     }
 
+    @NonNull
     @Override
     public String toString() {
         return "TvStreamConfig {mStreamId=" + mStreamId + ";" + "mType=" + mType + ";mGeneration="
@@ -163,7 +168,7 @@ public class TvStreamConfig implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (obj == null) return false;
         if (!(obj instanceof TvStreamConfig)) return false;
 
@@ -173,5 +178,10 @@ public class TvStreamConfig implements Parcelable {
             && config.mType == mType
             && config.mMaxWidth == mMaxWidth
             && config.mMaxHeight == mMaxHeight;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mGeneration, mStreamId, mType, mMaxWidth, mMaxHeight);
     }
 }

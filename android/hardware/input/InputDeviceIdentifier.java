@@ -16,23 +16,27 @@
 
 package android.hardware.input;
 
-import java.util.Objects;
-
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.TestApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
+
+import java.util.Objects;
 
 /**
  * Wrapper for passing identifying information for input devices.
  *
  * @hide
  */
+@TestApi
 public final class InputDeviceIdentifier implements Parcelable {
     private final String mDescriptor;
     private final int mVendorId;
     private final int mProductId;
 
-    public InputDeviceIdentifier(String descriptor, int vendorId, int productId) {
+    public InputDeviceIdentifier(@NonNull String descriptor, int vendorId, int productId) {
         this.mDescriptor = descriptor;
         this.mVendorId = vendorId;
         this.mProductId = productId;
@@ -50,12 +54,13 @@ public final class InputDeviceIdentifier implements Parcelable {
     }
 
     @Override
-    public void writeToParcel(Parcel dest, int flags) {
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
         dest.writeString(mDescriptor);
         dest.writeInt(mVendorId);
         dest.writeInt(mProductId);
     }
 
+    @NonNull
     public String getDescriptor() {
         return mDescriptor;
     }
@@ -69,7 +74,7 @@ public final class InputDeviceIdentifier implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) return true;
         if (o == null || !(o instanceof InputDeviceIdentifier)) return false;
 
@@ -83,7 +88,13 @@ public final class InputDeviceIdentifier implements Parcelable {
         return Objects.hash(mDescriptor, mVendorId, mProductId);
     }
 
-    public static final Parcelable.Creator<InputDeviceIdentifier> CREATOR =
+    @Override
+    public String toString() {
+        return "InputDeviceIdentifier: vendorId: " + mVendorId + ", productId: " + mProductId
+                + ", descriptor: " + mDescriptor;
+    }
+
+    public static final @android.annotation.NonNull Parcelable.Creator<InputDeviceIdentifier> CREATOR =
             new Parcelable.Creator<InputDeviceIdentifier>() {
 
         @Override

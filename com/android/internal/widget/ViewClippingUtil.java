@@ -87,7 +87,7 @@ public class ViewClippingUtil {
 
     public interface ClippingParameters {
         /**
-         * Should we stop clipping at this view? If true is returned, {@param view} is the last view
+         * Should we stop clipping at this view? If true is returned, {@code view} is the last view
          * where clipping is activated / deactivated.
          */
         boolean shouldFinish(View view);

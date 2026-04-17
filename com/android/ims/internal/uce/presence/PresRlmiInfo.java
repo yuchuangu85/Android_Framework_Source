@@ -16,6 +16,8 @@
 
 package com.android.ims.internal.uce.presence;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -60,6 +62,7 @@ public class PresRlmiInfo implements Parcelable {
      * Sets the URI.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setUri(String uri) {
         this.mUri = uri;
     }
@@ -76,6 +79,7 @@ public class PresRlmiInfo implements Parcelable {
      * Sets the version.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setVersion(int version) {
         this.mVersion = version;
     }
@@ -92,6 +96,7 @@ public class PresRlmiInfo implements Parcelable {
      * Sets the RLMI state.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setFullState(boolean fullState) {
         this.mFullState = fullState;
     }
@@ -108,6 +113,7 @@ public class PresRlmiInfo implements Parcelable {
      * Sets the RLMI list name.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setListName(String listName) {
         this.mListName = listName;
     }
@@ -124,6 +130,7 @@ public class PresRlmiInfo implements Parcelable {
      * Sets the subscription request ID.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setRequestId(int requestId) {
         this.mRequestId = requestId;
     }
@@ -140,6 +147,7 @@ public class PresRlmiInfo implements Parcelable {
      * Sets the presence subscription state.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setPresSubscriptionState(PresSubscriptionState presSubscriptionState) {
         this.mPresSubscriptionState = presSubscriptionState;
     }
@@ -156,6 +164,7 @@ public class PresRlmiInfo implements Parcelable {
      * Sets the presence subscription expiration time.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setSubscriptionExpireTime(int subscriptionExpireTime) {
         this.mSubscriptionExpireTime = subscriptionExpireTime;
     }
@@ -172,6 +181,7 @@ public class PresRlmiInfo implements Parcelable {
      * Sets the presence subscription terminated reason.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setSubscriptionTerminatedReason(String subscriptionTerminatedReason) {
         this.mSubscriptionTerminatedReason = subscriptionTerminatedReason;
     }
@@ -180,6 +190,7 @@ public class PresRlmiInfo implements Parcelable {
      * Constructor for the PresTupleInfo class.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public PresRlmiInfo(){};
 
     /** @hide */
@@ -225,7 +236,7 @@ public class PresRlmiInfo implements Parcelable {
         mListName = source.readString();
         mRequestId = source.readInt();
         mPresSubscriptionState = source.readParcelable(
-                                  PresSubscriptionState.class.getClassLoader());
+                                  PresSubscriptionState.class.getClassLoader(), com.android.ims.internal.uce.presence.PresSubscriptionState.class);
         mSubscriptionExpireTime = source.readInt();
         mSubscriptionTerminatedReason = source.readString();
     }

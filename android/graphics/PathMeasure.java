@@ -16,6 +16,7 @@
 
 package android.graphics;
 
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class PathMeasure {
     private Path mPath;
 
@@ -25,14 +26,14 @@ public class PathMeasure {
      * setPath.
      *
      * Note that once a path is associated with the measure object, it is
-     * undefined if the path is subsequently modified and the the measure object
+     * undefined if the path is subsequently modified and the measure object
      * is used. If the path is modified, you must call setPath with the path.
      */
     public PathMeasure() {
         mPath = null;
         native_instance = native_create(0, false);
     }
-    
+
     /**
      * Create a PathMeasure object associated with the specified path object
      * (already created and specified). The measure object can now return the
@@ -40,7 +41,7 @@ public class PathMeasure {
      * path.
      *
      * Note that once a path is associated with the measure object, it is
-     * undefined if the path is subsequently modified and the the measure object
+     * undefined if the path is subsequently modified and the measure object
      * is used. If the path is modified, you must call setPath with the path.
      *
      * @param path The path that will be measured by this object
@@ -105,11 +106,11 @@ public class PathMeasure {
      * @param flags Specified what aspects should be returned in the matrix.
      */
     public boolean getMatrix(float distance, Matrix matrix, int flags) {
-        return native_getMatrix(native_instance, distance, matrix.native_instance, flags);
+        return native_getMatrix(native_instance, distance, matrix.ni(), flags);
     }
 
     /**
-     * Given a start and stop distance, return in dst the intervening
+     * Given a start and stop distance, append to dst the intervening
      * segment(s). If the segment is zero-length, return false, else return
      * true. startD and stopD are pinned to legal values (0..getLength()).
      * If startD >= stopD then return false (and leave dst untouched).
@@ -121,7 +122,7 @@ public class PathMeasure {
      * such as <code>dst.rLineTo(0, 0)</code>.</p>
      */
     public boolean getSegment(float startD, float stopD, Path dst, boolean startWithMoveTo) {
-        // Skia used to enforce this as part of it's API, but has since relaxed that restriction
+        // Skia used to enforce this as part of its API, but has since relaxed that restriction
         // so to maintain consistency in our API we enforce the preconditions here.
         float length = getLength();
         if (startD < 0) {

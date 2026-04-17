@@ -120,12 +120,12 @@ public final class Suggestion implements Parcelable {
         mId = in.readString();
         mTitle = in.readCharSequence();
         mSummary = in.readCharSequence();
-        mIcon = in.readParcelable(Icon.class.getClassLoader());
+        mIcon = in.readParcelable(Icon.class.getClassLoader(), android.graphics.drawable.Icon.class);
         mFlags = in.readInt();
-        mPendingIntent = in.readParcelable(PendingIntent.class.getClassLoader());
+        mPendingIntent = in.readParcelable(PendingIntent.class.getClassLoader(), android.app.PendingIntent.class);
     }
 
-    public static final Creator<Suggestion> CREATOR = new Creator<Suggestion>() {
+    public static final @android.annotation.NonNull Creator<Suggestion> CREATOR = new Creator<Suggestion>() {
         @Override
         public Suggestion createFromParcel(Parcel in) {
             return new Suggestion(in);

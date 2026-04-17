@@ -25,7 +25,7 @@
 
 package java.lang.invoke;
 
-// Android-changed: removed references to MutableCallSite.syncAll().
+// Android-changed: Removed references to MutableCallSite.syncAll().
 /**
  * A {@code VolatileCallSite} is a {@link CallSite} whose target acts like a volatile variable.
  * An {@code invokedynamic} instruction linked to a {@code VolatileCallSite} sees updates

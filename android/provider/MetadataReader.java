@@ -32,7 +32,7 @@ import java.util.Map;
  * {@link Bundle} suitable for use with {@link DocumentsContract#getDocumentMetadata}.
  * <p>Currently only EXIF data is supported.
  * <p>TODO: Add support for common video and audio types, as well as PDF files.
- * {@hide}
+ * @hide
  */
 public final class MetadataReader {
 

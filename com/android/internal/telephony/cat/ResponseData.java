@@ -16,23 +16,32 @@
 
 package com.android.internal.telephony.cat;
 
-import com.android.internal.telephony.EncodeException;
-import com.android.internal.telephony.GsmAlphabet;
-import java.util.Calendar;
-import java.util.TimeZone;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.SystemProperties;
 import android.text.TextUtils;
 
+import com.android.internal.telephony.EncodeException;
+import com.android.internal.telephony.GsmAlphabet;
 import com.android.internal.telephony.cat.AppInterface.CommandType;
 
 import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
+import java.util.Calendar;
+import java.util.TimeZone;
 
 abstract class ResponseData {
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    ResponseData() {
+    }
+
     /**
      * Format the data appropriate for TERMINAL RESPONSE and write it into
      * the ByteArrayOutputStream object.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public abstract void format(ByteArrayOutputStream buf);
 
     public static void writeLength(ByteArrayOutputStream buf, int length) {
@@ -167,6 +176,50 @@ class GetInkeyInputResponseData extends ResponseData {
     }
 }
 
+// For "SEND USSD" command.
+// See TS 31.111 section 6.4.15/ETSI TS 102 223
+// TS 31.124 section 27.22.4.15 for test spec */
+class SendUssdResponseData extends ResponseData {
+    private String mUssdResponse;
+    private byte mCodingScheme;
+
+    SendUssdResponseData(String ussdResponse, byte codingScheme) {
+        super();
+        mUssdResponse = ussdResponse;
+        mCodingScheme = codingScheme;
+    }
+
+    @Override
+    public void format(ByteArrayOutputStream buf) {
+        if (buf == null) {
+            return;
+        }
+
+        byte[] data;
+        try {
+            data = switch (mCodingScheme) {
+                case 0x00 -> {
+                    byte[] tempData = GsmAlphabet.stringToGsm7BitPacked(mUssdResponse);
+                    byte[] dataExcludingSeptetsCount = new byte[tempData.length - 1];
+                    System.arraycopy(
+                            tempData, 1, dataExcludingSeptetsCount, 0, tempData.length - 1);
+                    yield dataExcludingSeptetsCount;
+                }
+                case 0x04 -> GsmAlphabet.stringToGsm8BitPacked(mUssdResponse);
+                case 0x08 -> mUssdResponse.getBytes(StandardCharsets.UTF_16BE);
+                default -> new byte[0];
+            };
+        } catch (EncodeException e) {
+            data = new byte[0];
+        }
+
+        buf.write(0x80 | ComprehensionTlvTag.TEXT_STRING.value());
+        writeLength(buf, data.length + 1);
+        buf.write(mCodingScheme);
+        buf.write(data, 0, data.length);
+    }
+}
+
 // For "PROVIDE LOCAL INFORMATION" command.
 // See TS 31.111 section 6.4.15/ETSI TS 102 223
 // TS 31.124 section 27.22.4.15 for test spec
@@ -256,7 +309,7 @@ class DTTZResponseData extends ResponseData {
             data[7] = (byte) 0xFF;    // set FF in terminal response
         } else {
             TimeZone zone = TimeZone.getTimeZone(tz);
-            int zoneOffset = zone.getRawOffset() + zone.getDSTSavings();
+            int zoneOffset = zone.getOffset(mCalendar.getTimeInMillis());
             data[7] = getTZOffSetByte(zoneOffset);
         }
 

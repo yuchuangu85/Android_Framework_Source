@@ -16,6 +16,8 @@
 
 package android.graphics;
 
+import android.annotation.NonNull;
+
 import dalvik.annotation.optimization.CriticalNative;
 import dalvik.annotation.optimization.FastNative;
 
@@ -26,6 +28,7 @@ import java.io.PrintWriter;
 /**
  * The Matrix class holds a 3x3 matrix for transforming coordinates.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class Matrix {
 
     public static final int MSCALE_X = 0;   //!< use with getValues/setValues
@@ -38,7 +41,11 @@ public class Matrix {
     public static final int MPERSP_1 = 7;   //!< use with getValues/setValues
     public static final int MPERSP_2 = 8;   //!< use with getValues/setValues
 
-    /** @hide */
+    /**
+     * The identity matrix. Multiplying by another matrix {@code M} returns {@code M}. This matrix
+     * is immutable, and attempting to modify it will throw an {@link IllegalStateException}.
+     */
+    @NonNull
     public final static Matrix IDENTITY_MATRIX = new Matrix() {
         void oops() {
             throw new IllegalStateException("Matrix can not be modified");
@@ -220,24 +227,19 @@ public class Matrix {
         }
     };
 
-    // sizeof(SkMatrix) is 9 * sizeof(float) + uint32_t
-    private static final long NATIVE_ALLOCATION_SIZE = 40;
-
     private static class NoImagePreloadHolder {
-        public static final NativeAllocationRegistry sRegistry = new NativeAllocationRegistry(
-                Matrix.class.getClassLoader(), nGetNativeFinalizer(), NATIVE_ALLOCATION_SIZE);
+        public static final NativeAllocationRegistry sRegistry =
+                NativeAllocationRegistry.createMalloced(
+                Matrix.class.getClassLoader(), ExtraNatives.nGetNativeFinalizer());
     }
 
-    /**
-     * @hide
-     */
-    public final long native_instance;
+    private final long native_instance;
 
     /**
      * Create an identity matrix
      */
     public Matrix() {
-        native_instance = nCreate(0);
+        native_instance = ExtraNatives.nCreate(0);
         NoImagePreloadHolder.sRegistry.registerNativeAllocation(this, native_instance);
     }
 
@@ -247,7 +249,7 @@ public class Matrix {
      * @param src The matrix to copy into this matrix
      */
     public Matrix(Matrix src) {
-        native_instance = nCreate(src != null ? src.native_instance : 0);
+        native_instance = ExtraNatives.nCreate(src != null ? src.native_instance : 0);
         NoImagePreloadHolder.sRegistry.registerNativeAllocation(this, native_instance);
     }
 
@@ -521,7 +523,7 @@ public class Matrix {
     }
 
     /**
-     * Controlls how the src rect should align into the dst rect for setRectToRect().
+     * Controls how the src rect should align into the dst rect for setRectToRect().
      */
     public enum ScaleToFit {
         /**
@@ -558,7 +560,7 @@ public class Matrix {
 
     /**
      * Set the matrix to the scale and translate values that map the source rectangle to the
-     * destination rectangle, returning true if the the result can be represented.
+     * destination rectangle, returning true if the result can be represented.
      *
      * @param src the source rectangle to map from.
      * @param dst the destination rectangle to map to.
@@ -781,10 +783,7 @@ public class Matrix {
         return sb.toString();
     }
 
-    /**
-     * @hide
-     */
-    public void toShortString(StringBuilder sb) {
+    private void toShortString(StringBuilder sb) {
         float[] values = new float[9];
         getValues(values);
         sb.append('[');
@@ -809,11 +808,13 @@ public class Matrix {
     }
 
     /**
-     * Print short string, to optimize dumping.
+     * Dumps a human-readable shortened string of the matrix into the given
+     * stream
      *
-     * @hide
+     * @param pw The {@link PrintWriter} into which the string representation of
+     *           the matrix will be written.
      */
-    public void printShortString(PrintWriter pw) {
+    public final void dump(@NonNull PrintWriter pw) {
         float[] values = new float[9];
         getValues(values);
         pw.print('[');
@@ -838,16 +839,13 @@ public class Matrix {
 
     }
 
-    /** @hide */
+    /**
+     *  @hide For access by android.graphics.pdf but must not be accessed outside the module.
+     *  FIXME: PdfRenderer accesses it, but the plan is to leave it out of the module.
+     */
     public final long ni() {
         return native_instance;
     }
-
-    // ------------------ Regular JNI ------------------------
-
-    private static native long nCreate(long nSrc_or_zero);
-    private static native long nGetNativeFinalizer();
-
 
     // ------------------ Fast JNI ------------------------
 
@@ -940,4 +938,17 @@ public class Matrix {
     private static native float nMapRadius(long nObject, float radius);
     @CriticalNative
     private static native boolean nEquals(long nA, long nB);
+
+    /**
+     * Due to b/337329128, native methods that are called by the static initializers cannot be
+     * in the same class when running on a host side JVM (such as on Ravenwood and Android Studio).
+     *
+     * There are two methods that are called by the static initializers (either directly or
+     * indirectly) in this class, namely nCreate() and nGetNativeFinalizer(). On Ravenwood
+     * these methods can't be on the Matrix class itself, so we use a nested class to host them.
+     */
+    private static class ExtraNatives {
+        static native long nCreate(long nSrc_or_zero);
+        static native long nGetNativeFinalizer();
+    }
 }

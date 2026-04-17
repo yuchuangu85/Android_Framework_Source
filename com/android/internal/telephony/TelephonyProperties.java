@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
  * Contains a list of string constants used to get or set telephone properties
  * in the system. You can use {@link android.os.SystemProperties os.SystemProperties}
@@ -75,7 +77,7 @@ public interface TelephonyProperties
     /**
      * The contents of this property is the value of the kernel command line
      * product_type variable that corresponds to a product that supports LTE on CDMA.
-     * {@see BaseCommands#getLteOnCdmaMode()}
+     * @see BaseCommands#getLteOnCdmaMode()
      */
     static final String PROPERTY_LTE_ON_CDMA_PRODUCT_TYPE = "telephony.lteOnCdmaProductType";
 
@@ -84,7 +86,7 @@ public interface TelephonyProperties
      * {@link Phone#LTE_ON_CDMA_FALSE}. If absent the value will assumed to be false
      * and the {@see #PROPERTY_LTE_ON_CDMA_PRODUCT_TYPE} will be used to determine its
      * final value which could also be {@link Phone#LTE_ON_CDMA_FALSE}.
-     * {@see BaseCommands#getLteOnCdmaMode()}
+     * @see BaseCommands#getLteOnCdmaMode()
      */
     static final String PROPERTY_LTE_ON_CDMA_DEVICE = "telephony.lteOnCdmaDevice";
 
@@ -101,6 +103,7 @@ public interface TelephonyProperties
      *  provider of the SIM. 5 or 6 decimal digits.
      *  Availability: SIM state must be "READY"
      */
+    @UnsupportedAppUsage
     static String PROPERTY_ICC_OPERATOR_NUMERIC = "gsm.sim.operator.numeric";
 
     /** PROPERTY_ICC_OPERATOR_ALPHA is also known as the SPN, or Service Provider Name.
@@ -166,13 +169,13 @@ public interface TelephonyProperties
 
     /**
      * Set to false to disable SMS receiving, default is
-     * the value of config_sms_capable
+     * the value of TelephonyManager.isDeviceSmsCapable
      */
     static final String PROPERTY_SMS_RECEIVE = "telephony.sms.receive";
 
     /**
      * Set to false to disable SMS sending, default is
-     * the value of config_sms_capable
+     * the value of TelephonyManager.isDeviceSmsCapable
      */
     static final String PROPERTY_SMS_SEND = "telephony.sms.send";
 
@@ -188,11 +191,17 @@ public interface TelephonyProperties
      */
     static final String PROPERTY_IGNORE_NITZ = "telephony.test.ignore.nitz";
 
-     /**
+    /**
      * Property to set multi sim feature.
      * Type:  String(dsds, dsda)
      */
     static final String PROPERTY_MULTI_SIM_CONFIG = "persist.radio.multisim.config";
+
+    /**
+     * Property to indicate if reboot is required when changing modems configurations
+     * Type:  String(true, false) default is false; most devices don't need reboot
+     */
+    String PROPERTY_REBOOT_REQUIRED_ON_MODEM_CHANGE = "persist.radio.reboot_on_modem_change";
 
     /**
      * Property to store default subscription.
@@ -218,4 +227,18 @@ public interface TelephonyProperties
      */
     static final String PROPERTY_VIDEOCALL_AUDIO_OUTPUT = "persist.radio.call.audio.output";
 
+    /** 'true' if the carrier text from opportunistic subscription should be used to display
+     * on UI.
+     *
+     */
+    String DISPLAY_OPPORTUNISTIC_SUBSCRIPTION_CARRIER_TEXT_PROPERTY_NAME =
+            "persist.radio.display_opportunistic_carrier";
+
+    /**
+     * How many logical modems can be active simultaneously. For example, if a device is dual-SIM
+     * capable but currently only one SIM slot and one logical modem is active, this value is still
+     * two.
+     * Type: int
+     */
+    static final String PROPERTY_MAX_ACTIVE_MODEMS = "telephony.active_modems.max_count";
 }

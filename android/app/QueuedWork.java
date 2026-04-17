@@ -16,15 +16,19 @@
 
 package android.app;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.Message;
 import android.os.Process;
 import android.os.StrictMode;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
 import android.util.Log;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.ExponentiallyBucketedHistogram;
 
 import java.util.LinkedList;
@@ -46,6 +50,7 @@ import java.util.LinkedList;
  *
  * @hide
  */
+@RavenwoodKeepWholeClass
 public class QueuedWork {
     private static final String LOG_TAG = QueuedWork.class.getSimpleName();
     private static final boolean DEBUG = false;
@@ -70,6 +75,7 @@ public class QueuedWork {
 
     /** Finishers {@link #addFinisher added} and not yet {@link #removeFinisher removed} */
     @GuardedBy("sLock")
+    @UnsupportedAppUsage
     private static final LinkedList<Runnable> sFinishers = new LinkedList<>();
 
     /** {@link #getHandler() Lazily} created handler */
@@ -78,7 +84,7 @@ public class QueuedWork {
 
     /** Work queued via {@link #queue} */
     @GuardedBy("sLock")
-    private static final LinkedList<Runnable> sWork = new LinkedList<>();
+    private static LinkedList<Runnable> sWork = new LinkedList<>();
 
     /** If new work can be delayed or not */
     @GuardedBy("sLock")
@@ -96,6 +102,7 @@ public class QueuedWork {
      *
      * @return the handler
      */
+    @UnsupportedAppUsage
     private static Handler getHandler() {
         synchronized (sLock) {
             if (sHandler == null) {
@@ -106,6 +113,36 @@ public class QueuedWork {
                 sHandler = new QueuedWorkHandler(handlerThread.getLooper());
             }
             return sHandler;
+        }
+    }
+
+    /**
+     * Tear down the handler.
+     */
+    @VisibleForTesting
+    public static void resetHandler() {
+        synchronized (sLock) {
+            if (sHandler == null) {
+                return;
+            }
+            sHandler.getLooper().quitSafely();
+            sHandler = null;
+        }
+    }
+
+    /**
+     * Remove all Messages from the Handler with the given code.
+     *
+     * This method intentionally avoids creating the Handler if it doesn't
+     * already exist.
+     */
+    private static void handlerRemoveMessages(int what) {
+        synchronized (sLock) {
+            if (sHandler == null) {
+                // Nothing to remove
+                return;
+            }
+            getHandler().removeMessages(what);
         }
     }
 
@@ -121,6 +158,7 @@ public class QueuedWork {
      *
      * @param finisher The runnable to add as finisher
      */
+    @UnsupportedAppUsage
     public static void addFinisher(Runnable finisher) {
         synchronized (sLock) {
             sFinishers.add(finisher);
@@ -132,6 +170,7 @@ public class QueuedWork {
      *
      * @param finisher The runnable to remove.
      */
+    @UnsupportedAppUsage
     public static void removeFinisher(Runnable finisher) {
         synchronized (sLock) {
             sFinishers.remove(finisher);
@@ -150,17 +189,13 @@ public class QueuedWork {
         long startTime = System.currentTimeMillis();
         boolean hadMessages = false;
 
-        Handler handler = getHandler();
-
         synchronized (sLock) {
-            if (handler.hasMessages(QueuedWorkHandler.MSG_RUN)) {
-                // Delayed work will be processed at processPendingWork() below
-                handler.removeMessages(QueuedWorkHandler.MSG_RUN);
-
-                if (DEBUG) {
-                    hadMessages = true;
-                    Log.d(LOG_TAG, "waiting");
-                }
+            if (DEBUG) {
+                hadMessages = getHandler().hasMessages(QueuedWorkHandler.MSG_RUN);
+            }
+            handlerRemoveMessages(QueuedWorkHandler.MSG_RUN);
+            if (DEBUG && hadMessages) {
+                Log.d(LOG_TAG, "waiting");
             }
 
             // We should not delay any work as this might delay the finishers
@@ -212,6 +247,7 @@ public class QueuedWork {
      * @param work The new runnable to process
      * @param shouldDelay If the message should be delayed
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static void queue(Runnable work, boolean shouldDelay) {
         Handler handler = getHandler();
 
@@ -246,11 +282,11 @@ public class QueuedWork {
             LinkedList<Runnable> work;
 
             synchronized (sLock) {
-                work = (LinkedList<Runnable>) sWork.clone();
-                sWork.clear();
+                work = sWork;
+                sWork = new LinkedList<>();
 
                 // Remove all msg-s as all work will be processed now
-                getHandler().removeMessages(QueuedWorkHandler.MSG_RUN);
+                handlerRemoveMessages(QueuedWorkHandler.MSG_RUN);
             }
 
             if (work.size() > 0) {

@@ -16,8 +16,7 @@
 
 package com.android.internal.view.menu;
 
-import com.android.internal.view.menu.MenuBuilder.ItemInvoker;
-
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
@@ -28,10 +27,11 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
-import android.view.View;
-import android.view.ViewConfiguration;
-import android.view.ViewGroup;
 import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+
+import com.android.internal.view.menu.MenuBuilder.ItemInvoker;
 
 import java.util.ArrayList;
 
@@ -51,6 +51,7 @@ import java.util.ArrayList;
 public final class IconMenuView extends ViewGroup implements ItemInvoker, MenuView, Runnable {
     private static final int ITEM_CAPTION_CYCLE_DELAY = 1000;
 
+    @UnsupportedAppUsage
     private MenuBuilder mMenu;
     
     /** Height of each row */
@@ -58,6 +59,7 @@ public final class IconMenuView extends ViewGroup implements ItemInvoker, MenuVi
     /** Maximum number of rows to be shown */ 
     private int mMaxRows;
     /** Maximum number of items to show in the icon menu. */
+    @UnsupportedAppUsage
     private int mMaxItems;
     /** Maximum number of items per row */
     private int mMaxItemsPerRow;
@@ -82,6 +84,7 @@ public final class IconMenuView extends ViewGroup implements ItemInvoker, MenuVi
     private Drawable mMoreIcon;
 
     /** Background of each item (should contain the selected and focused states) */
+    @UnsupportedAppUsage
     private Drawable mItemBackground;
 
     /** Default animations for this menu */
@@ -121,7 +124,7 @@ public final class IconMenuView extends ViewGroup implements ItemInvoker, MenuVi
      * The number of rows in the current layout. 
      */
     private int mLayoutNumRows;
-    
+
     /**
      * Instantiates the IconMenuView that is linked with the provided MenuBuilder.
      */
@@ -220,7 +223,7 @@ public final class IconMenuView extends ViewGroup implements ItemInvoker, MenuVi
     private void layoutItemsUsingGravity(int numRows, int numItems) {
         int numBaseItemsPerRow = numItems / numRows;
         int numLeftoverItems = numItems % numRows;
-        /**
+        /*
          * The bottom rows will each get a leftover item. Rows (indexed at 0)
          * that are >= this get a leftover item. Note: if there are 0 leftover
          * items, no rows will get them since this value will be greater than
@@ -288,6 +291,7 @@ public final class IconMenuView extends ViewGroup implements ItemInvoker, MenuVi
      * have a MenuItemData backing it.
      * @return The IconMenuItemView for the 'More' button
      */
+    @UnsupportedAppUsage
     IconMenuItemView createMoreItemView() {
         Context context = getContext();
         LayoutInflater inflater = LayoutInflater.from(context);
@@ -494,6 +498,7 @@ public final class IconMenuView extends ViewGroup implements ItemInvoker, MenuVi
      *         {@link MenuView.ItemView} implementation--eg: excludes More
      *         item).
      */
+    @UnsupportedAppUsage
     int getNumActualItemsShown() {
         return mNumActualItemsShown;
     }
@@ -534,11 +539,10 @@ public final class IconMenuView extends ViewGroup implements ItemInvoker, MenuVi
     
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-
         if (event.getKeyCode() == KeyEvent.KEYCODE_MENU) {
             if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
                 removeCallbacks(this);
-                postDelayed(this, ViewConfiguration.getLongPressTimeout());
+                postDelayed(this, getLongPressTimeoutMillis());
             } else if (event.getAction() == KeyEvent.ACTION_UP) {
                 
                 if (mMenuBeingLongpressed) {
@@ -717,6 +721,7 @@ public final class IconMenuView extends ViewGroup implements ItemInvoker, MenuVi
         /**
          * Constructor called from {@link #CREATOR}
          */
+        @UnsupportedAppUsage
         private SavedState(Parcel in) {
             super(in);
             focusedPosition = in.readInt();

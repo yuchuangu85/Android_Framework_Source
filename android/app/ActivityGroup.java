@@ -16,6 +16,7 @@
 
 package android.app;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Intent;
 import android.os.Bundle;
 
@@ -35,8 +36,9 @@ public class ActivityGroup extends Activity {
 
     /**
      * This field should be made private, so it is hidden from the SDK.
-     * {@hide}
+     * @hide
      */
+    @UnsupportedAppUsage
     protected LocalActivityManager mLocalActivityManager;
     
     public ActivityGroup() {
@@ -92,7 +94,7 @@ public class ActivityGroup extends Activity {
      * Returns a HashMap mapping from child activity ids to the return values
      * from calls to their onRetainNonConfigurationInstance methods.
      *
-     * {@hide}
+     * @hide
      */
     @Override
     public HashMap<String,Object> onRetainNonConfigurationChildInstances() {
@@ -109,7 +111,7 @@ public class ActivityGroup extends Activity {
 
     @Override
     void dispatchActivityResult(String who, int requestCode, int resultCode,
-            Intent data, String reason) {
+            Intent data, ComponentCaller caller, String reason) {
         if (who != null) {
             Activity act = mLocalActivityManager.getActivity(who);
             /*
@@ -123,7 +125,7 @@ public class ActivityGroup extends Activity {
                 return;
             }
         }
-        super.dispatchActivityResult(who, requestCode, resultCode, data, reason);
+        super.dispatchActivityResult(who, requestCode, resultCode, data, caller, reason);
     }
 }
 

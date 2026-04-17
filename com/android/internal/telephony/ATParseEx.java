@@ -17,7 +17,7 @@
 package com.android.internal.telephony;
 
 /**
- * {@hide}
+ * @hide
  */
 public class ATParseEx extends RuntimeException
 {

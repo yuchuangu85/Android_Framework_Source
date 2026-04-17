@@ -20,21 +20,24 @@ import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.Size;
-import android.content.LocaleProto;
+import android.annotation.SuppressLint;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.icu.util.ULocale;
-import android.util.proto.ProtoOutputStream;
+import android.util.ArraySet;
 
 import com.android.internal.annotations.GuardedBy;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 
 /**
  * LocaleList is an immutable list of Locales, typically used to keep an ordered list of user
  * preferences for locales.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public final class LocaleList implements Parcelable {
     private final Locale[] mList;
     // This is a comma-separated list of the locales in the LocaleList created at construction time,
@@ -93,7 +96,7 @@ public final class LocaleList implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object other) {
+    public boolean equals(@Nullable Object other) {
         if (other == this)
             return true;
         if (!(other instanceof LocaleList))
@@ -138,26 +141,7 @@ public final class LocaleList implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel dest, int parcelableFlags) {
-        dest.writeString(mStringRepresentation);
-    }
-
-    /**
-     * Helper to write LocaleList to a protocol buffer output stream.  Assumes the parent
-     * protobuf has declared the locale as repeated.
-     *
-     * @param protoOutputStream Stream to write the locale to.
-     * @param fieldId Field Id of the Locale as defined in the parent message.
-     * @hide
-     */
-    public void writeToProto(ProtoOutputStream protoOutputStream, long fieldId) {
-        for (int i = 0; i < mList.length; i++) {
-            final Locale locale = mList[i];
-            final long token = protoOutputStream.start(fieldId);
-            protoOutputStream.write(LocaleProto.LANGUAGE, locale.getLanguage());
-            protoOutputStream.write(LocaleProto.COUNTRY, locale.getCountry());
-            protoOutputStream.write(LocaleProto.VARIANT, locale.getVariant());
-            protoOutputStream.end(token);
-        }
+        dest.writeString8(mStringRepresentation);
     }
 
     /**
@@ -169,48 +153,83 @@ public final class LocaleList implements Parcelable {
     }
 
     /**
+     * Find the intersection between this LocaleList and another
+     * @return an array of the Locales in both LocaleLists
+     * @hide
+     */
+    @NonNull
+    public Locale[] getIntersection(@NonNull LocaleList other) {
+        List<Locale> intersection = new ArrayList<>();
+        for (Locale l1 : mList) {
+            for (Locale l2 : other.mList) {
+                if (matchesLanguageAndScript(l2, l1)) {
+                    intersection.add(l1);
+                    break;
+                }
+            }
+        }
+        return intersection.toArray(new Locale[0]);
+    }
+
+    /**
      * Creates a new {@link LocaleList}.
      *
+     * If two or more same locales are passed, the repeated locales will be dropped.
      * <p>For empty lists of {@link Locale} items it is better to use {@link #getEmptyLocaleList()},
      * which returns a pre-constructed empty list.</p>
      *
      * @throws NullPointerException if any of the input locales is <code>null</code>.
-     * @throws IllegalArgumentException if any of the input locales repeat.
      */
     public LocaleList(@NonNull Locale... list) {
         if (list.length == 0) {
             mList = sEmptyList;
             mStringRepresentation = "";
-        } else {
-            final Locale[] localeList = new Locale[list.length];
-            final HashSet<Locale> seenLocales = new HashSet<Locale>();
-            final StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < list.length; i++) {
-                final Locale l = list[i];
-                if (l == null) {
-                    throw new NullPointerException("list[" + i + "] is null");
-                } else if (seenLocales.contains(l)) {
-                    throw new IllegalArgumentException("list[" + i + "] is a repetition");
-                } else {
-                    final Locale localeClone = (Locale) l.clone();
-                    localeList[i] = localeClone;
-                    sb.append(localeClone.toLanguageTag());
-                    if (i < list.length - 1) {
-                        sb.append(',');
-                    }
-                    seenLocales.add(localeClone);
-                }
-            }
-            mList = localeList;
-            mStringRepresentation = sb.toString();
+            return;
         }
+
+        // Ensure capacity is large enough to avoid resizing
+        final ArraySet<Locale> seenLocales = new ArraySet(list.length);
+        final List<Locale> localeList = new ArrayList<>(list.length);
+
+        // Ensure capacity for all language tags in string representation
+        int stringRepresentationLen = 0;
+
+        for (int i = 0; i < list.length; i++) {
+            final Locale l = list[i];
+            if (l == null) {
+                throw new NullPointerException("list[" + i + "] is null");
+            }
+
+            final Locale localeClone = (Locale) l.clone();
+            // Dedupe locales
+            if (seenLocales.add(localeClone)) {
+                localeList.add(localeClone);
+                stringRepresentationLen += localeClone.toLanguageTag().length();
+            }
+        }
+        Locale[] localeArray = new Locale[localeList.size()];
+        localeList.toArray(localeArray);
+        mList = localeArray;
+
+        // Add capacity for comma delimiters
+        stringRepresentationLen += mList.length - 1;
+
+
+        final StringBuilder sb = new StringBuilder(stringRepresentationLen);
+        for (int i = 0; i < localeArray.length; i++) {
+            sb.append(localeArray[i].toLanguageTag());
+            if (i < localeArray.length - 1) {
+                sb.append(',');
+            }
+        }
+        mStringRepresentation = sb.toString();
     }
 
     /**
      * Constructs a locale list, with the topLocale moved to the front if it already is
      * in otherLocales, or added to the front if it isn't.
      *
-     * {@hide}
+     * @hide
      */
     public LocaleList(@NonNull Locale topLocale, LocaleList otherLocales) {
         if (topLocale == null) {
@@ -255,11 +274,11 @@ public final class LocaleList implements Parcelable {
         mStringRepresentation = sb.toString();
     }
 
-    public static final Parcelable.Creator<LocaleList> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<LocaleList> CREATOR
             = new Parcelable.Creator<LocaleList>() {
         @Override
         public LocaleList createFromParcel(Parcel source) {
-            return LocaleList.forLanguageTags(source.readString());
+            return LocaleList.forLanguageTags(source.readString8());
         }
 
         @Override
@@ -318,24 +337,43 @@ public final class LocaleList implements Parcelable {
 
     /**
      * Returns true if locale is a pseudo-locale, false otherwise.
-     * {@hide}
+     * @hide
      */
     public static boolean isPseudoLocale(Locale locale) {
         return LOCALE_EN_XA.equals(locale) || LOCALE_AR_XB.equals(locale);
     }
 
-    @IntRange(from=0, to=1)
-    private static int matchScore(Locale supported, Locale desired) {
+    /**
+     * Returns true if locale is a pseudo-locale, false otherwise.
+     */
+    public static boolean isPseudoLocale(@Nullable ULocale locale) {
+        return isPseudoLocale(locale != null ? locale.toLocale() : null);
+    }
+
+    /**
+     * Determine whether two locales are considered a match, even if they are not exactly equal.
+     * They are considered as a match when both of their languages and scripts
+     * (explicit or inferred) are identical. This means that a user would be able to understand
+     * the content written in the supported locale even if they say they prefer the desired locale.
+     *
+     * E.g. [zh-HK] matches [zh-Hant]; [en-US] matches [en-CA]
+     *
+     * @param supported The supported {@link Locale} to be compared.
+     * @param desired   The desired {@link Locale} to be compared.
+     * @return True if they match, false otherwise.
+     */
+    public static boolean matchesLanguageAndScript(@SuppressLint("UseIcu") @NonNull
+            Locale supported, @SuppressLint("UseIcu") @NonNull Locale desired) {
         if (supported.equals(desired)) {
-            return 1;  // return early so we don't do unnecessary computation
+            return true;  // return early so we don't do unnecessary computation
         }
         if (!supported.getLanguage().equals(desired.getLanguage())) {
-            return 0;
+            return false;
         }
         if (isPseudoLocale(supported) || isPseudoLocale(desired)) {
             // The locales are not the same, but the languages are the same, and one of the locales
             // is a pseudo-locale. So this is not a match.
-            return 0;
+            return false;
         }
         final String supportedScr = getLikelyScript(supported);
         if (supportedScr.isEmpty()) {
@@ -343,20 +381,17 @@ public final class LocaleList implements Parcelable {
             // if the locales match. So we fall back to old behavior of matching, which considered
             // locales with different regions different.
             final String supportedRegion = supported.getCountry();
-            return (supportedRegion.isEmpty() ||
-                    supportedRegion.equals(desired.getCountry()))
-                    ? 1 : 0;
+            return supportedRegion.isEmpty() || supportedRegion.equals(desired.getCountry());
         }
         final String desiredScr = getLikelyScript(desired);
         // There is no match if the two locales use different scripts. This will most imporantly
         // take care of traditional vs simplified Chinese.
-        return supportedScr.equals(desiredScr) ? 1 : 0;
+        return supportedScr.equals(desiredScr);
     }
 
     private int findFirstMatchIndex(Locale supportedLocale) {
         for (int idx = 0; idx < mList.length; idx++) {
-            final int score = matchScore(supportedLocale, mList[idx]);
-            if (score > 0) {
+            if (matchesLanguageAndScript(supportedLocale, mList[idx])) {
                 return idx;
             }
         }
@@ -423,7 +458,7 @@ public final class LocaleList implements Parcelable {
     }
 
     /**
-     * {@hide}
+     * @hide
      */
     public int getFirstMatchIndex(String[] supportedLocales) {
         return computeFirstMatchIndex(Arrays.asList(supportedLocales),
@@ -432,7 +467,7 @@ public final class LocaleList implements Parcelable {
 
     /**
      * Same as getFirstMatch(), but with English assumed to be supported, even if it's not.
-     * {@hide}
+     * @hide
      */
     @Nullable
     public Locale getFirstMatchWithEnglishSupported(String[] supportedLocales) {
@@ -441,14 +476,14 @@ public final class LocaleList implements Parcelable {
     }
 
     /**
-     * {@hide}
+     * @hide
      */
     public int getFirstMatchIndexWithEnglishSupported(Collection<String> supportedLocales) {
         return computeFirstMatchIndex(supportedLocales, true /* assume English is supported */);
     }
 
     /**
-     * {@hide}
+     * @hide
      */
     public int getFirstMatchIndexWithEnglishSupported(String[] supportedLocales) {
         return getFirstMatchIndexWithEnglishSupported(Arrays.asList(supportedLocales));
@@ -457,7 +492,7 @@ public final class LocaleList implements Parcelable {
     /**
      * Returns true if the collection of locale tags only contains empty locales and pseudolocales.
      * Assumes that there is no repetition in the input.
-     * {@hide}
+     * @hide
      */
     public static boolean isPseudoLocalesOnly(@Nullable String[] supportedLocales) {
         if (supportedLocales == null) {
@@ -556,8 +591,9 @@ public final class LocaleList implements Parcelable {
      * default locale may have been chosen to be a locale other than the first locale in the locale
      * list (based on the locales the app supports).
      *
-     * {@hide}
+     * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static void setDefault(@NonNull @Size(min=1) LocaleList locales, int localeIndex) {
         if (locales == null) {
             throw new NullPointerException("locales is null");

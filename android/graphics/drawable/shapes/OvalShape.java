@@ -28,6 +28,7 @@ import android.graphics.RectF;
  * but more graphical control is available if you instead pass
  * the OvalShape to a {@link android.graphics.drawable.ShapeDrawable}.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class OvalShape extends RectShape {
 
     public OvalShape() {}

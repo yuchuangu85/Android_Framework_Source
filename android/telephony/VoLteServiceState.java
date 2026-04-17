@@ -16,16 +16,21 @@
 
 package android.telephony;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.telephony.Rlog;
+
+import com.android.telephony.Rlog;
 
 /**
  * Contains LTE network state related information.
- *
+ * @deprecated Only contains SRVCC state, which isn't specific to LTE handovers. For SRVCC
+ * indications, use {@link PhoneStateListener#onSrvccStateChanged(int)}.
  * @hide
  */
+@Deprecated
 public final class VoLteServiceState implements Parcelable {
 
     private static final String LOG_TAG = "VoLteServiceState";
@@ -48,8 +53,7 @@ public final class VoLteServiceState implements Parcelable {
     /**
      * Create a new VoLteServiceState from a intent notifier Bundle
      *
-     * This method is used by PhoneStateIntentReceiver and maybe by
-     * external applications.
+     * This method is maybe used by external applications.
      *
      * @param m Bundle from intent notifier
      * @return newly created VoLteServiceState
@@ -77,6 +81,7 @@ public final class VoLteServiceState implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public VoLteServiceState(int srvccState) {
         initialize();
 
@@ -140,7 +145,7 @@ public final class VoLteServiceState implements Parcelable {
      *
      * @hide
      */
-    public static final Parcelable.Creator<VoLteServiceState> CREATOR = new Parcelable.Creator() {
+    public static final @android.annotation.NonNull Parcelable.Creator<VoLteServiceState> CREATOR = new Parcelable.Creator() {
         public VoLteServiceState createFromParcel(Parcel in) {
             return new VoLteServiceState(in);
         }

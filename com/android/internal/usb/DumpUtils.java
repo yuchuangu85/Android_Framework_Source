@@ -16,16 +16,18 @@
 
 package com.android.internal.usb;
 
-import static android.hardware.usb.UsbPort.MODE_AUDIO_ACCESSORY;
-import static android.hardware.usb.UsbPort.MODE_DEBUG_ACCESSORY;
-import static android.hardware.usb.UsbPort.MODE_DFP;
-import static android.hardware.usb.UsbPort.MODE_DUAL;
-import static android.hardware.usb.UsbPort.MODE_NONE;
-import static android.hardware.usb.UsbPort.MODE_UFP;
+import static android.hardware.usb.UsbPort.FLAG_ALT_MODE_TYPE_DISPLAYPORT;
+import static android.hardware.usb.UsbPortStatus.MODE_AUDIO_ACCESSORY;
+import static android.hardware.usb.UsbPortStatus.MODE_DEBUG_ACCESSORY;
+import static android.hardware.usb.UsbPortStatus.MODE_DFP;
+import static android.hardware.usb.UsbPortStatus.MODE_DUAL;
+import static android.hardware.usb.UsbPortStatus.MODE_NONE;
+import static android.hardware.usb.UsbPortStatus.MODE_UFP;
 
 import static com.android.internal.util.dump.DumpUtils.writeStringIfNotNull;
 
 import android.annotation.NonNull;
+import android.hardware.usb.DisplayPortAltModeInfo;
 import android.hardware.usb.UsbAccessory;
 import android.hardware.usb.UsbConfiguration;
 import android.hardware.usb.UsbDevice;
@@ -174,6 +176,16 @@ public class DumpUtils {
         } else {
             dump.write("supported_modes", UsbPortProto.SUPPORTED_MODES, UsbPort.modeToString(mode));
         }
+        dump.write("supports_compliance_warnings",
+                UsbPortProto.SUPPORTS_COMPLIANCE_WARNINGS,
+                port.supportsComplianceWarnings());
+        if (port.isAltModeSupported(FLAG_ALT_MODE_TYPE_DISPLAYPORT)) {
+            dump.write("supported_alt_modes", UsbPortProto.SUPPORTED_ALT_MODES,
+                    FLAG_ALT_MODE_TYPE_DISPLAYPORT);
+        }
+        dump.write("supports_power_profiles",
+                UsbPortProto.SUPPORTS_POWER_PROFILES,
+                port.supportsPowerProfiles());
 
         dump.end(token);
     }
@@ -196,6 +208,15 @@ public class DumpUtils {
         }
     }
 
+    private static void writeContaminantPresenceStatus(@NonNull DualDumpOutputStream dump,
+            @NonNull String idName, long id, int contaminantPresenceStatus) {
+        if (dump.isProto()) {
+            dump.write(idName, id, contaminantPresenceStatus);
+        } else {
+            dump.write(idName, id,
+                    UsbPort.contaminantPresenceStatusToString(contaminantPresenceStatus));
+        }
+    }
 
     public static void writePortStatus(@NonNull DualDumpOutputStream dump, @NonNull String idName,
             long id, @NonNull UsbPortStatus status) {
@@ -232,6 +253,25 @@ public class DumpUtils {
             dump.end(roleCombinationToken);
         }
 
+        writeContaminantPresenceStatus(dump, "contaminant_presence_status",
+                UsbPortStatusProto.CONTAMINANT_PRESENCE_STATUS,
+                status.getContaminantDetectionStatus());
+        dump.write("usb_data_status", UsbPortStatusProto.USB_DATA_STATUS,
+                UsbPort.usbDataStatusToString(status.getUsbDataStatus()));
+        dump.write("is_power_transfer_limited", UsbPortStatusProto.IS_POWER_TRANSFER_LIMITED,
+                status.isPowerTransferLimited());
+        dump.write("usb_power_brick_status", UsbPortStatusProto.USB_POWER_BRICK_STATUS,
+                UsbPort.powerBrickConnectionStatusToString(status.getPowerBrickConnectionStatus()));
+        dump.write("compliance_warning_status", UsbPortStatusProto.COMPLIANCE_WARNINGS_STRING,
+                UsbPort.complianceWarningsToString(status.getComplianceWarnings()));
+        DisplayPortAltModeInfo displayPortAltModeInfo = status.getDisplayPortAltModeInfo();
+        if (displayPortAltModeInfo != null) {
+            dump.write("displayport_alt_mode_status",
+                    UsbPortStatusProto.DISPLAYPORT_ALT_MODE_STATUS,
+                    status.getDisplayPortAltModeInfo().toString());
+        }
+        dump.write("power_profile_status", UsbPortStatusProto.POWER_PROFILES_STRING,
+                status.getPowerProfileInfoString());
         dump.end(token);
     }
 }

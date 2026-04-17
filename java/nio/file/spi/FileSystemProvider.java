@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,17 +25,53 @@
 
 package java.nio.file.spi;
 
-import java.nio.file.*;
-import java.nio.file.attribute.*;
-import java.nio.channels.*;
+import java.nio.channels.AsynchronousFileChannel;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.SeekableByteChannel;
+import java.nio.channels.WritableByteChannel;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.AccessMode;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.CopyOption;
+import java.nio.file.DirectoryNotEmptyException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.FileStore;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystemAlreadyExistsException;
+import java.nio.file.FileSystemNotFoundException;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.LinkPermission;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.NotDirectoryException;
+import java.nio.file.NotLinkException;
+import java.nio.file.OpenOption;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.net.URI;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.IOException;
-import java.util.*;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileAttribute;
+import java.nio.file.attribute.FileAttributeView;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.ServiceConfigurationError;
+import java.util.ServiceLoader;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+
+import sun.nio.ch.FileChannelImpl;
 
 /**
  * Service-provider class for file systems. The methods defined by the {@link
@@ -81,7 +117,7 @@ public abstract class FileSystemProvider {
     // installed providers
     private static volatile List<FileSystemProvider> installedProviders;
 
-    // used to avoid recursive loading of instaled providers
+    // used to avoid recursive loading of installed providers
     private static boolean loadingProviders  = false;
 
     private static Void checkPermission() {
@@ -102,7 +138,7 @@ public abstract class FileSystemProvider {
      *
      * @throws  SecurityException
      *          If a security manager has been installed and it denies
-     *          {@link RuntimePermission}<tt>("fileSystemProvider")</tt>
+     *          {@link RuntimePermission}{@code ("fileSystemProvider")}
      */
     protected FileSystemProvider() {
         this(checkPermission());
@@ -110,7 +146,7 @@ public abstract class FileSystemProvider {
 
     // loads all installed providers
     private static List<FileSystemProvider> loadInstalledProviders() {
-        List<FileSystemProvider> list = new ArrayList<FileSystemProvider>();
+        List<FileSystemProvider> list = new ArrayList<>();
 
         ServiceLoader<FileSystemProvider> sl = ServiceLoader
             .load(FileSystemProvider.class, ClassLoader.getSystemClassLoader());
@@ -163,7 +199,7 @@ public abstract class FileSystemProvider {
                     loadingProviders = true;
 
                     List<FileSystemProvider> list = AccessController
-                        .doPrivileged(new PrivilegedAction<List<FileSystemProvider>>() {
+                        .doPrivileged(new PrivilegedAction<>() {
                             @Override
                             public List<FileSystemProvider> run() {
                                 return loadInstalledProviders();
@@ -381,8 +417,16 @@ public abstract class FileSystemProvider {
                     throw new UnsupportedOperationException("'" + opt + "' not allowed");
             }
         }
-        return Channels.newInputStream(Files.newByteChannel(path, options));
+        ReadableByteChannel rbc = Files.newByteChannel(path, options);
+        if (rbc instanceof FileChannelImpl) {
+            ((FileChannelImpl) rbc).setUninterruptible();
+        }
+        return Channels.newInputStream(rbc);
     }
+
+    private static final Set<OpenOption> DEFAULT_OPEN_OPTIONS =
+        Set.of(StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
+            StandardOpenOption.WRITE);
 
     /**
      * Opens or creates a file, returning an output stream that may be used to
@@ -419,19 +463,23 @@ public abstract class FileSystemProvider {
         throws IOException
     {
         int len = options.length;
-        Set<OpenOption> opts = new HashSet<OpenOption>(len + 3);
+        Set<OpenOption> opts ;
         if (len == 0) {
-            opts.add(StandardOpenOption.CREATE);
-            opts.add(StandardOpenOption.TRUNCATE_EXISTING);
+            opts = DEFAULT_OPEN_OPTIONS;
         } else {
+            opts = new HashSet<>();
             for (OpenOption opt: options) {
                 if (opt == StandardOpenOption.READ)
                     throw new IllegalArgumentException("READ not allowed");
                 opts.add(opt);
             }
+            opts.add(StandardOpenOption.WRITE);
         }
-        opts.add(StandardOpenOption.WRITE);
-        return Channels.newOutputStream(newByteChannel(path, opts));
+        WritableByteChannel wbc = newByteChannel(path, opts);
+        if (wbc instanceof FileChannelImpl) {
+            ((FileChannelImpl) wbc).setUninterruptible();
+        }
+        return Channels.newOutputStream(wbc);
     }
 
     /**
@@ -644,7 +692,7 @@ public abstract class FileSystemProvider {
      *          if an I/O error occurs
      * @throws  SecurityException
      *          In the case of the default provider, and a security manager
-     *          is installed, it denies {@link LinkPermission}<tt>("symbolic")</tt>
+     *          is installed, it denies {@link LinkPermission}{@code ("symbolic")}
      *          or its {@link SecurityManager#checkWrite(String) checkWrite}
      *          method denies write access to the path of the symbolic link.
      */
@@ -677,7 +725,7 @@ public abstract class FileSystemProvider {
      *          if an I/O error occurs
      * @throws  SecurityException
      *          In the case of the default provider, and a security manager
-     *          is installed, it denies {@link LinkPermission}<tt>("hard")</tt>
+     *          is installed, it denies {@link LinkPermission}{@code ("hard")}
      *          or its {@link SecurityManager#checkWrite(String) checkWrite}
      *          method denies write access to either the  link or the
      *          existing file.
@@ -902,8 +950,8 @@ public abstract class FileSystemProvider {
      *          In the case of the default provider, and a security manager is
      *          installed, the {@link SecurityManager#checkRead(String) checkRead}
      *          method is invoked to check read access to the file, and in
-     *          addition it checks {@link RuntimePermission}<tt>
-     *          ("getFileStoreAttributes")</tt>
+     *          addition it checks
+     *          {@link RuntimePermission}{@code ("getFileStoreAttributes")}
      */
     public abstract FileStore getFileStore(Path path) throws IOException;
 
@@ -919,20 +967,24 @@ public abstract class FileSystemProvider {
      * according to all of access modes specified in the {@code modes} parameter
      * as follows:
      *
-     * <table border=1 cellpadding=5 summary="">
-     * <tr> <th>Value</th> <th>Description</th> </tr>
+     * <table class="striped">
+     * <caption style="display:none">Access Modes</caption>
+     * <thead>
+     * <tr> <th scope="col">Value</th> <th scope="col">Description</th> </tr>
+     * </thead>
+     * <tbody>
      * <tr>
-     *   <td> {@link AccessMode#READ READ} </td>
+     *   <th scope="row"> {@link AccessMode#READ READ} </th>
      *   <td> Checks that the file exists and that the Java virtual machine has
      *     permission to read the file. </td>
      * </tr>
      * <tr>
-     *   <td> {@link AccessMode#WRITE WRITE} </td>
+     *   <th scope="row"> {@link AccessMode#WRITE WRITE} </th>
      *   <td> Checks that the file exists and that the Java virtual machine has
      *     permission to write to the file, </td>
      * </tr>
      * <tr>
-     *   <td> {@link AccessMode#EXECUTE EXECUTE} </td>
+     *   <th scope="row"> {@link AccessMode#EXECUTE EXECUTE} </th>
      *   <td> Checks that the file exists and that the Java virtual machine has
      *     permission to {@link Runtime#exec execute} the file. The semantics
      *     may differ when checking access to a directory. For example, on UNIX
@@ -940,6 +992,7 @@ public abstract class FileSystemProvider {
      *     virtual machine has permission to search the directory in order to
      *     access file or subdirectories. </td>
      * </tr>
+     * </tbody>
      * </table>
      *
      * <p> If the {@code modes} parameter is of length zero, then the existence

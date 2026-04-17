@@ -25,25 +25,26 @@
  */
 package java.lang;
 
+import dalvik.annotation.optimization.CriticalNative;
 import dalvik.annotation.optimization.FastNative;
 import android.system.ErrnoException;
-import android.system.StructPasswd;
 import android.system.StructUtsname;
 import dalvik.system.VMRuntime;
-import dalvik.system.VMStack;
 import java.io.*;
-import java.lang.annotation.Annotation;
 import java.nio.channels.Channel;
 import java.nio.channels.spi.SelectorProvider;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.PropertyPermission;
+import java.util.function.BiFunction;
+import java.util.function.Function;
+
 import libcore.icu.ICU;
 import libcore.io.Libcore;
-import libcore.util.TimeZoneDataFiles;
 
 import sun.reflect.CallerSensitive;
+import sun.reflect.Reflection;
 import sun.security.util.SecurityConstants;
 /**
  * The <code>System</code> class contains several useful class fields
@@ -296,8 +297,10 @@ public final class System {
      *          the current time and midnight, January 1, 1970 UTC.
      * @see     java.util.Date
      */
+    @CriticalNative
     public static native long currentTimeMillis();
 
+    // Android-added: Note on elapse time and deep sleep.
     /**
      * Returns the current value of the running Java Virtual Machine's
      * high-resolution time source, in nanoseconds.
@@ -338,10 +341,15 @@ public final class System {
      * one should use {@code t1 - t0 < 0}, not {@code t1 < t0},
      * because of the possibility of numerical overflow.
      *
+     * <p>The value returned by this method does not account for elapsed
+     * time during deep sleep. For timekeeping facilities available on
+     * Android see {@link android.os.SystemClock}.
+     *
      * @return the current value of the running Java Virtual Machine's
      *         high-resolution time source, in nanoseconds
      * @since 1.5
      */
+    @CriticalNative
     public static native long nanoTime();
 
     /**
@@ -509,13 +517,9 @@ public final class System {
      * The byte[] specialized version of arraycopy().
      * Note: This method is required for runtime ART compiler optimizations.
      * Do not remove or change the signature.
-     * Note: Unlike the others, this variant is public due to a dependency we
-     * are working on removing. b/74103559
-     *
-     * @hide
      */
     @SuppressWarnings("unused")
-    public static void arraycopy(byte[] src, int srcPos, byte[] dst, int dstPos, int length) {
+    private static void arraycopy(byte[] src, int srcPos, byte[] dst, int dstPos, int length) {
         if (src == null) {
             throw new NullPointerException("src == null");
         }
@@ -938,6 +942,52 @@ public final class System {
         }
 
         @Override
+        public synchronized Object compute(Object key,
+                BiFunction<? super Object, ? super Object, ?> remappingFunction) {
+            if (defaults == null || !defaults.containsKey(key)) {
+                return super.compute(key, remappingFunction);
+            } else {
+                logE("Ignoring attempt to modify property " + key);
+                // No new value is associated with the key, hence null.
+                return null;
+            }
+        }
+
+        @Override
+        public synchronized Object computeIfAbsent(Object key,
+                Function<? super Object, ?> mappingFunction) {
+            if (defaults == null || !defaults.containsKey(key)) {
+                return super.computeIfAbsent(key, mappingFunction);
+            } else {
+                logE("Ignoring attempt to modify property " + key);
+                return defaults.get(key);
+            }
+        }
+
+        @Override
+        public synchronized Object computeIfPresent(Object key,
+                BiFunction<? super Object, ? super Object, ?> remappingFunction) {
+            if (defaults == null || !defaults.containsKey(key)) {
+                return super.computeIfPresent(key, remappingFunction);
+            } else {
+                logE("Ignoring attempt to modify property " + key);
+                return defaults.get(key);
+            }
+        }
+
+        @Override
+        public synchronized Object merge(Object key, Object value,
+                BiFunction<? super Object, ? super Object, ?> remappingFunction) {
+            if (defaults == null || !defaults.containsKey(key)) {
+                return super.merge(key, value, remappingFunction);
+            } else {
+                logE("Ignoring attempt to modify property " + key);
+                // No new value is associated with the key, but
+                return defaults.get(key);
+            }
+        }
+
+        @Override
         public Object put(Object key, Object value) {
             if (defaults.containsKey(key)) {
                 logE("Ignoring attempt to set property \"" + key +
@@ -949,6 +999,22 @@ public final class System {
         }
 
         @Override
+        public synchronized void putAll(Map<?, ?> m) {
+            m.forEach(this::put);
+        }
+
+        @Override
+        public synchronized Object putIfAbsent(Object key, Object value) {
+            if (defaults == null || !defaults.containsKey(key)) {
+                return super.putIfAbsent(key, value);
+            } else {
+                logE("Ignoring attempt to modify property " + key);
+                // Returned values is in sync with put(Object, Object).
+                return defaults.get(key);
+            }
+        }
+
+        @Override
         public Object remove(Object key) {
             if (defaults.containsKey(key)) {
                 logE("Ignoring attempt to remove property \"" + key + "\".");
@@ -956,6 +1022,28 @@ public final class System {
             }
 
             return super.remove(key);
+        }
+
+
+        @Override
+        public synchronized Object replace(Object key, Object value) {
+            if (defaults == null || !defaults.containsKey(key)) {
+                return super.replace(key, value);
+            } else {
+                logE("Ignoring attempt to replace property \"" + key + "\".");
+                return defaults.get(key);
+            }
+        }
+
+        @Override
+        public synchronized boolean replace(Object key, Object oldValue, Object newValue) {
+            if (defaults == null || !defaults.containsKey(key)) {
+                return super.replace(key, oldValue, newValue);
+            } else {
+                logE("Ignoring attempt to replace property \"" + key + "\".");
+                // As it was not changed.
+                return false;
+            }
         }
     }
 
@@ -976,29 +1064,29 @@ public final class System {
         p.put("java.boot.class.path", runtime.bootClassPath());
         p.put("java.class.path", runtime.classPath());
 
-        // TODO: does this make any sense? Should we just leave java.home unset?
-        String javaHome = getenv("JAVA_HOME");
+        // This is probably not useful, but it's documented as being present.
+        // ANDROID_ART_ROOT is defined in `system/core/rootdir/init.environ.rc.in`.
+        String javaHome = getenv("ANDROID_ART_ROOT");
         if (javaHome == null) {
-            javaHome = "/system";
+            javaHome = "/apex/com.android.art";
         }
         p.put("java.home", javaHome);
 
         p.put("java.vm.version", runtime.vmVersion());
 
+        String userName;
         try {
-            StructPasswd passwd = Libcore.os.getpwuid(Libcore.os.getuid());
-            p.put("user.name", passwd.pw_name);
+            userName = Libcore.os.getpwuid(Libcore.os.getuid()).pw_name;
         } catch (ErrnoException exception) {
-            throw new AssertionError(exception);
+            userName = "unknown";
         }
+        p.put("user.name", userName);
 
         StructUtsname info = Libcore.os.uname();
         p.put("os.arch", info.machine);
-        if (p.get("os.name") != null && !p.get("os.name").equals(info.sysname)) {
-            logE("Wrong compile-time assumption for os.name: " + p.get("os.name") + " vs " +
-                    info.sysname);
-            p.put("os.name", info.sysname);
-        }
+        // os.name was previously hardcoded to "Linux", but was reverted due to support
+        // for Fuchsia. b/121268567 shows initialization regressions.
+        p.put("os.name", info.sysname);
         p.put("os.version", info.release);
 
         // Android-added: Undocumented properties that exist only on Android.
@@ -1006,19 +1094,11 @@ public final class System {
         p.put("android.icu.unicode.version", ICU.getUnicodeVersion());
         p.put("android.icu.cldr.version", ICU.getCldrVersion());
 
-        // Property override for ICU4J : this is the location of the ICU4C data. This
-        // is prioritized over the properties in ICUConfig.properties. The issue with using
-        // that is that it doesn't play well with jarjar and it needs complicated build rules
-        // to change its default value.
-        String icuDataPath = TimeZoneDataFiles.generateIcuDataPath();
-        p.put("android.icu.impl.ICUBinary.dataPath", icuDataPath);
-
         parsePropertyAssignments(p, specialProperties());
 
         // Override built-in properties with settings from the command line.
         // Note: it is not possible to override hardcoded values.
         parsePropertyAssignments(p, runtime.properties());
-
 
         // Set static hardcoded properties.
         // These come last, as they must be guaranteed to agree with what a backend compiler
@@ -1044,9 +1124,9 @@ public final class System {
     }
 
     private static Properties setDefaultChangeableProperties(Properties p) {
-        // On Android, each app gets its own temporary directory.
-        // (See android.app.ActivityThread.) This is just a fallback default,
-        // useful only on the host.
+        // On Android, "java.io.tmpdir" is set in android.app.ActivityThread. Each app gets its
+        // own location, a typical value would be "/data/user/0/com.android.deskclock/cache.
+        // The value set here is just a fallback default for host.
         // We check first if the property has not been set already: note that it
         // can only be set from the command line through the '-Djava.io.tmpdir=' option.
         if (!unchangeableProps.containsKey("java.io.tmpdir")) {
@@ -1119,9 +1199,9 @@ public final class System {
      * <tr><td>java.class.version</td> <td>(Not useful on Android)</td>           <td>{@code 50.0}</td></tr>
      * <tr><td>java.compiler</td>      <td>(Not useful on Android)</td>           <td>Empty</td></tr>
      * <tr><td>java.ext.dirs</td>      <td>(Not useful on Android)</td>           <td>Empty</td></tr>
-     * <tr><td>java.home</td>          <td>Location of the VM on the file system</td> <td>{@code /system}</td></tr>
-     * <tr><td>java.io.tmpdir</td>     <td>See {@link java.io.File#createTempFile}</td> <td>{@code /sdcard}</td></tr>
-     * <tr><td>java.library.path</td>  <td>Search path for JNI libraries</td>     <td>{@code /vendor/lib:/system/lib}</td></tr>
+     * <tr><td>java.home</td>          <td>Location of the VM on the file system</td> <td>{@code /apex/com.android.art/}</td></tr>
+     * <tr><td>java.io.tmpdir</td>     <td>Location of a temporary directory.<br>The location varies by application.<br>See {@link java.io.File#createTempFile}</td> <td>{@code /data/user/0/com.android.app/cache}</td></tr>
+     * <tr><td>java.library.path</td>  <td>Search path for JNI libraries</td>     <td>{@code /system/lib:/system_ext/lib}</td></tr>
      * <tr><td>java.vendor</td>        <td>Human-readable VM vendor</td>          <td>{@code The Android Project}</td></tr>
      * <tr><td>java.vendor.url</td>    <td>URL for VM vendor's web site</td>      <td>{@code http://www.android.com/}</td></tr>
      * <tr><td>java.version</td>       <td>(Not useful on Android)</td>           <td>{@code 0}</td></tr>
@@ -1138,9 +1218,9 @@ public final class System {
      *
      * <tr><td>line.separator</td>     <td>The system line separator</td>         <td>{@code \n}</td></tr>
      *
-     * <tr><td>os.arch</td>            <td>OS architecture</td>                   <td>{@code armv7l}</td></tr>
+     * <tr><td>os.arch</td>            <td>OS architecture</td>                   <td>{@code aarch64}</td></tr>
      * <tr><td>os.name</td>            <td>OS (kernel) name</td>                  <td>{@code Linux}</td></tr>
-     * <tr><td>os.version</td>         <td>OS (kernel) version</td>               <td>{@code 2.6.32.9-g103d848}</td></tr>
+     * <tr><td>os.version</td>         <td>OS (kernel) version</td>               <td>{@code 5.10.98-g6ea688a79989}</td></tr>
      *
      * <tr><td>path.separator</td>     <td>See {@link java.io.File#pathSeparator}</td> <td>{@code :}</td></tr>
      *
@@ -1511,21 +1591,32 @@ public final class System {
      * <blockquote><pre>
      * Runtime.getRuntime().gc()
      * </pre></blockquote>
+     * At API level 34 and lower, this does nothing unless it is preceded or
+     * followed by a runFinalization call.  Runtime.getRuntime().gc() always
+     * attempts to reclaim space.
+     * <p>
+     * Calling this indiscriminately is likely to severely degrade performance.
+     * Intended primarily for testing.
      *
      * @see     java.lang.Runtime#gc()
      */
     public static void gc() {
-        boolean shouldRunGC;
-        synchronized (LOCK) {
-            shouldRunGC = justRanFinalization;
-            if (shouldRunGC) {
-                justRanFinalization = false;
-            } else {
-                runGC = true;
-            }
-        }
-        if (shouldRunGC) {
+        int targetSdkVersion = VMRuntime.getRuntime().getTargetSdkVersion();
+        if (targetSdkVersion > 34) {
             Runtime.getRuntime().gc();
+        } else {
+            boolean shouldRunGC;
+            synchronized (LOCK) {
+                shouldRunGC = targetSdkVersion <= 34 ? justRanFinalization : true;
+                if (shouldRunGC) {
+                    justRanFinalization = false;
+                } else {
+                    runGC = true;
+                }
+            }
+            if (shouldRunGC) {
+                Runtime.getRuntime().gc();
+            }
         }
     }
 
@@ -1548,17 +1639,22 @@ public final class System {
      * @see     java.lang.Runtime#runFinalization()
      */
     public static void runFinalization() {
-        boolean shouldRunGC;
-        synchronized (LOCK) {
-            shouldRunGC = runGC;
-            runGC = false;
-        }
-        if (shouldRunGC) {
-            Runtime.getRuntime().gc();
+        int targetSdkVersion = VMRuntime.getRuntime().getTargetSdkVersion();
+        if (targetSdkVersion <= 34) {
+            boolean shouldRunGC;
+            synchronized (LOCK) {
+                shouldRunGC = runGC;
+                runGC = false;
+            }
+            if (shouldRunGC) {
+                Runtime.getRuntime().gc();
+            }
         }
         Runtime.getRuntime().runFinalization();
-        synchronized (LOCK) {
-            justRanFinalization = true;
+        if (targetSdkVersion <= 34) {
+            synchronized (LOCK) {
+                justRanFinalization = true;
+            }
         }
     }
 
@@ -1630,7 +1726,7 @@ public final class System {
      */
     @CallerSensitive
     public static void load(String filename) {
-        Runtime.getRuntime().load0(VMStack.getStackClass1(), filename);
+        Runtime.getRuntime().load0(Reflection.getCallerClass(), filename);
     }
 
     /**
@@ -1666,7 +1762,7 @@ public final class System {
      */
     @CallerSensitive
     public static void loadLibrary(String libname) {
-        Runtime.getRuntime().loadLibrary0(VMStack.getCallingClassLoader(), libname);
+        Runtime.getRuntime().loadLibrary0(Reflection.getCallerClass(), libname);
     }
 
     /**
@@ -1731,6 +1827,7 @@ public final class System {
         // wait until the application class loader has been set up.
         // IMPORTANT: Ensure that this remains the last initialization action!
         sun.misc.VM.booted();
+        jdk.internal.misc.VM.booted();
     }
 
     /**

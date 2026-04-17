@@ -24,6 +24,7 @@ import android.os.Parcelable;
  * This can only be used by code in the framework; it is not intended for
  * applications to implement their own Parcelable spans.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface ParcelableSpan extends Parcelable {
     /**
      * Return a special type identifier for this span class.

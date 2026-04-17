@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,17 @@
 
 package android.security.net.config;
 
+import android.annotation.Nullable;
+import android.net.InetAddresses;
+
+import java.net.InetAddress;
 import java.util.Locale;
+import java.util.Set;
+
 /** @hide */
 public final class Domain {
+    private static final Set<String> LOCALHOSTS = Set.of("localhost", "ip6-localhost");
+
     /**
      * Lower case hostname for this domain rule.
      */
@@ -43,7 +51,7 @@ public final class Domain {
     }
 
     @Override
-    public boolean equals(Object other) {
+    public boolean equals(@Nullable Object other) {
         if (other == this) {
             return true;
         }
@@ -51,7 +59,35 @@ public final class Domain {
             return false;
         }
         Domain otherDomain = (Domain) other;
-        return otherDomain.subdomainsIncluded == this.subdomainsIncluded &&
-                otherDomain.hostname.equals(this.hostname);
+        return otherDomain.subdomainsIncluded == this.subdomainsIncluded
+                && otherDomain.hostname.equals(this.hostname);
+    }
+
+    public boolean isLocalhost() {
+        return isLocalhost(this.hostname);
+    }
+
+    /**
+     * Whether the hostname is considered to be localhost or not.
+     */
+    public static boolean isLocalhost(String hostname) {
+        if (LOCALHOSTS.contains(hostname)) {
+            return true;
+        }
+        // RFC 2732: To use a literal IPv6 address in a URL, the literal
+        // address should be enclosed in "[" and "]" characters.
+        if (hostname.charAt(0) == '[' && hostname.charAt(hostname.length() - 1) == ']') {
+            hostname = hostname.substring(1, hostname.length() - 1);
+        }
+        // parseNumericAddress raises an exception if the address is not valid.
+        // We could use isNumericAddress beforehand to avoid the exception, but
+        // this would imply parsing the address twice. Simply ignore
+        // IllegalArgumentException.
+        try {
+            InetAddress addr = InetAddresses.parseNumericAddress(hostname);
+            return addr.isLoopbackAddress();
+        } catch (IllegalArgumentException e) {
+        }
+        return false;
     }
 }

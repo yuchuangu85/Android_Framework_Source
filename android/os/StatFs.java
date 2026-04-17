@@ -16,6 +16,7 @@
 
 package android.os;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.StructStatVfs;
@@ -25,6 +26,7 @@ import android.system.StructStatVfs;
  * wrapper for Unix statvfs().
  */
 public class StatFs {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private StructStatVfs mStat;
 
     /**
@@ -107,7 +109,7 @@ public class StatFs {
      * The total number of blocks that are free on the file system, including
      * reserved blocks (that are not available to normal applications). This
      * corresponds to the Unix {@code statvfs.f_bfree} field. Most applications
-     * will want to use {@link #getAvailableBlocks()} instead.
+     * will want to use {@link #getAvailableBlocksLong()} instead.
      */
     public long getFreeBlocksLong() {
         return mStat.f_bfree;

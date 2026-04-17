@@ -16,12 +16,18 @@
 
 package android.app;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Intent;
 import android.content.pm.IPackageInstallObserver2;
 import android.os.Bundle;
 
-/** {@hide} */
+/** @hide */
 public class PackageInstallObserver {
+
+    @UnsupportedAppUsage
+    public PackageInstallObserver() {
+    }
+
     private final IPackageInstallObserver2.Stub mBinder = new IPackageInstallObserver2.Stub() {
         @Override
         public void onUserActionRequired(Intent intent) {
@@ -36,7 +42,7 @@ public class PackageInstallObserver {
         }
     };
 
-    /** {@hide} */
+    /** @hide */
     public IPackageInstallObserver2 getBinder() {
         return mBinder;
     }
@@ -59,6 +65,7 @@ public class PackageInstallObserver {
      *            basic outcome
      * @hide
      */
+    @UnsupportedAppUsage
     public void onPackageInstalled(String basePackageName, int returnCode, String msg,
             Bundle extras) {
     }

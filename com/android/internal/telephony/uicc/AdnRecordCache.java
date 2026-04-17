@@ -16,34 +16,48 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.AsyncResult;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
+import android.telephony.Rlog;
 import android.util.SparseArray;
 
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.flags.Flags;
 import com.android.internal.telephony.gsm.UsimPhoneBookManager;
 
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.Locale;
 
 /**
- * {@hide}
+ * @hide
  */
 public class AdnRecordCache extends Handler implements IccConstants {
     //***** Instance Variables
+    private static final String LOG_TAG = "AdnRecordCache";
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private IccFileHandler mFh;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private UsimPhoneBookManager mUsimPhoneBookManager;
 
     // Indexed by EF ID
     SparseArray<ArrayList<AdnRecord>> mAdnLikeFiles
         = new SparseArray<ArrayList<AdnRecord>>();
 
+    // Indexed by EF ID, value is the exception that occurred during loading
+    SparseArray<Throwable> mAdnLikeFilesLoadingIssues = new SparseArray<>();
+
     // People waiting for ADN-like files to be loaded
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     SparseArray<ArrayList<Message>> mAdnLikeWaiters
         = new SparseArray<ArrayList<Message>>();
 
     // People waiting for adn record to be updated
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     SparseArray<Message> mUserWriteResponse = new SparseArray<Message>();
 
     //***** Event Constants
@@ -52,12 +66,14 @@ public class AdnRecordCache extends Handler implements IccConstants {
     static final int EVENT_UPDATE_ADN_DONE = 2;
 
     //***** Constructor
-
-
-
     AdnRecordCache(IccFileHandler fh) {
         mFh = fh;
         mUsimPhoneBookManager = new UsimPhoneBookManager(mFh, this);
+    }
+
+    public AdnRecordCache(IccFileHandler fh, UsimPhoneBookManager usimPhoneBookManager) {
+        mFh = fh;
+        mUsimPhoneBookManager = usimPhoneBookManager;
     }
 
     //***** Called from SIMRecords
@@ -65,8 +81,12 @@ public class AdnRecordCache extends Handler implements IccConstants {
     /**
      * Called from SIMRecords.onRadioNotAvailable and SIMRecords.handleSimRefresh.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void reset() {
         mAdnLikeFiles.clear();
+        if (Flags.cacheAdnRecordLoaderExceptions()) {
+            mAdnLikeFilesLoadingIssues.clear();
+        }
         mUsimPhoneBookManager.reset();
 
         clearWaiters();
@@ -96,6 +116,7 @@ public class AdnRecordCache extends Handler implements IccConstants {
      * @return List of AdnRecords for efid if we've already loaded them this
      * radio session, or null if we haven't
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public ArrayList<AdnRecord>
     getRecordsIfLoaded(int efid) {
         return mAdnLikeFiles.get(efid);
@@ -107,6 +128,7 @@ public class AdnRecordCache extends Handler implements IccConstants {
      *
      * See 3GPP TS 51.011 for this mapping
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int extensionEfForEf(int efid) {
         switch (efid) {
             case EF_MBDN: return EF_EXT6;
@@ -115,10 +137,13 @@ public class AdnRecordCache extends Handler implements IccConstants {
             case EF_FDN: return EF_EXT2;
             case EF_MSISDN: return EF_EXT1;
             case EF_PBR: return 0; // The EF PBR doesn't have an extension record
-            default: return -1;
+            default:
+                // See TS 131.102 4.4.2.1 '4FXX' are entity files from EF PBR
+                return (0x4FFF & efid) == efid ? 0 : -1;
         }
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void sendErrorResponse(Message response, String errString) {
         if (response != null) {
             Exception e = new RuntimeException(errString);
@@ -137,20 +162,21 @@ public class AdnRecordCache extends Handler implements IccConstants {
      * @param response message to be posted when done
      *        response.exception hold the exception in error
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void updateAdnByIndex(int efid, AdnRecord adn, int recordIndex, String pin2,
             Message response) {
 
         int extensionEF = extensionEfForEf(efid);
         if (extensionEF < 0) {
             sendErrorResponse(response, "EF is not known ADN-like EF:0x" +
-                    Integer.toHexString(efid).toUpperCase());
+                    Integer.toHexString(efid).toUpperCase(Locale.ROOT));
             return;
         }
 
         Message pendingResponse = mUserWriteResponse.get(efid);
         if (pendingResponse != null) {
             sendErrorResponse(response, "Have pending update for EF:0x" +
-                    Integer.toHexString(efid).toUpperCase());
+                    Integer.toHexString(efid).toUpperCase(Locale.ROOT));
             return;
         }
 
@@ -177,16 +203,14 @@ public class AdnRecordCache extends Handler implements IccConstants {
      */
     public void updateAdnBySearch(int efid, AdnRecord oldAdn, AdnRecord newAdn,
             String pin2, Message response) {
-
         int extensionEF;
         extensionEF = extensionEfForEf(efid);
 
         if (extensionEF < 0) {
             sendErrorResponse(response, "EF is not known ADN-like EF:0x" +
-                    Integer.toHexString(efid).toUpperCase());
+                    Integer.toHexString(efid).toUpperCase(Locale.ROOT));
             return;
         }
-
         ArrayList<AdnRecord>  oldAdnList;
 
         if (efid == EF_PBR) {
@@ -194,13 +218,11 @@ public class AdnRecordCache extends Handler implements IccConstants {
         } else {
             oldAdnList = getRecordsIfLoaded(efid);
         }
-
         if (oldAdnList == null) {
             sendErrorResponse(response, "Adn list not exist for EF:0x" +
-                    Integer.toHexString(efid).toUpperCase());
+                    Integer.toHexString(efid).toUpperCase(Locale.ROOT));
             return;
         }
-
         int index = -1;
         int count = 1;
         for (Iterator<AdnRecord> it = oldAdnList.iterator(); it.hasNext(); ) {
@@ -210,7 +232,6 @@ public class AdnRecordCache extends Handler implements IccConstants {
             }
             count++;
         }
-
         if (index == -1) {
             sendErrorResponse(response, "Adn record don't exist for " + oldAdn);
             return;
@@ -231,7 +252,7 @@ public class AdnRecordCache extends Handler implements IccConstants {
 
         if (pendingResponse != null) {
             sendErrorResponse(response, "Have pending update for EF:0x" +
-                    Integer.toHexString(efid).toUpperCase());
+                    Integer.toHexString(efid).toUpperCase(Locale.ROOT));
             return;
         }
 
@@ -268,6 +289,19 @@ public class AdnRecordCache extends Handler implements IccConstants {
             return;
         }
 
+        // Have we previously failed to load this efid?
+        if (Flags.cacheAdnRecordLoaderExceptions()) {
+            if (mAdnLikeFilesLoadingIssues.indexOfKey(efid) >= 0) {
+                if (response != null) {
+                    AsyncResult.forMessage(response).exception =
+                                mAdnLikeFilesLoadingIssues.get(efid);
+                    Rlog.e(LOG_TAG, "Error(cached) loading ADN records for efid: " + efid);
+                    response.sendToTarget();
+                }
+                return;
+            }
+        }
+
         // Have we already *started* loading this efid?
 
         waiters = mAdnLikeWaiters.get(efid);
@@ -294,7 +328,7 @@ public class AdnRecordCache extends Handler implements IccConstants {
             if (response != null) {
                 AsyncResult.forMessage(response).exception
                     = new RuntimeException("EF is not known ADN-like EF:0x" +
-                        Integer.toHexString(efid).toUpperCase());
+                        Integer.toHexString(efid).toUpperCase(Locale.ROOT));
                 response.sendToTarget();
             }
 
@@ -329,7 +363,6 @@ public class AdnRecordCache extends Handler implements IccConstants {
     handleMessage(Message msg) {
         AsyncResult ar;
         int efid;
-
         switch(msg.what) {
             case EVENT_LOAD_ALL_ADN_LIKE_DONE:
                 /* arg1 is efid, obj.result is ArrayList<AdnRecord>*/
@@ -342,6 +375,10 @@ public class AdnRecordCache extends Handler implements IccConstants {
 
                 if (ar.exception == null) {
                     mAdnLikeFiles.put(efid, (ArrayList<AdnRecord>) ar.result);
+                } else {
+                    if (Flags.cacheAdnRecordLoaderExceptions()) {
+                        mAdnLikeFilesLoadingIssues.put(efid, ar.exception);
+                    }
                 }
                 notifyWaiters(waiters, ar);
                 break;
@@ -367,5 +404,25 @@ public class AdnRecordCache extends Handler implements IccConstants {
                 }
                 break;
         }
+    }
+
+    @VisibleForTesting
+    protected void setAdnLikeWriters(int key, ArrayList<Message> waiters) {
+        mAdnLikeWaiters.put(EF_MBDN, waiters);
+    }
+
+    @VisibleForTesting
+    protected void setAdnLikeFiles(int key, ArrayList<AdnRecord> adnRecordList) {
+        mAdnLikeFiles.put(EF_MBDN, adnRecordList);
+    }
+
+    @VisibleForTesting
+    protected void setUserWriteResponse(int key, Message message) {
+        mUserWriteResponse.put(EF_MBDN, message);
+    }
+
+    @VisibleForTesting
+    protected UsimPhoneBookManager getUsimPhoneBookManager() {
+        return mUsimPhoneBookManager;
     }
 }

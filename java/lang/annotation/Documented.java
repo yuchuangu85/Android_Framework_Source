@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,12 +26,24 @@
 package java.lang.annotation;
 
 /**
- * Indicates that annotations with a type are to be documented by javadoc
- * and similar tools by default.  This type should be used to annotate the
- * declarations of types whose annotations affect the use of annotated
- * elements by their clients.  If a type declaration is annotated with
- * Documented, its annotations become part of the public API
- * of the annotated elements.
+ * If the annotation {@code @Documented} is present on the declaration
+ * of an annotation interface <i>A</i>, then any {@code @A} annotation on
+ * an element is considered part of the element's public contract.
+ *
+ * In more detail, when an annotation interface <i>A</i> is annotated with
+ * {@code Documented}, the presence and value of <i>A</i> annotations
+ * are a part of the public contract of the elements <i>A</i>
+ * annotates.
+ *
+ * Conversely, if an annotation interface <i>B</i> is <em>not</em>
+ * annotated with {@code Documented}, the presence and value of
+ * <i>B</i> annotations are <em>not</em> part of the public contract
+ * of the elements <i>B</i> annotates.
+ *
+ * Concretely, if an annotation interface is annotated with {@code Documented},
+ * by default a tool like javadoc will display annotations of that interface
+ * in its output while annotations of annotation interfaces without
+ * {@code Documented} will not be displayed.
  *
  * @author  Joshua Bloch
  * @since 1.5

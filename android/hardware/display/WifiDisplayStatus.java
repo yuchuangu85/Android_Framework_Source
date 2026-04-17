@@ -16,6 +16,8 @@
 
 package android.hardware.display;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -34,7 +36,9 @@ public final class WifiDisplayStatus implements Parcelable {
     private final int mFeatureState;
     private final int mScanState;
     private final int mActiveDisplayState;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final WifiDisplay mActiveDisplay;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final WifiDisplay[] mDisplays;
 
     /** Session info needed for Miracast Certification */
@@ -47,21 +51,26 @@ public final class WifiDisplayStatus implements Parcelable {
     /** Feature state: Wifi display is turned off in settings. */
     public static final int FEATURE_STATE_OFF = 2;
     /** Feature state: Wifi display is turned on in settings. */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int FEATURE_STATE_ON = 3;
 
     /** Scan state: Not currently scanning. */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int SCAN_STATE_NOT_SCANNING = 0;
     /** Scan state: Currently scanning. */
     public static final int SCAN_STATE_SCANNING = 1;
 
     /** Display state: Not connected. */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int DISPLAY_STATE_NOT_CONNECTED = 0;
     /** Display state: Connecting to active display. */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int DISPLAY_STATE_CONNECTING = 1;
     /** Display state: Connected to active display. */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final int DISPLAY_STATE_CONNECTED = 2;
 
-    public static final Creator<WifiDisplayStatus> CREATOR = new Creator<WifiDisplayStatus>() {
+    public static final @android.annotation.NonNull Creator<WifiDisplayStatus> CREATOR = new Creator<WifiDisplayStatus>() {
         public WifiDisplayStatus createFromParcel(Parcel in) {
             int featureState = in.readInt();
             int scanState = in.readInt();
@@ -117,6 +126,7 @@ public final class WifiDisplayStatus implements Parcelable {
      * connecting to displays have been met.
      * </p>
      */
+    @UnsupportedAppUsage
     public int getFeatureState() {
         return mFeatureState;
     }
@@ -126,6 +136,7 @@ public final class WifiDisplayStatus implements Parcelable {
      *
      * @return One of: {@link #SCAN_STATE_NOT_SCANNING} or {@link #SCAN_STATE_SCANNING}.
      */
+    @UnsupportedAppUsage
     public int getScanState() {
         return mScanState;
     }
@@ -136,6 +147,7 @@ public final class WifiDisplayStatus implements Parcelable {
      * @return One of: {@link #DISPLAY_STATE_NOT_CONNECTED}, {@link #DISPLAY_STATE_CONNECTING},
      * or {@link #DISPLAY_STATE_CONNECTED}.
      */
+    @UnsupportedAppUsage
     public int getActiveDisplayState() {
         return mActiveDisplayState;
     }
@@ -144,6 +156,7 @@ public final class WifiDisplayStatus implements Parcelable {
      * Gets the Wifi display that is currently active.  It may be connecting or
      * connected.
      */
+    @UnsupportedAppUsage
     public WifiDisplay getActiveDisplay() {
         return mActiveDisplay;
     }
@@ -153,6 +166,7 @@ public final class WifiDisplayStatus implements Parcelable {
      * Wifi displays as reported by the most recent scan, and all remembered
      * Wifi displays (not necessarily available at the time).
      */
+    @UnsupportedAppUsage
     public WifiDisplay[] getDisplays() {
         return mDisplays;
     }

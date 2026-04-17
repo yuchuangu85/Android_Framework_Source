@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -69,10 +69,10 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.ResolverStyle;
 import java.time.temporal.ChronoField;
+import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.TemporalField;
 import java.time.temporal.ValueRange;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -115,6 +115,7 @@ public final class MinguoChronology extends AbstractChronology implements Serial
     /**
      * Serialization version.
      */
+    @java.io.Serial
     private static final long serialVersionUID = 1039765215346859963L;
     /**
      * The difference in years between ISO and Minguo.
@@ -293,7 +294,7 @@ public final class MinguoChronology extends AbstractChronology implements Serial
 
     @Override
     public int prolepticYear(Era era, int yearOfEra) {
-        if (era instanceof MinguoEra == false) {
+        if (!(era instanceof MinguoEra)) {
             throw new ClassCastException("Era must be MinguoEra");
         }
         return (era == MinguoEra.ROC ? yearOfEra : 1 - yearOfEra);
@@ -306,27 +307,27 @@ public final class MinguoChronology extends AbstractChronology implements Serial
 
     @Override
     public List<Era> eras() {
-        return Arrays.<Era>asList(MinguoEra.values());
+        return List.of(MinguoEra.values());
     }
 
     //-----------------------------------------------------------------------
     @Override
     public ValueRange range(ChronoField field) {
-        switch (field) {
-            case PROLEPTIC_MONTH: {
+        return switch (field) {
+            case PROLEPTIC_MONTH -> {
                 ValueRange range = PROLEPTIC_MONTH.range();
-                return ValueRange.of(range.getMinimum() - YEARS_DIFFERENCE * 12L, range.getMaximum() - YEARS_DIFFERENCE * 12L);
+                yield ValueRange.of(range.getMinimum() - YEARS_DIFFERENCE * 12L, range.getMaximum() - YEARS_DIFFERENCE * 12L);
             }
-            case YEAR_OF_ERA: {
+            case YEAR_OF_ERA -> {
                 ValueRange range = YEAR.range();
-                return ValueRange.of(1, range.getMaximum() - YEARS_DIFFERENCE, -range.getMinimum() + 1 + YEARS_DIFFERENCE);
+                yield ValueRange.of(1, range.getMaximum() - YEARS_DIFFERENCE, -range.getMinimum() + 1 + YEARS_DIFFERENCE);
             }
-            case YEAR: {
+            case YEAR -> {
                 ValueRange range = YEAR.range();
-                return ValueRange.of(range.getMinimum() - YEARS_DIFFERENCE, range.getMaximum() - YEARS_DIFFERENCE);
+                yield ValueRange.of(range.getMinimum() - YEARS_DIFFERENCE, range.getMaximum() - YEARS_DIFFERENCE);
             }
-        }
-        return field.range();
+            default -> field.range();
+        };
     }
 
     //-----------------------------------------------------------------------
@@ -337,8 +338,22 @@ public final class MinguoChronology extends AbstractChronology implements Serial
 
     //-----------------------------------------------------------------------
     /**
+     * {@code MinguoChronology} is an ISO based chronology, which supports fields
+     * in {@link IsoFields}, such as {@link IsoFields#DAY_OF_QUARTER DAY_OF_QUARTER}
+     * and {@link IsoFields#QUARTER_OF_YEAR QUARTER_OF_YEAR}.
+     * @see IsoFields
+     * @return {@code true}
+     * @since 19
+     */
+    @Override
+    public boolean isIsoBased() {
+        return true;
+    }
+
+    //-----------------------------------------------------------------------
+    /**
      * Writes the Chronology using a
-     * <a href="../../../serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
+     * <a href="{@docRoot}/serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
      * @serialData
      * <pre>
      *  out.writeByte(1);     // identifies a Chronology
@@ -348,6 +363,7 @@ public final class MinguoChronology extends AbstractChronology implements Serial
      * @return the instance of {@code Ser}, not null
      */
     @Override
+    @java.io.Serial
     Object writeReplace() {
         return super.writeReplace();
     }
@@ -358,6 +374,7 @@ public final class MinguoChronology extends AbstractChronology implements Serial
      * @param s the stream to read
      * @throws InvalidObjectException always
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s) throws InvalidObjectException {
         throw new InvalidObjectException("Deserialization via serialization delegate");
     }

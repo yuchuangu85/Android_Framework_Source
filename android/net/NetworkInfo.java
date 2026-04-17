@@ -16,10 +16,15 @@
 
 package android.net;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.text.TextUtils;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.modules.utils.build.SdkLevel;
 
 import java.util.EnumMap;
 
@@ -27,7 +32,20 @@ import java.util.EnumMap;
  * Describes the status of a network interface.
  * <p>Use {@link ConnectivityManager#getActiveNetworkInfo()} to get an instance that represents
  * the current network connection.
+ *
+ * @deprecated Callers should instead use the {@link ConnectivityManager.NetworkCallback} API to
+ *             learn about connectivity changes, or switch to use
+ *             {@link ConnectivityManager#getNetworkCapabilities} or
+ *             {@link ConnectivityManager#getLinkProperties} to get information synchronously. Keep
+ *             in mind that while callbacks are guaranteed to be called for every event in order,
+ *             synchronous calls have no such constraints, and as such it is unadvisable to use the
+ *             synchronous methods inside the callbacks as they will often not offer a view of
+ *             networking that is consistent (that is: they may return a past or a future state with
+ *             respect to the event being processed by the callback). Instead, callers are advised
+ *             to only use the arguments of the callbacks, possibly memorizing the specific bits of
+ *             information they need to keep from one callback to another.
  */
+@Deprecated
 public class NetworkInfo implements Parcelable {
 
     /**
@@ -51,7 +69,10 @@ public class NetworkInfo implements Parcelable {
      * <tr><td><code>FAILED</code></td><td><code>DISCONNECTED</code></td></tr>
      * <tr><td><code>BLOCKED</code></td><td><code>DISCONNECTED</code></td></tr>
      * </table>
+     *
+     * @deprecated See {@link NetworkInfo}.
      */
+    @Deprecated
     public enum State {
         CONNECTING, CONNECTED, SUSPENDED, DISCONNECTING, DISCONNECTED, UNKNOWN
     }
@@ -60,7 +81,10 @@ public class NetworkInfo implements Parcelable {
      * The fine-grained state of a network connection. This level of detail
      * is probably of interest to few applications. Most should use
      * {@link android.net.NetworkInfo.State State} instead.
+     *
+     * @deprecated See {@link NetworkInfo}.
      */
+    @Deprecated
     public enum DetailedState {
         /** Ready to start data connection setup. */
         IDLE,
@@ -118,7 +142,9 @@ public class NetworkInfo implements Parcelable {
     private int mSubtype;
     private String mTypeName;
     private String mSubtypeName;
+    @NonNull
     private State mState;
+    @NonNull
     private DetailedState mDetailedState;
     private String mReason;
     private String mExtraInfo;
@@ -127,9 +153,19 @@ public class NetworkInfo implements Parcelable {
     private boolean mIsRoaming;
 
     /**
-     * @hide
+     * Create a new instance of NetworkInfo.
+     *
+     * This may be useful for apps to write unit tests.
+     *
+     * @param type the legacy type of the network, as one of the ConnectivityManager.TYPE_*
+     *             constants.
+     * @param subtype the subtype if applicable, as one of the TelephonyManager.NETWORK_TYPE_*
+     *                constants.
+     * @param typeName a human-readable string for the network type, or an empty string or null.
+     * @param subtypeName a human-readable string for the subtype, or an empty string or null.
      */
-    public NetworkInfo(int type, int subtype, String typeName, String subtypeName) {
+    public NetworkInfo(int type, int subtype,
+            @Nullable String typeName, @Nullable String subtypeName) {
         if (!ConnectivityManager.isNetworkTypeValid(type)
                 && type != ConnectivityManager.TYPE_NONE) {
             throw new IllegalArgumentException("Invalid network type: " + type);
@@ -142,22 +178,25 @@ public class NetworkInfo implements Parcelable {
         mState = State.UNKNOWN;
     }
 
-    /** {@hide} */
-    public NetworkInfo(NetworkInfo source) {
-        if (source != null) {
-            synchronized (source) {
-                mNetworkType = source.mNetworkType;
-                mSubtype = source.mSubtype;
-                mTypeName = source.mTypeName;
-                mSubtypeName = source.mSubtypeName;
-                mState = source.mState;
-                mDetailedState = source.mDetailedState;
-                mReason = source.mReason;
-                mExtraInfo = source.mExtraInfo;
-                mIsFailover = source.mIsFailover;
-                mIsAvailable = source.mIsAvailable;
-                mIsRoaming = source.mIsRoaming;
-            }
+    /** @hide */
+    @UnsupportedAppUsage
+    public NetworkInfo(@NonNull NetworkInfo source) {
+        // S- didn't use to crash when passing null. This plants a timebomb where mState and
+        // some other fields are null, but there may be existing code that relies on this behavior
+        // and doesn't trip the timebomb, so on SdkLevel < T, keep the old behavior. b/145972387
+        if (null == source && !SdkLevel.isAtLeastT()) return;
+        synchronized (source) {
+            mNetworkType = source.mNetworkType;
+            mSubtype = source.mSubtype;
+            mTypeName = source.mTypeName;
+            mSubtypeName = source.mSubtypeName;
+            mState = source.mState;
+            mDetailedState = source.mDetailedState;
+            mReason = source.mReason;
+            mExtraInfo = source.mExtraInfo;
+            mIsFailover = source.mIsFailover;
+            mIsAvailable = source.mIsAvailable;
+            mIsRoaming = source.mIsRoaming;
         }
     }
 
@@ -199,7 +238,9 @@ public class NetworkInfo implements Parcelable {
      * Return a network-type-specific integer describing the subtype
      * of the network.
      * @return the network subtype
+     * @deprecated Use {@link android.telephony.TelephonyManager#getDataNetworkType} instead.
      */
+    @Deprecated
     public int getSubtype() {
         synchronized (this) {
             return mSubtype;
@@ -209,6 +250,7 @@ public class NetworkInfo implements Parcelable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     public void setSubtype(int subtype, String subtypeName) {
         synchronized (this) {
             mSubtype = subtype;
@@ -239,7 +281,9 @@ public class NetworkInfo implements Parcelable {
     /**
      * Return a human-readable name describing the subtype of the network.
      * @return the name of the network subtype
+     * @deprecated Use {@link android.telephony.TelephonyManager#getDataNetworkType} instead.
      */
+    @Deprecated
     public String getSubtypeName() {
         synchronized (this) {
             return mSubtypeName;
@@ -274,10 +318,36 @@ public class NetworkInfo implements Parcelable {
      * connections and pass data.
      * <p>Always call this before attempting to perform data transactions.
      * @return {@code true} if network connectivity exists, {@code false} otherwise.
+     * @deprecated Apps should instead use the
+     *             {@link android.net.ConnectivityManager.NetworkCallback} API to
+     *             learn about connectivity changes. See
+     *             {@link ConnectivityManager#registerDefaultNetworkCallback} and
+     *             {@link ConnectivityManager#registerNetworkCallback}. These will
+     *             give a more accurate picture of the connectivity state of
+     *             the device and let apps react more easily and quickly to changes.
      */
+    @Deprecated
     public boolean isConnected() {
         synchronized (this) {
             return mState == State.CONNECTED;
+        }
+    }
+
+    /**
+     * Indicates whether this network is suspended.
+     * @deprecated Apps should instead use the
+     *             {@link android.net.ConnectivityManager.NetworkCallback} API to
+     *             learn about connectivity changes. See
+     *             {@link ConnectivityManager#registerDefaultNetworkCallback} and
+     *             {@link ConnectivityManager#registerNetworkCallback}. These will
+     *             give a more accurate picture of the connectivity state of
+     *             the device and let apps react more easily and quickly to changes.
+     * @hide
+     */
+    @Deprecated
+    public boolean isSuspended() {
+        synchronized (this) {
+            return mState == State.SUSPENDED;
         }
     }
 
@@ -317,6 +387,7 @@ public class NetworkInfo implements Parcelable {
      * @hide
      */
     @Deprecated
+    @UnsupportedAppUsage
     public void setIsAvailable(boolean isAvailable) {
         synchronized (this) {
             mIsAvailable = isAvailable;
@@ -347,6 +418,7 @@ public class NetworkInfo implements Parcelable {
      * @hide
      */
     @Deprecated
+    @UnsupportedAppUsage
     public void setFailover(boolean isFailover) {
         synchronized (this) {
             mIsFailover = isFailover;
@@ -373,10 +445,11 @@ public class NetworkInfo implements Parcelable {
 
     /**
      * @deprecated Use {@link NetworkCapabilities#NET_CAPABILITY_NOT_ROAMING} instead.
-     * {@hide}
+     * @hide
      */
     @VisibleForTesting
     @Deprecated
+    @UnsupportedAppUsage
     public void setRoaming(boolean isRoaming) {
         synchronized (this) {
             mIsRoaming = isRoaming;
@@ -404,8 +477,16 @@ public class NetworkInfo implements Parcelable {
     /**
      * Reports the current fine-grained state of the network.
      * @return the fine-grained state
+     * @deprecated Apps should instead use the
+     *             {@link android.net.ConnectivityManager.NetworkCallback} API to
+     *             learn about connectivity changes. See
+     *             {@link ConnectivityManager#registerDefaultNetworkCallback} and
+     *             {@link ConnectivityManager#registerNetworkCallback}. These will
+     *             give a more accurate picture of the connectivity state of
+     *             the device and let apps react more easily and quickly to changes.
      */
-    public DetailedState getDetailedState() {
+    @Deprecated
+    public @NonNull DetailedState getDetailedState() {
         synchronized (this) {
             return mDetailedState;
         }
@@ -413,21 +494,30 @@ public class NetworkInfo implements Parcelable {
 
     /**
      * Sets the fine-grained state of the network.
+     *
+     * This is only useful for testing.
+     *
      * @param detailedState the {@link DetailedState}.
      * @param reason a {@code String} indicating the reason for the state change,
      * if one was supplied. May be {@code null}.
-     * @param extraInfo an optional {@code String} providing addditional network state
+     * @param extraInfo an optional {@code String} providing additional network state
      * information passed up from the lower networking layers.
      * @deprecated Use {@link NetworkCapabilities} instead.
-     * @hide
      */
     @Deprecated
-    public void setDetailedState(DetailedState detailedState, String reason, String extraInfo) {
+    public void setDetailedState(@NonNull DetailedState detailedState, @Nullable String reason,
+            @Nullable String extraInfo) {
         synchronized (this) {
             this.mDetailedState = detailedState;
             this.mState = stateMap.get(detailedState);
             this.mReason = reason;
             this.mExtraInfo = extraInfo;
+            // Catch both the case where detailedState is null and the case where it's some
+            // unknown value. This is clearly incorrect usage, but S- didn't use to crash (at
+            // least immediately) so keep the old behavior on older frameworks for safety.
+            if (null == mState && SdkLevel.isAtLeastT()) {
+                throw new NullPointerException("Unknown DetailedState : " + detailedState);
+            }
         }
     }
 
@@ -435,8 +525,10 @@ public class NetworkInfo implements Parcelable {
      * Set the extraInfo field.
      * @param extraInfo an optional {@code String} providing addditional network state
      * information passed up from the lower networking layers.
+     * @deprecated See {@link NetworkInfo#getExtraInfo}.
      * @hide
      */
+    @Deprecated
     public void setExtraInfo(String extraInfo) {
         synchronized (this) {
             this.mExtraInfo = extraInfo;
@@ -460,7 +552,10 @@ public class NetworkInfo implements Parcelable {
      * Report the extra information about the network state, if any was
      * provided by the lower networking layers.
      * @return the extra information, or null if not available
+     * @deprecated Use other services e.g. WifiManager to get additional information passed up from
+     *             the lower networking layers.
      */
+    @Deprecated
     public String getExtraInfo() {
         synchronized (this) {
             return mExtraInfo;
@@ -470,7 +565,7 @@ public class NetworkInfo implements Parcelable {
     @Override
     public String toString() {
         synchronized (this) {
-            StringBuilder builder = new StringBuilder("[");
+            final StringBuilder builder = new StringBuilder("[");
             builder.append("type: ").append(getTypeName()).append("[").append(getSubtypeName()).
             append("], state: ").append(mState).append("/").append(mDetailedState).
             append(", reason: ").append(mReason == null ? "(unspecified)" : mReason).
@@ -479,6 +574,32 @@ public class NetworkInfo implements Parcelable {
             append(", available: ").append(mIsAvailable).
             append(", roaming: ").append(mIsRoaming).
             append("]");
+            return builder.toString();
+        }
+    }
+
+    /**
+     * Returns a brief summary string suitable for debugging.
+     * @hide
+     */
+    public String toShortString() {
+        synchronized (this) {
+            final StringBuilder builder = new StringBuilder();
+            builder.append(getTypeName());
+
+            final String subtype = getSubtypeName();
+            if (!TextUtils.isEmpty(subtype)) {
+                builder.append("[").append(subtype).append("]");
+            }
+
+            builder.append(" ");
+            builder.append(mDetailedState);
+            if (mIsRoaming) {
+                builder.append(" ROAMING");
+            }
+            if (mExtraInfo != null) {
+                builder.append(" extra: ").append(mExtraInfo);
+            }
             return builder.toString();
         }
     }
@@ -505,7 +626,7 @@ public class NetworkInfo implements Parcelable {
         }
     }
 
-    public static final Creator<NetworkInfo> CREATOR = new Creator<NetworkInfo>() {
+    public static final @android.annotation.NonNull Creator<NetworkInfo> CREATOR = new Creator<NetworkInfo>() {
         @Override
         public NetworkInfo createFromParcel(Parcel in) {
             int netType = in.readInt();

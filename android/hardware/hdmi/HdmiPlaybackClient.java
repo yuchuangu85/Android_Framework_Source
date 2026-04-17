@@ -23,7 +23,8 @@ import android.util.Log;
 /**
  * HdmiPlaybackClient represents HDMI-CEC logical device of type Playback
  * in the Android system which acts as a playback device such as set-top box.
- * It provides with methods that control, get information from TV/Display device
+ *
+ * <p>HdmiPlaybackClient provides methods that control, get information from TV/Display device
  * connected through HDMI bus.
  *
  * @hide
@@ -72,14 +73,17 @@ public final class HdmiPlaybackClient extends HdmiClient {
     }
 
     /**
-     * Performs the feature 'one touch play' from playback device to turn on display
-     * and switch the input.
+     * Performs the feature 'one touch play' from playback device to turn on display and claim
+     * to be the streaming source.
+     *
+     * <p>Client side is responsible to send out intent to choose whichever internal
+     * source on the current device it would like to switch to. Otherwise the current
+     * device will remain on the current input.
      *
      * @param callback {@link OneTouchPlayCallback} object to get informed
      *         of the result
      */
     public void oneTouchPlay(OneTouchPlayCallback callback) {
-        // TODO: Use PendingResult.
         try {
             mService.oneTouchPlay(getCallbackWrapper(callback));
         } catch (RemoteException e) {
@@ -118,6 +122,9 @@ public final class HdmiPlaybackClient extends HdmiClient {
     }
 
     private IHdmiControlCallback getCallbackWrapper(final OneTouchPlayCallback callback) {
+        if (callback == null) {
+            throw new IllegalArgumentException("OneTouchPlayCallback cannot be null.");
+        }
         return new IHdmiControlCallback.Stub() {
             @Override
             public void onComplete(int result) {
@@ -127,6 +134,9 @@ public final class HdmiPlaybackClient extends HdmiClient {
     }
 
     private IHdmiControlCallback getCallbackWrapper(final DisplayStatusCallback callback) {
+        if (callback == null) {
+            throw new IllegalArgumentException("DisplayStatusCallback cannot be null.");
+        }
         return new IHdmiControlCallback.Stub() {
             @Override
             public void onComplete(int status) {

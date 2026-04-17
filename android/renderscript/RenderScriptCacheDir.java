@@ -16,12 +16,18 @@
 
 package android.renderscript;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 import java.io.File;
 
 /**
  * Used only for tracking the RenderScript cache directory.
  * @hide
+ * @deprecated Renderscript has been deprecated in API level 31. Please refer to the <a
+ * href="https://developer.android.com/guide/topics/renderscript/migration-guide">migration
+ * guide</a> for the proposed alternatives.
  */
+@Deprecated
 public class RenderScriptCacheDir {
      /**
      * Sets the directory to use as a persistent storage for the
@@ -30,11 +36,13 @@ public class RenderScriptCacheDir {
      * @hide
      * @param cacheDir A directory the current process can write to
      */
+    @UnsupportedAppUsage
     public static void setupDiskCache(File cacheDir) {
         // Defer creation of cache path to nScriptCCreate().
         mCacheDir = cacheDir;
     }
 
+    @UnsupportedAppUsage
     static File mCacheDir;
 
 }

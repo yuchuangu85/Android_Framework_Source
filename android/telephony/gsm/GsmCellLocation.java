@@ -16,13 +16,21 @@
 
 package android.telephony.gsm;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Bundle;
 import android.telephony.CellLocation;
+import android.telephony.Rlog;
 
 /**
  * Represents the cell location on a GSM phone.
+ *
+ * @deprecated use {@link android.telephony.CellIdentity CellIdentity}.
  */
+@Deprecated
 public class GsmCellLocation extends CellLocation {
+    private static final String TAG = "GsmCellLocation";
+
     private int mLac;
     private int mCid;
     private int mPsc;
@@ -53,7 +61,7 @@ public class GsmCellLocation extends CellLocation {
     }
 
     /**
-     * @return gsm cell id, -1 if unknown, 0xffff max legal value
+     * @return gsm cell id, -1 if unknown or invalid, 0xffff max legal value
      */
     public int getCid() {
         return mCid;
@@ -91,6 +99,7 @@ public class GsmCellLocation extends CellLocation {
      * Set the primary scrambling code.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public void setPsc(int psc) {
         mPsc = psc;
     }
@@ -120,7 +129,10 @@ public class GsmCellLocation extends CellLocation {
 
     @Override
     public String toString() {
-        return "["+ mLac + "," + mCid + "," + mPsc + "]";
+        return "["
+                + Rlog.pii(TAG, mLac) + ","
+                + Rlog.pii(TAG, mCid) + ","
+                + Rlog.pii(TAG, mPsc) + "]";
     }
 
     /**

@@ -16,11 +16,18 @@
 
 package android.database.sqlite;
 
+import android.annotation.NonNull;
+
+import android.compat.annotation.UnsupportedAppUsage;
 import android.database.CursorWindow;
 import android.database.DatabaseUtils;
 import android.os.CancellationSignal;
 import android.os.OperationCanceledException;
 import android.os.ParcelFileDescriptor;
+
+import java.io.Closeable;
+import java.io.IOException;
+import java.util.ArrayDeque;
 
 /**
  * Provides a single client the ability to use a database.
@@ -170,6 +177,11 @@ public final class SQLiteSession {
     private Transaction mTransactionStack;
 
     /**
+     * A list of dependents that should be closed when the transaction completes.
+     */
+    private final ArrayDeque<Closeable> mOpenDependents = new ArrayDeque<>();
+
+    /**
      * Transaction mode: Deferred.
      * <p>
      * In a deferred transaction, no locks are acquired on the database
@@ -291,12 +303,22 @@ public final class SQLiteSession {
      * @see #yieldTransaction
      * @see #endTransaction
      */
+    @UnsupportedAppUsage
     public void beginTransaction(int transactionMode,
             SQLiteTransactionListener transactionListener, int connectionFlags,
             CancellationSignal cancellationSignal) {
         throwIfTransactionMarkedSuccessful();
         beginTransactionUnchecked(transactionMode, transactionListener, connectionFlags,
                 cancellationSignal);
+    }
+
+    private String modeString(int transactionMode) {
+        switch (transactionMode) {
+            case TRANSACTION_MODE_IMMEDIATE: return "TRANSACTION-IMMEDIATE";
+            case TRANSACTION_MODE_EXCLUSIVE: return "TRANSACTION-EXCLUSIVE";
+            case TRANSACTION_MODE_DEFERRED:  return "TRANSACTION-DEFERRED";
+            default: return "TRANSACTION";
+        }
     }
 
     private void beginTransactionUnchecked(int transactionMode,
@@ -308,6 +330,7 @@ public final class SQLiteSession {
 
         if (mTransactionStack == null) {
             acquireConnection(null, connectionFlags, cancellationSignal); // might throw
+            mConnection.recordBeginTransaction(modeString(transactionMode));
         }
         try {
             // Set up the transaction such that we can back out safely
@@ -323,7 +346,12 @@ public final class SQLiteSession {
                         mConnection.execute("BEGIN EXCLUSIVE;", null,
                                 cancellationSignal); // might throw
                         break;
+                    case TRANSACTION_MODE_DEFERRED:
+                        mConnection.execute("BEGIN DEFERRED;", null,
+                                cancellationSignal); // might throw
+                        break;
                     default:
+                        // Per SQLite documentation, this executes in DEFERRED mode.
                         mConnection.execute("BEGIN;", null, cancellationSignal); // might throw
                         break;
                 }
@@ -372,6 +400,9 @@ public final class SQLiteSession {
         throwIfTransactionMarkedSuccessful();
 
         mTransactionStack.mMarkedSuccessful = true;
+        // Close open dependents, since the next thing that is supposed to happen is the transaction
+        // ends.
+        closeOpenDependents();
     }
 
     /**
@@ -432,6 +463,11 @@ public final class SQLiteSession {
                 mTransactionStack.mChildFailed = true;
             }
         } else {
+            // Close all dependents before anything that might throw.  The list should have been
+            // cleared when the transaction was marked successful or unsuccessful.  The call here
+            // does nothing if the list is empty but is provided for insurance.
+            closeOpenDependents();
+
             try {
                 if (successful) {
                     mConnection.execute("COMMIT;", null, cancellationSignal); // might throw
@@ -439,6 +475,7 @@ public final class SQLiteSession {
                     mConnection.execute("ROLLBACK;", null, cancellationSignal); // might throw
                 }
             } finally {
+                mConnection.recordEndTransaction(successful);
                 releaseConnection(); // might throw
             }
         }
@@ -910,7 +947,87 @@ public final class SQLiteSession {
         }
     }
 
-    private void throwIfNoTransaction() {
+    /**
+     * Acquire a prepared statement for external use. A current transaction is required and that
+     * transaction may not have been marked successful. The dependent is registered its close()
+     * method is called when the transaction is closed.
+     */
+    @NonNull
+    SQLiteConnection.PreparedStatement acquirePersistentStatement(@NonNull String query,
+            @NonNull Closeable dependent) {
+        throwIfNoTransaction();
+        throwIfTransactionMarkedSuccessful();
+        mOpenDependents.addFirst(dependent);
+        try {
+            return mConnection.acquirePersistentStatement(query);
+        } catch (Throwable e) {
+            mOpenDependents.remove(dependent);
+            throw e;
+        }
+    }
+
+    /**
+     * Release a prepared statement.  The dependent should be in list of open dependents.
+     */
+    void releasePersistentStatement(@NonNull SQLiteConnection.PreparedStatement statement,
+            @NonNull Closeable dependent) {
+        mConnection.releasePreparedStatement(statement);
+        mOpenDependents.remove(dependent);
+    }
+
+    /**
+     * Close any open dependents.  This may be called multiple times without harm.  It never
+     * throws.
+     */
+    void closeOpenDependents() {
+        while (mOpenDependents.size() > 0) {
+            final Closeable dependent = mOpenDependents.pollFirst();
+            if (dependent != null)
+                try {
+                    dependent.close();
+                } catch (IOException e) {
+                    // Swallow the exception.
+                }
+        }
+    }
+
+    /**
+     * Return the row ID of the last row to be inserted on this connection.  Note that the last row
+     * might not have been inserted on this particular statement, but the return value is the last
+     * row inserted on the same connection as that used by this statement.  The function checks that
+     * it is currently in a transaction before executing.  Because of this check, it is not
+     * necessary to acquire and release the connection: the connection has already been acquired.
+     * @hide
+     */
+    long getLastInsertRowId() {
+        throwIfNoTransaction();
+        return mConnection.getLastInsertRowId();
+    }
+
+    /**
+     * Return the number of database rows that were changed by the most recent SQL statement on
+     * this connection.
+     * @hide
+     */
+    long getLastChangedRowCount() {
+        throwIfNoTransaction();
+        return mConnection.getLastChangedRowCount();
+    }
+
+    /**
+     * Return the total number of database rows that were changed on the current connection, since
+     * it was created.
+     * @hide
+     */
+    long getTotalChangedRowCount() {
+        throwIfNoTransaction();
+        return mConnection.getTotalChangedRowCount();
+    }
+
+    /**
+     * Throw {@link IllegalStateException} if there is no current transaction.
+     */
+    void throwIfNoTransaction() {
         if (mTransactionStack == null) {
             throw new IllegalStateException("Cannot perform this operation because "
                     + "there is no current transaction.");

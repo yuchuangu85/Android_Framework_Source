@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,6 +26,12 @@
 
 package java.lang;
 
+import dalvik.annotation.optimization.NeverInline;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.StreamCorruptedException;
+import jdk.internal.HotSpotIntrinsicCandidate;
 
 /**
  * A mutable sequence of characters.  This class provides an API compatible
@@ -69,6 +75,14 @@ package java.lang;
  * or method in this class will cause a {@link NullPointerException} to be
  * thrown.
  *
+ * @apiNote
+ * {@code StringBuilder} implements {@code Comparable} but does not override
+ * {@link Object#equals equals}. Thus, the natural ordering of {@code StringBuilder}
+ * is inconsistent with equals. Care should be exercised if {@code StringBuilder}
+ * objects are used as keys in a {@code SortedMap} or elements in a {@code SortedSet}.
+ * See {@link Comparable}, {@link java.util.SortedMap SortedMap}, or
+ * {@link java.util.SortedSet SortedSet} for more information.
+ *
  * @author      Michael McCloskey
  * @see         java.lang.StringBuffer
  * @see         java.lang.String
@@ -76,20 +90,24 @@ package java.lang;
  */
 public final class StringBuilder
     extends AbstractStringBuilder
-    implements java.io.Serializable, CharSequence
+    implements java.io.Serializable, Comparable<StringBuilder>, CharSequence
 {
 
     /** use serialVersionUID for interoperability */
     static final long serialVersionUID = 4383685877147921099L;
 
+    // Android-changed: Add @NeverInline for InstructionSimplifier optimization. See b/19575890.
     /**
      * Constructs a string builder with no characters in it and an
      * initial capacity of 16 characters.
      */
+    @NeverInline
+    @HotSpotIntrinsicCandidate
     public StringBuilder() {
         super(16);
     }
 
+    // Android-changed: Add @NeverInline for InstructionSimplifier optimization. See b/19575890.
     /**
      * Constructs a string builder with no characters in it and an
      * initial capacity specified by the {@code capacity} argument.
@@ -98,10 +116,13 @@ public final class StringBuilder
      * @throws     NegativeArraySizeException  if the {@code capacity}
      *               argument is less than {@code 0}.
      */
+    @NeverInline
+    @HotSpotIntrinsicCandidate
     public StringBuilder(int capacity) {
         super(capacity);
     }
 
+    // Android-changed: Add @NeverInline for InstructionSimplifier optimization. See b/19575890.
     /**
      * Constructs a string builder initialized to the contents of the
      * specified string. The initial capacity of the string builder is
@@ -109,11 +130,14 @@ public final class StringBuilder
      *
      * @param   str   the initial contents of the buffer.
      */
+    @NeverInline
+    @HotSpotIntrinsicCandidate
     public StringBuilder(String str) {
         super(str.length() + 16);
         append(str);
     }
 
+    // Android-changed: Add @NeverInline for InstructionSimplifier optimization. See b/19575890.
     /**
      * Constructs a string builder that contains the same characters
      * as the specified {@code CharSequence}. The initial capacity of
@@ -122,17 +146,46 @@ public final class StringBuilder
      *
      * @param      seq   the sequence to copy.
      */
+    @NeverInline
     public StringBuilder(CharSequence seq) {
         this(seq.length() + 16);
         append(seq);
     }
 
+    /**
+     * Compares two {@code StringBuilder} instances lexicographically. This method
+     * follows the same rules for lexicographical comparison as defined in the
+     * {@linkplain java.lang.CharSequence#compare(java.lang.CharSequence,
+     * java.lang.CharSequence)  CharSequence.compare(this, another)} method.
+     *
+     * <p>
+     * For finer-grained, locale-sensitive String comparison, refer to
+     * {@link java.text.Collator}.
+     *
+     * @param another the {@code StringBuilder} to be compared with
+     *
+     * @return  the value {@code 0} if this {@code StringBuilder} contains the same
+     * character sequence as that of the argument {@code StringBuilder}; a negative integer
+     * if this {@code StringBuilder} is lexicographically less than the
+     * {@code StringBuilder} argument; or a positive integer if this {@code StringBuilder}
+     * is lexicographically greater than the {@code StringBuilder} argument.
+     *
+     * @since 11
+     */
     @Override
+    public int compareTo(StringBuilder another) {
+        return super.compareTo(another);
+    }
+
+    @Override
+    @NeverInline
     public StringBuilder append(Object obj) {
         return append(String.valueOf(obj));
     }
 
     @Override
+    @HotSpotIntrinsicCandidate
+    @NeverInline
     public StringBuilder append(String str) {
         super.append(str);
         return this;
@@ -163,6 +216,7 @@ public final class StringBuilder
     }
 
     @Override
+    @NeverInline
     public StringBuilder append(CharSequence s) {
         super.append(s);
         return this;
@@ -178,6 +232,7 @@ public final class StringBuilder
     }
 
     @Override
+    @NeverInline
     public StringBuilder append(char[] str) {
         super.append(str);
         return this;
@@ -193,36 +248,44 @@ public final class StringBuilder
     }
 
     @Override
+    @NeverInline
     public StringBuilder append(boolean b) {
         super.append(b);
         return this;
     }
 
     @Override
+    @HotSpotIntrinsicCandidate
+    @NeverInline
     public StringBuilder append(char c) {
         super.append(c);
         return this;
     }
 
     @Override
+    @HotSpotIntrinsicCandidate
+    @NeverInline
     public StringBuilder append(int i) {
         super.append(i);
         return this;
     }
 
     @Override
+    @NeverInline
     public StringBuilder append(long lng) {
         super.append(lng);
         return this;
     }
 
     @Override
+    @NeverInline
     public StringBuilder append(float f) {
         super.append(f);
         return this;
     }
 
     @Override
+    @NeverInline
     public StringBuilder append(double d) {
         super.append(d);
         return this;
@@ -402,12 +465,40 @@ public final class StringBuilder
         return this;
     }
 
+    /**
+     * @throws IllegalArgumentException {@inheritDoc}
+     *
+     * @since 21
+     */
     @Override
+    public StringBuilder repeat(int codePoint, int count) {
+        super.repeat(codePoint, count);
+        return this;
+    }
+
+    /**
+     * @throws IllegalArgumentException {@inheritDoc}
+     *
+     * @since 21
+     */
+    @Override
+    public StringBuilder repeat(CharSequence cs, int count) {
+        super.repeat(cs, count);
+        return this;
+    }
+
+    @Override
+    @HotSpotIntrinsicCandidate
+    @NeverInline
     public String toString() {
+        // BEGIN Android-added: Return a constant "" for an empty buffer to keep historic behavior.
         if (count == 0) {
             return "";
         }
-        return StringFactory.newStringFromChars(0, count, value);
+        // END Android-added: Return a constant "" for an empty buffer to keep historic behavior.
+        // Create a copy, don't share the array
+        return isLatin1() ? StringLatin1.newString(value, 0, count)
+                          : StringUTF16.newString(value, 0, count);
     }
 
     /**
@@ -421,22 +512,32 @@ public final class StringBuilder
      *             characters currently stored in the string builder, in which
      *             case extra characters are ignored.
      */
-    private void writeObject(java.io.ObjectOutputStream s)
-        throws java.io.IOException {
+    private void writeObject(ObjectOutputStream s) throws IOException {
         s.defaultWriteObject();
         s.writeInt(count);
-        s.writeObject(value);
+        char[] val = new char[capacity()];
+        if (isLatin1()) {
+            StringLatin1.getChars(value, 0, count, val, 0);
+        } else {
+            StringUTF16.getChars(value, 0, count, val, 0);
+        }
+        s.writeObject(val);
     }
 
     /**
-     * readObject is called to restore the state of the StringBuffer from
+     * readObject is called to restore the state of the StringBuilder from
      * a stream.
      */
-    private void readObject(java.io.ObjectInputStream s)
-        throws java.io.IOException, ClassNotFoundException {
+    private void readObject(ObjectInputStream s)
+        throws IOException, ClassNotFoundException {
         s.defaultReadObject();
-        count = s.readInt();
-        value = (char[]) s.readObject();
+        int c = s.readInt();
+        char[] val = (char[]) s.readObject();
+        if (c < 0 || c > val.length) {
+            throw new StreamCorruptedException("count value invalid");
+        }
+        initBytes(val, 0, val.length);
+        count = c;
     }
 
 }

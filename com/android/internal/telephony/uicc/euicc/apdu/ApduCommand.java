@@ -43,6 +43,12 @@ class ApduCommand {
     /** Command data of an APDU as defined in GlobalPlatform Card Specification v.2.3. */
     public final String cmdHex;
 
+    /**
+     * isEs10 indicates that the current streaming APDU contains an ES10 command or it is a regular
+     * APDU. (As per spec SGP.22 V3.0, ES10 commands needs to be sent over command port of MEP-A1)
+     */
+    public final boolean isEs10;
+
     /** The parameters are defined as in GlobalPlatform Card Specification v.2.3. */
     ApduCommand(int channel, int cla, int ins, int p1, int p2, int p3, String cmdHex) {
         this.channel = channel;
@@ -52,11 +58,14 @@ class ApduCommand {
         this.p2 = p2;
         this.p3 = p3;
         this.cmdHex = cmdHex;
+        // TODO: Currently ApduCommand is used for ES10 commands, so updating to true by default.
+        //  Modify it in case used for non ES10 commands in future.
+        this.isEs10 = true;
     }
 
     @Override
     public String toString() {
         return "ApduCommand(channel=" + channel + ", cla=" + cla + ", ins=" + ins + ", p1=" + p1
-                + ", p2=" + p2 + ", p3=" + p3 + ", cmd=" + cmdHex + ")";
+                + ", p2=" + p2 + ", p3=" + p3 + ", cmd=" + cmdHex + ", isEs10=" + isEs10 + ")";
     }
 }

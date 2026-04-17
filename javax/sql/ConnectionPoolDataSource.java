@@ -26,6 +26,7 @@
 package javax.sql;
 
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 
 
 /**

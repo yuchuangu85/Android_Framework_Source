@@ -15,22 +15,52 @@
  */
 package android.app;
 
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.app.backup.BackupAgent;
 import android.content.BroadcastReceiver;
 import android.content.ContentProvider;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
 
 /**
  * Interface used to control the instantiation of manifest elements.
  *
  * @see #instantiateApplication
  * @see #instantiateActivity
+ * @see #instantiateClassLoader
  * @see #instantiateService
  * @see #instantiateReceiver
  * @see #instantiateProvider
  */
+@RavenwoodKeepWholeClass
 public class AppComponentFactory {
+
+    /**
+     * Selects the class loader which will be used by the platform to instantiate app components.
+     * <p>
+     * The default implementation of this method returns the {@code cl} parameter unchanged.
+     * Applications can override this method to set up a custom class loader or a custom class
+     * loader hierarchy and return it to the platform.
+     * <p>
+     * The method is a hook invoked before any application components are instantiated or the
+     * application Context is initialized. It is intended to allow the application's classes to
+     * be loaded from a different source than the base/split APK(s).
+     * <p>
+     * The default class loader {@code cl} is created by the platform and used to load the
+     * application's base or split APK(s). Its parent is typically the boot class loader, unless
+     * running under instrumentation. Its classname is configurable using the
+     * {@link android.R.attr#classLoader} manifest attribute.
+     *
+     * @param cl        The default class loader created by the platform.
+     * @param aInfo     Information about the application being loaded.
+     */
+    public @NonNull ClassLoader instantiateClassLoader(@NonNull ClassLoader cl,
+            @NonNull ApplicationInfo aInfo) {
+        return cl;
+    }
 
     /**
      * Allows application to override the creation of the application object. This can be used to
@@ -119,6 +149,31 @@ public class AppComponentFactory {
             @NonNull String className)
             throws InstantiationException, IllegalAccessException, ClassNotFoundException {
         return (ContentProvider) cl.loadClass(className).newInstance();
+    }
+
+    /**
+     * Allows application to override the creation of backupAgents. This can be used to
+     * perform things such as dependency injection or class loader changes to these
+     * classes.
+     * <p>
+     * This method is only intended to provide a hook for instantiation. It does not provide
+     * earlier access to the BackupAgent object. The returned object will not be initialized
+     * with a Context yet and should not be used to interact with other android APIs.
+     * <p>
+     * <b>Note:</b> The {@code className} is provided by the system based on the
+     * {@code android:backupAgent} manifest attribute or a system default.
+     * Implementations must return a {@link BackupAgent} instance that is compatible with the
+     * expected backup configuration. Returning an incompatible agent or a different class may
+     * result in backup or restore failures.
+     *
+     * @param cl        The default classloader to use for instantiation.
+     * @param className The class to be instantiated.
+     */
+    @FlaggedApi(Flags.FLAG_CUSTOM_BACKUPAGENT_CREATION)
+    public @NonNull BackupAgent instantiateBackupAgent(@NonNull ClassLoader cl,
+            @NonNull String className)
+            throws InstantiationException, IllegalAccessException, ClassNotFoundException {
+        return (BackupAgent) cl.loadClass(className).newInstance();
     }
 
     /**

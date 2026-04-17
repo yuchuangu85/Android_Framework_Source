@@ -16,6 +16,10 @@
 
 package android.database;
 
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.OperationApplicationException;
@@ -28,15 +32,21 @@ import android.database.sqlite.SQLiteException;
 import android.database.sqlite.SQLiteFullException;
 import android.database.sqlite.SQLiteProgram;
 import android.database.sqlite.SQLiteStatement;
+import android.os.Build;
 import android.os.OperationCanceledException;
 import android.os.Parcel;
 import android.os.ParcelFileDescriptor;
 import android.text.TextUtils;
 import android.util.Log;
 
+import com.android.internal.util.ArrayUtils;
+
 import java.io.FileNotFoundException;
 import java.io.PrintStream;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.text.Collator;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -69,6 +79,38 @@ public class DatabaseUtils {
     public static final int STATEMENT_UNPREPARED = 9;
     /** One of the values returned by {@link #getSqlStatementType(String)}. */
     public static final int STATEMENT_OTHER = 99;
+
+    /** @hide */
+    @IntDef(flag = true, prefix = { "STATEMENT_" }, value = {
+            STATEMENT_SELECT, STATEMENT_UPDATE, STATEMENT_ATTACH, STATEMENT_BEGIN,
+            STATEMENT_COMMIT, STATEMENT_ABORT, STATEMENT_PRAGMA, STATEMENT_DDL,
+            STATEMENT_UNPREPARED, STATEMENT_OTHER
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface SqlStatementType {}
+
+    // The following statement types are "extended" and are for internal use only.  These types
+    // are not public and are never returned by {@link #getSqlStatementType(String)}.
+
+    /** An internal statement type, collapses to STATEMENT_OTHER. */
+    /** @hide */
+    public static final int STATEMENT_WITH = 100;
+    /** An internal statement type, collapses to STATEMENT_DDL. */
+    /** @hide */
+    public static final int STATEMENT_CREATE = 101;
+    /** An internal statement type denoting a comment, collapses to STATEMENT_OTHER. */
+    /** @hide */
+    public static final int STATEMENT_COMMENT = 102;
+
+    /** @hide */
+    @IntDef(flag = true, prefix = { "STATEMENT_" }, value = {
+            STATEMENT_SELECT, STATEMENT_UPDATE, STATEMENT_ATTACH, STATEMENT_BEGIN,
+            STATEMENT_COMMIT, STATEMENT_ABORT, STATEMENT_PRAGMA, STATEMENT_DDL,
+            STATEMENT_UNPREPARED, STATEMENT_OTHER,
+            STATEMENT_WITH, STATEMENT_CREATE, STATEMENT_COMMENT
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface SqlStatementExtendedType {}
 
     /**
      * Special function for writing an exception result at the header of
@@ -184,6 +226,58 @@ public class DatabaseUtils {
         }
     }
 
+    /** @hide */
+    public static long executeInsert(@NonNull SQLiteDatabase db, @NonNull String sql,
+            @Nullable Object[] bindArgs) throws SQLException {
+        try (SQLiteStatement st = db.compileStatement(sql)) {
+            bindArgs(st, bindArgs);
+            return st.executeInsert();
+        }
+    }
+
+    /** @hide */
+    public static int executeUpdateDelete(@NonNull SQLiteDatabase db, @NonNull String sql,
+            @Nullable Object[] bindArgs) throws SQLException {
+        try (SQLiteStatement st = db.compileStatement(sql)) {
+            bindArgs(st, bindArgs);
+            return st.executeUpdateDelete();
+        }
+    }
+
+    /** @hide */
+    private static void bindArgs(@NonNull SQLiteStatement st, @Nullable Object[] bindArgs) {
+        if (bindArgs == null) return;
+
+        for (int i = 0; i < bindArgs.length; i++) {
+            final Object bindArg = bindArgs[i];
+            switch (getTypeOfObject(bindArg)) {
+                case Cursor.FIELD_TYPE_NULL:
+                    st.bindNull(i + 1);
+                    break;
+                case Cursor.FIELD_TYPE_INTEGER:
+                    st.bindLong(i + 1, ((Number) bindArg).longValue());
+                    break;
+                case Cursor.FIELD_TYPE_FLOAT:
+                    st.bindDouble(i + 1, ((Number) bindArg).doubleValue());
+                    break;
+                case Cursor.FIELD_TYPE_BLOB:
+                    st.bindBlob(i + 1, (byte[]) bindArg);
+                    break;
+                case Cursor.FIELD_TYPE_STRING:
+                default:
+                    if (bindArg instanceof Boolean) {
+                        // Provide compatibility with legacy
+                        // applications which may pass Boolean values in
+                        // bind args.
+                        st.bindLong(i + 1, ((Boolean) bindArg).booleanValue() ? 1 : 0);
+                    } else {
+                        st.bindString(i + 1, bindArg.toString());
+                    }
+                    break;
+            }
+        }
+    }
+
     /**
      * Binds the given Object to the given SQLiteProgram using the proper
      * typing. For example, bind numbers as longs/doubles, and everything else
@@ -216,6 +310,120 @@ public class DatabaseUtils {
     }
 
     /**
+     * Bind the given selection with the given selection arguments.
+     * <p>
+     * Internally assumes that '?' is only ever used for arguments, and doesn't
+     * appear as a literal or escaped value.
+     * <p>
+     * This method is typically useful for trusted code that needs to cook up a
+     * fully-bound selection.
+     *
+     * @hide
+     */
+    public static @Nullable String bindSelection(@Nullable String selection,
+            @Nullable Object... selectionArgs) {
+        if (selection == null) return null;
+        // If no arguments provided, so we can't bind anything
+        if (ArrayUtils.isEmpty(selectionArgs)) return selection;
+        // If no bindings requested, so we can shortcut
+        if (selection.indexOf('?') == -1) return selection;
+
+        // Track the chars immediately before and after each bind request, to
+        // decide if it needs additional whitespace added
+        char before = ' ';
+        char after = ' ';
+
+        int argIndex = 0;
+        final int len = selection.length();
+        final StringBuilder res = new StringBuilder(len);
+        for (int i = 0; i < len; ) {
+            char c = selection.charAt(i++);
+            if (c == '?') {
+                // Assume this bind request is guarded until we find a specific
+                // trailing character below
+                after = ' ';
+
+                // Sniff forward to see if the selection is requesting a
+                // specific argument index
+                int start = i;
+                for (; i < len; i++) {
+                    c = selection.charAt(i);
+                    if (c < '0' || c > '9') {
+                        after = c;
+                        break;
+                    }
+                }
+                if (start != i) {
+                    argIndex = Integer.parseInt(selection.substring(start, i)) - 1;
+                }
+
+                // Manually bind the argument into the selection, adding
+                // whitespace when needed for clarity
+                final Object arg = selectionArgs[argIndex++];
+                if (before != ' ' && before != '=') res.append(' ');
+                switch (DatabaseUtils.getTypeOfObject(arg)) {
+                    case Cursor.FIELD_TYPE_NULL:
+                        res.append("NULL");
+                        break;
+                    case Cursor.FIELD_TYPE_INTEGER:
+                        res.append(((Number) arg).longValue());
+                        break;
+                    case Cursor.FIELD_TYPE_FLOAT:
+                        res.append(((Number) arg).doubleValue());
+                        break;
+                    case Cursor.FIELD_TYPE_BLOB:
+                        throw new IllegalArgumentException("Blobs not supported");
+                    case Cursor.FIELD_TYPE_STRING:
+                    default:
+                        if (arg instanceof Boolean) {
+                            // Provide compatibility with legacy applications which may pass
+                            // Boolean values in bind args.
+                            res.append(((Boolean) arg).booleanValue() ? 1 : 0);
+                        } else {
+                            res.append('\'');
+                            res.append(arg.toString());
+                            res.append('\'');
+                        }
+                        break;
+                }
+                if (after != ' ') res.append(' ');
+            } else {
+                res.append(c);
+                before = c;
+            }
+        }
+        return res.toString();
+    }
+
+    /**
+     * Make a deep copy of the given argument list, ensuring that the returned
+     * value is completely isolated from any changes to the original arguments.
+     *
+     * @hide
+     */
+    public static @Nullable Object[] deepCopyOf(@Nullable Object[] args) {
+        if (args == null) return null;
+
+        final Object[] res = new Object[args.length];
+        for (int i = 0; i < args.length; i++) {
+            final Object arg = args[i];
+
+            if ((arg == null) || (arg instanceof Number) || (arg instanceof String)) {
+                // When the argument is immutable, we can copy by reference
+                res[i] = arg;
+            } else if (arg instanceof byte[]) {
+                // Need to deep copy blobs
+                final byte[] castArg = (byte[]) arg;
+                res[i] = Arrays.copyOf(castArg, castArg.length);
+            } else {
+                // Convert everything else to string, making it immutable
+                res[i] = String.valueOf(arg);
+            }
+        }
+        return res;
+    }
+
+    /**
      * Returns data type of the given object's value.
      *<p>
      * Returned values are
@@ -232,6 +440,7 @@ public class DatabaseUtils {
      * @return object value type
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public static int getTypeOfObject(Object obj) {
         if (obj == null) {
             return Cursor.FIELD_TYPE_NULL;
@@ -337,17 +546,31 @@ public class DatabaseUtils {
      */
     public static void appendEscapedSQLString(StringBuilder sb, String sqlString) {
         sb.append('\'');
-        if (sqlString.indexOf('\'') != -1) {
-            int length = sqlString.length();
-            for (int i = 0; i < length; i++) {
-                char c = sqlString.charAt(i);
-                if (c == '\'') {
-                    sb.append('\'');
+        int length = sqlString.length();
+        for (int i = 0; i < length; i++) {
+            char c = sqlString.charAt(i);
+            if (Character.isHighSurrogate(c)) {
+                if (i == length - 1) {
+                    continue;
                 }
-                sb.append(c);
+                if (Character.isLowSurrogate(sqlString.charAt(i + 1))) {
+                    // add them both
+                    sb.append(c);
+                    sb.append(sqlString.charAt(i + 1));
+                    continue;
+                } else {
+                    // this is a lone surrogate, skip it
+                    continue;
+                }
             }
-        } else
-            sb.append(sqlString);
+            if (Character.isLowSurrogate(c)) {
+                continue;
+            }
+            if (c == '\'') {
+                sb.append('\'');
+            }
+            sb.append(c);
+        }
         sb.append('\'');
     }
 
@@ -498,7 +721,7 @@ public class DatabaseUtils {
      * @param sb the StringBuilder to print to
      */
     public static void dumpCursor(Cursor cursor, StringBuilder sb) {
-        sb.append(">>>>> Dumping cursor " + cursor + "\n");
+        sb.append(">>>>> Dumping cursor ").append(cursor).append('\n');
         if (cursor != null) {
             int startPos = cursor.getPosition();
 
@@ -565,7 +788,7 @@ public class DatabaseUtils {
      */
     public static void dumpCurrentRow(Cursor cursor, StringBuilder sb) {
         String[] cols = cursor.getColumnNames();
-        sb.append("" + cursor.getPosition() + " {\n");
+        sb.append(cursor.getPosition()).append(" {\n");
         int length = cols.length;
         for (int i = 0; i < length; i++) {
             String value;
@@ -576,7 +799,7 @@ public class DatabaseUtils {
                 // representable by a string, e.g. it is a BLOB.
                 value = "<unprintable>";
             }
-            sb.append("   " + cols[i] + '=' + value + "\n");
+            sb.append("   ").append(cols[i]).append('=').append(value).append('\n');
         }
         sb.append("}\n");
     }
@@ -760,6 +983,7 @@ public class DatabaseUtils {
      * the requested row.
      * @hide
      */
+    @UnsupportedAppUsage
     public static int cursorPickFillWindowStartPosition(
             int cursorPosition, int cursorWindowCapacity) {
         return Math.max(cursorPosition - cursorWindowCapacity / 3, 0);
@@ -1008,7 +1232,7 @@ public class DatabaseUtils {
         private SQLiteStatement mPreparedStatement = null;
 
         /**
-         * {@hide}
+         * @hide
          *
          * These are the columns returned by sqlite's "PRAGMA
          * table_info(...)" command that we depend on.
@@ -1375,6 +1599,124 @@ public class DatabaseUtils {
     }
 
     /**
+     * Return the index of the first character past comments and whitespace.  -1 is returned if
+     * a comment is malformed.
+     */
+    private static int getSqlStatementPrefixOffset(String s) {
+        final int limit = s.length() - 2;
+        if (limit < 0) return -1;
+        int i = 0;
+        while (i < limit) {
+            final char c = s.charAt(i);
+            if (c <= ' ') {
+                // This behavior conforms to String.trim(), which is used by the legacy Android
+                // SQL prefix logic.  This test is not unicode-aware.  Notice that it accepts the
+                // null character as whitespace even though the null character will terminate the
+                // SQL string in native code.
+                i++;
+            } else if (c == '-') {
+                if (s.charAt(i+1) != '-') return i;
+                i = s.indexOf('\n', i+2);
+                if (i < 0) return -1;
+                i++;
+            } else if (c == '/') {
+                if (s.charAt(i+1) != '*') return i;
+                i++;
+                do {
+                    i = s.indexOf('*', i+1);
+                    if (i < 0) return -1;
+                    i++;
+                } while (s.charAt(i) != '/');
+                i++;
+            } else {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Scan past leading comments without using the Java regex routines.
+     */
+    private static String getSqlStatementPrefixExtendedNoRegex(String sql) {
+        int n = getSqlStatementPrefixOffset(sql);
+        if (n < 0) {
+            // Bad comment syntax.
+            return null;
+        }
+        final int end = sql.length();
+        if (n > end) {
+            // Bad scanning.  This indicates a programming error.
+            return null;
+        }
+        final int eos = Math.min(n+3, end);
+        return sql.substring(n, eos).toUpperCase(Locale.ROOT);
+    }
+
+    /**
+     * Return the extended statement type for the SQL statement.  This is not a public API and it
+     * can return values that are not publicly visible.
+     * @hide
+     */
+    private static int categorizeStatement(@NonNull String prefix, @NonNull String sql) {
+        if (prefix == null) return STATEMENT_OTHER;
+
+        switch (prefix) {
+            case "SEL": return STATEMENT_SELECT;
+            case "INS":
+            case "UPD":
+            case "REP":
+            case "DEL": return STATEMENT_UPDATE;
+            case "ATT": return STATEMENT_ATTACH;
+            case "COM":
+            case "END": return STATEMENT_COMMIT;
+            case "ROL":
+                if (sql.toUpperCase(Locale.ROOT).contains(" TO ")) {
+                    // Rollback to savepoint.
+                    return STATEMENT_OTHER;
+                }
+                return STATEMENT_ABORT;
+            case "BEG": return STATEMENT_BEGIN;
+            case "PRA": return STATEMENT_PRAGMA;
+            case "CRE": return STATEMENT_CREATE;
+            case "DRO":
+            case "ALT": return STATEMENT_DDL;
+            case "ANA":
+            case "DET": return STATEMENT_UNPREPARED;
+            case "WIT": return STATEMENT_WITH;
+            default:
+                if (prefix.startsWith("--") || prefix.startsWith("/*")) {
+                    return STATEMENT_COMMENT;
+                }
+                return STATEMENT_OTHER;
+        }
+    }
+
+    /**
+     * Return the extended statement type for the SQL statement.  This is not a public API and it
+     * can return values that are not publicly visible.
+     * @hide
+     */
+    @SqlStatementExtendedType
+    public static int getSqlStatementTypeExtended(@NonNull String sql) {
+      return categorizeStatement(getSqlStatementPrefixExtendedNoRegex(sql), sql);
+    }
+
+    /**
+     * Convert an extended statement type to a public SQL statement type value.
+     * @hide
+     */
+    @SqlStatementType
+    public static int getSqlStatementType(@SqlStatementExtendedType int extended) {
+        switch (extended) {
+            case STATEMENT_CREATE: return STATEMENT_DDL;
+            case STATEMENT_WITH: return STATEMENT_OTHER;
+            case STATEMENT_COMMENT: return STATEMENT_OTHER;
+        }
+        return extended;
+    }
+
+    /**
      * Returns one of the following which represent the type of the given SQL statement.
      * <ol>
      *   <li>{@link #STATEMENT_SELECT}</li>
@@ -1383,49 +1725,17 @@ public class DatabaseUtils {
      *   <li>{@link #STATEMENT_BEGIN}</li>
      *   <li>{@link #STATEMENT_COMMIT}</li>
      *   <li>{@link #STATEMENT_ABORT}</li>
+     *   <li>{@link #STATEMENT_PRAGMA}</li>
+     *   <li>{@link #STATEMENT_DDL}</li>
+     *   <li>{@link #STATEMENT_UNPREPARED}</li>
      *   <li>{@link #STATEMENT_OTHER}</li>
      * </ol>
      * @param sql the SQL statement whose type is returned by this method
      * @return one of the values listed above
      */
+    @SqlStatementType
     public static int getSqlStatementType(String sql) {
-        sql = sql.trim();
-        if (sql.length() < 3) {
-            return STATEMENT_OTHER;
-        }
-        String prefixSql = sql.substring(0, 3).toUpperCase(Locale.ROOT);
-        if (prefixSql.equals("SEL")) {
-            return STATEMENT_SELECT;
-        } else if (prefixSql.equals("INS") ||
-                prefixSql.equals("UPD") ||
-                prefixSql.equals("REP") ||
-                prefixSql.equals("DEL")) {
-            return STATEMENT_UPDATE;
-        } else if (prefixSql.equals("ATT")) {
-            return STATEMENT_ATTACH;
-        } else if (prefixSql.equals("COM")) {
-            return STATEMENT_COMMIT;
-        } else if (prefixSql.equals("END")) {
-            return STATEMENT_COMMIT;
-        } else if (prefixSql.equals("ROL")) {
-            boolean isRollbackToSavepoint = sql.toUpperCase(Locale.ROOT).contains(" TO ");
-            if (isRollbackToSavepoint) {
-                Log.w(TAG, "Statement '" + sql
-                        + "' may not work on API levels 16-27, use ';" + sql + "' instead");
-                return STATEMENT_OTHER;
-            }
-            return STATEMENT_ABORT;
-        } else if (prefixSql.equals("BEG")) {
-            return STATEMENT_BEGIN;
-        } else if (prefixSql.equals("PRA")) {
-            return STATEMENT_PRAGMA;
-        } else if (prefixSql.equals("CRE") || prefixSql.equals("DRO") ||
-                prefixSql.equals("ALT")) {
-            return STATEMENT_DDL;
-        } else if (prefixSql.equals("ANA") || prefixSql.equals("DET")) {
-            return STATEMENT_UNPREPARED;
-        }
-        return STATEMENT_OTHER;
+        return getSqlStatementType(getSqlStatementTypeExtended(sql));
     }
 
     /**
@@ -1454,5 +1764,25 @@ public class DatabaseUtils {
             }
         }
         return -1;
+    }
+
+    /**
+     * Escape the given argument for use in a {@code LIKE} statement.
+     * @hide
+     */
+    public static String escapeForLike(@NonNull String arg) {
+        // Shamelessly borrowed from com.android.providers.media.util.DatabaseUtils
+        final StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < arg.length(); i++) {
+            final char c = arg.charAt(i);
+            switch (c) {
+                case '%': sb.append('\\');
+                    break;
+                case '_': sb.append('\\');
+                    break;
+            }
+            sb.append(c);
+        }
+        return sb.toString();
     }
 }

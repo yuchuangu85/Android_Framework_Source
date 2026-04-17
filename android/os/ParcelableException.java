@@ -46,7 +46,7 @@ public final class ParcelableException extends RuntimeException implements Parce
         }
     }
 
-    /** {@hide} */
+    /** @hide */
     public static Throwable readFromParcel(Parcel in) {
         final String name = in.readString();
         final String msg = in.readString();
@@ -60,7 +60,7 @@ public final class ParcelableException extends RuntimeException implements Parce
         return new RuntimeException(name + ": " + msg);
     }
 
-    /** {@hide} */
+    /** @hide */
     public static void writeToParcel(Parcel out, Throwable t) {
         out.writeString(t.getClass().getName());
         out.writeString(t.getMessage());
@@ -76,7 +76,7 @@ public final class ParcelableException extends RuntimeException implements Parce
         writeToParcel(dest, getCause());
     }
 
-    public static final Creator<ParcelableException> CREATOR = new Creator<ParcelableException>() {
+    public static final @android.annotation.NonNull Creator<ParcelableException> CREATOR = new Creator<ParcelableException>() {
         @Override
         public ParcelableException createFromParcel(Parcel source) {
             return new ParcelableException(readFromParcel(source));

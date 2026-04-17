@@ -28,9 +28,8 @@ import dalvik.system.VMRuntime;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -87,50 +86,32 @@ import java.util.Set;
     }
 
     @Override
-    public void report(List<BaseDexClassLoader> classLoadersChain, List<String> classPaths) {
-        if (classLoadersChain.size() != classPaths.size()) {
-            Slog.wtf(TAG, "Bad call to DexLoadReporter: argument size mismatch");
-            return;
-        }
-        if (classPaths.isEmpty()) {
-            Slog.wtf(TAG, "Bad call to DexLoadReporter: empty dex paths");
-            return;
-        }
-
-        // The first element of classPaths is the list of dex files that should be registered.
-        // The classpath is represented as a list of dex files separated by File.pathSeparator.
-        String[] dexPathsForRegistration = classPaths.get(0).split(File.pathSeparator);
-        if (dexPathsForRegistration.length == 0) {
-            // No dex files to register.
+    public void report(Map<String, String> classLoaderContextMap) {
+        if (classLoaderContextMap.isEmpty()) {
+            Slog.wtf(TAG, "Bad call to DexLoadReporter: empty classLoaderContextMap");
             return;
         }
 
         // Notify the package manager about the dex loads unconditionally.
         // The load might be for either a primary or secondary dex file.
-        notifyPackageManager(classLoadersChain, classPaths);
+        notifyPackageManager(classLoaderContextMap);
         // Check for secondary dex files and register them for profiling if possible.
         // Note that we only register the dex paths belonging to the first class loader.
-        registerSecondaryDexForProfiling(dexPathsForRegistration);
+        registerSecondaryDexForProfiling(classLoaderContextMap.keySet());
     }
 
-    private void notifyPackageManager(List<BaseDexClassLoader> classLoadersChain,
-            List<String> classPaths) {
+    private void notifyPackageManager(Map<String, String> classLoaderContextMap) {
         // Get the class loader names for the binder call.
-        List<String> classLoadersNames = new ArrayList<>(classPaths.size());
-        for (BaseDexClassLoader bdc : classLoadersChain) {
-            classLoadersNames.add(bdc.getClass().getName());
-        }
         String packageName = ActivityThread.currentPackageName();
         try {
-            ActivityThread.getPackageManager().notifyDexLoad(
-                    packageName, classLoadersNames, classPaths,
-                    VMRuntime.getRuntime().vmInstructionSet());
+            ActivityThread.getPackageManager().notifyDexLoad(packageName,
+                    classLoaderContextMap, VMRuntime.getRuntime().vmInstructionSet());
         } catch (RemoteException re) {
             Slog.e(TAG, "Failed to notify PM about dex load for package " + packageName, re);
         }
     }
 
-    private void registerSecondaryDexForProfiling(String[] dexPaths) {
+    private void registerSecondaryDexForProfiling(Set<String> dexPaths) {
         if (!SystemProperties.getBoolean("dalvik.vm.dexopt.secondary", false)) {
             return;
         }
@@ -157,23 +138,25 @@ import java.util.Set;
         // NOTE: Keep this in sync with installd expectations.
         File dexPathFile = new File(dexPath);
         File secondaryProfileDir = new File(dexPathFile.getParent(), "oat");
-        File secondaryProfile = new File(secondaryProfileDir, dexPathFile.getName() + ".cur.prof");
+        File secondaryCurProfile =
+                new File(secondaryProfileDir, dexPathFile.getName() + ".cur.prof");
+        File secondaryRefProfile = new File(secondaryProfileDir, dexPathFile.getName() + ".prof");
 
         // Create the profile if not already there.
         // Returns true if the file was created, false if the file already exists.
         // or throws exceptions in case of errors.
         if (!secondaryProfileDir.exists()) {
             if (!secondaryProfileDir.mkdir()) {
-                Slog.e(TAG, "Could not create the profile directory: " + secondaryProfile);
+                Slog.e(TAG, "Could not create the profile directory: " + secondaryCurProfile);
                 // Do not continue with registration if we could not create the oat dir.
                 return;
             }
         }
 
         try {
-            boolean created = secondaryProfile.createNewFile();
+            boolean created = secondaryCurProfile.createNewFile();
             if (DEBUG && created) {
-                Slog.i(TAG, "Created profile for secondary dex: " + secondaryProfile);
+                Slog.i(TAG, "Created profile for secondary dex: " + secondaryCurProfile);
             }
         } catch (IOException ex) {
             Slog.e(TAG, "Failed to create profile for secondary dex " + dexPath
@@ -184,7 +167,12 @@ import java.util.Set;
 
         // If we got here, the dex paths is a secondary dex and we were able to create the profile.
         // Register the path to the runtime.
-        VMRuntime.registerAppInfo(secondaryProfile.getPath(), new String[] { dexPath });
+        VMRuntime.registerAppInfo(
+                ActivityThread.currentPackageName(),
+                secondaryCurProfile.getPath(),
+                secondaryRefProfile.getPath(),
+                new String[] { dexPath },
+                VMRuntime.CODE_PATH_TYPE_SECONDARY_DEX);
     }
 
     // A dex file is a secondary dex file if it is in any of the registered app

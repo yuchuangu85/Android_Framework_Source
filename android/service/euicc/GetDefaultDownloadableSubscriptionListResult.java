@@ -17,6 +17,8 @@ package android.service.euicc;
 
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.telephony.euicc.DownloadableSubscription;
@@ -31,7 +33,7 @@ import java.util.List;
 @SystemApi
 public final class GetDefaultDownloadableSubscriptionListResult implements Parcelable {
 
-    public static final Creator<GetDefaultDownloadableSubscriptionListResult> CREATOR =
+    public static final @android.annotation.NonNull Creator<GetDefaultDownloadableSubscriptionListResult> CREATOR =
             new Creator<GetDefaultDownloadableSubscriptionListResult>() {
         @Override
         public GetDefaultDownloadableSubscriptionListResult createFromParcel(Parcel in) {
@@ -49,6 +51,7 @@ public final class GetDefaultDownloadableSubscriptionListResult implements Parce
      * @deprecated - Do no use. Use getResult() instead.
      */
     @Deprecated
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public final int result;
 
     @Nullable

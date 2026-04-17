@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -23,10 +25,12 @@ import android.os.Parcelable;
 /**
  * Class for representing "Duration" object for CAT.
  *
- * {@hide}
+ * @hide
  */
 public class Duration implements Parcelable {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int timeInterval;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public TimeUnit timeUnit;
 
     public enum TimeUnit {
@@ -40,6 +44,7 @@ public class Duration implements Parcelable {
             mValue = value;
         }
 
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public int value() {
             return mValue;
         }
@@ -67,6 +72,21 @@ public class Duration implements Parcelable {
     @Override
     public int describeContents() {
         return 0;
+    }
+
+    /**
+     * Calculates the total duration in milliseconds from {@code timeUnit}.
+     *
+     * @return Interval in milliseconds.
+     */
+    public long getIntervalInMillis() {
+        long multiplier = switch (timeUnit) {
+            case MINUTE ->  60 * 1000;
+            case SECOND -> 1000;
+            case TENTH_SECOND -> 100;
+            default -> 0;
+        };
+        return multiplier * timeInterval;
     }
 
     public static final Parcelable.Creator<Duration> CREATOR = new Parcelable.Creator<Duration>() {

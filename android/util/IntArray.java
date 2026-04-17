@@ -18,21 +18,22 @@ package android.util;
 
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.Preconditions;
+
 import java.util.Arrays;
-import libcore.util.EmptyArray;
 
 /**
  * Implements a growing array of int primitives.
  *
  * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class IntArray implements Cloneable {
     private static final int MIN_CAPACITY_INCREMENT = 12;
 
     private int[] mValues;
     private int mSize;
 
-    private  IntArray(int[] array, int size) {
+    private IntArray(int[] array, int size) {
         mValues = array;
         mSize = Preconditions.checkArgumentInRange(size, 0, array.length, "size");
     }
@@ -41,7 +42,7 @@ public class IntArray implements Cloneable {
      * Creates an empty IntArray with the default initial capacity.
      */
     public IntArray() {
-        this(10);
+        this(0);
     }
 
     /**
@@ -102,7 +103,7 @@ public class IntArray implements Cloneable {
         ensureCapacity(1);
         int rightSegment = mSize - index;
         mSize++;
-        checkBounds(index);
+        ArrayUtils.checkBounds(mSize, index);
 
         if (rightSegment != 0) {
             // Move by 1 all values from the right of 'index'
@@ -142,6 +143,17 @@ public class IntArray implements Cloneable {
     }
 
     /**
+     * Adds the values in the specified array to this array.
+     */
+    public void addAll(int[] values) {
+        final int count = values.length;
+        ensureCapacity(count);
+
+        System.arraycopy(values, 0, mValues, mSize, count);
+        mSize += count;
+    }
+
+    /**
      * Ensures capacity to append at least <code>count</code> values.
      */
     private void ensureCapacity(int count) {
@@ -165,17 +177,15 @@ public class IntArray implements Cloneable {
     }
 
     @Override
-    public IntArray clone() throws CloneNotSupportedException {
-        final IntArray clone = (IntArray) super.clone();
-        clone.mValues = mValues.clone();
-        return clone;
+    public IntArray clone() {
+        return new IntArray(mValues.clone(), mSize);
     }
 
     /**
      * Returns the value at the specified position in this array.
      */
     public int get(int index) {
-        checkBounds(index);
+        ArrayUtils.checkBounds(mSize, index);
         return mValues[index];
     }
 
@@ -183,7 +193,7 @@ public class IntArray implements Cloneable {
      * Sets the value at the specified position in this array.
      */
     public void set(int index, int value) {
-        checkBounds(index);
+        ArrayUtils.checkBounds(mSize, index);
         mValues[index] = value;
     }
 
@@ -201,11 +211,16 @@ public class IntArray implements Cloneable {
         return -1;
     }
 
+    /** Returns {@code true} if this array contains the specified value. */
+    public boolean contains(int value) {
+        return indexOf(value) != -1;
+    }
+
     /**
      * Removes the value at the specified index from this array.
      */
     public void remove(int index) {
-        checkBounds(index);
+        ArrayUtils.checkBounds(mSize, index);
         System.arraycopy(mValues, index + 1, mValues, index, mSize - index - 1);
         mSize--;
     }
@@ -224,9 +239,22 @@ public class IntArray implements Cloneable {
         return Arrays.copyOf(mValues, mSize);
     }
 
-    private void checkBounds(int index) {
-        if (index < 0 || mSize <= index) {
-            throw new ArrayIndexOutOfBoundsException(mSize, index);
+    @Override
+    public String toString() {
+        // Code below is copied from Arrays.toString(), but uses mSize in the lopp (it cannot call
+        // Arrays.toString() directly as it would return the unused elements as well)
+        int iMax = mSize - 1;
+        if (iMax == -1) {
+            return "[]";
+        }
+        StringBuilder b = new StringBuilder();
+        b.append('[');
+        for (int i = 0;; i++) {
+            b.append(mValues[i]);
+            if (i == iMax) {
+                return b.append(']').toString();
+            }
+            b.append(", ");
         }
     }
 }

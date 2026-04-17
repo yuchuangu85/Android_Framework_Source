@@ -16,7 +16,10 @@
 
 package android.content.pm;
 
+import android.annotation.Nullable;
 import android.app.usage.StorageStatsManager;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.UserHandle;
@@ -37,6 +40,7 @@ public class PackageStats implements Parcelable {
     public String packageName;
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public int userHandle;
 
     /** Size of the code (e.g., APK) */
@@ -50,6 +54,30 @@ public class PackageStats implements Parcelable {
 
     /** Size of cache used by the application. (e.g., /data/data/<app>/cache) */
     public long cacheSize;
+
+    /** Size of .apk files of the application. */
+    /** @hide */
+    public long apkSize;
+
+    /** Size of the libraries of the application. */
+    /** @hide */
+    public long libSize;
+
+    /** Size of the .dm files of the application. */
+    /** @hide */
+    public long dmSize;
+
+    /** Size of dexopt artifacts of the application. */
+    /** @hide */
+    public long dexoptSize;
+
+    /** Size of the current profile of the application. */
+    /** @hide */
+    public long curProfSize;
+
+    /** Size of the reference profile of the application. */
+    /** @hide */
+    public long refProfSize;
 
     /**
      * Size of the secure container on external storage holding the
@@ -76,7 +104,7 @@ public class PackageStats implements Parcelable {
     /** Size of the package's OBBs placed on external media. */
     public long externalObbSize;
 
-    public static final Parcelable.Creator<PackageStats> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<PackageStats> CREATOR
             = new Parcelable.Creator<PackageStats>() {
         public PackageStats createFromParcel(Parcel in) {
             return new PackageStats(in);
@@ -103,6 +131,30 @@ public class PackageStats implements Parcelable {
         if (cacheSize != 0) {
             sb.append(" cache=");
             sb.append(cacheSize);
+        }
+        if (apkSize != 0) {
+            sb.append(" apk=");
+            sb.append(apkSize);
+        }
+        if (libSize != 0) {
+            sb.append(" lib=");
+            sb.append(libSize);
+        }
+        if (dmSize != 0) {
+            sb.append(" dm=");
+            sb.append(dmSize);
+        }
+        if (dexoptSize != 0) {
+            sb.append(" dexopt=");
+            sb.append(dexoptSize);
+        }
+        if (curProfSize != 0) {
+            sb.append(" curProf=");
+            sb.append(curProfSize);
+        }
+        if (refProfSize != 0) {
+            sb.append(" refProf=");
+            sb.append(refProfSize);
         }
         if (externalCodeSize != 0) {
             sb.append(" extCode=");
@@ -145,6 +197,12 @@ public class PackageStats implements Parcelable {
         codeSize = source.readLong();
         dataSize = source.readLong();
         cacheSize = source.readLong();
+        apkSize = source.readLong();
+        libSize = source.readLong();
+        dmSize = source.readLong();
+        dexoptSize = source.readLong();
+        curProfSize = source.readLong();
+        refProfSize = source.readLong();
         externalCodeSize = source.readLong();
         externalDataSize = source.readLong();
         externalCacheSize = source.readLong();
@@ -158,6 +216,12 @@ public class PackageStats implements Parcelable {
         codeSize = pStats.codeSize;
         dataSize = pStats.dataSize;
         cacheSize = pStats.cacheSize;
+        apkSize = pStats.apkSize;
+        libSize = pStats.libSize;
+        dmSize = pStats.dmSize;
+        dexoptSize = pStats.dexoptSize;
+        curProfSize = pStats.curProfSize;
+        refProfSize = pStats.refProfSize;
         externalCodeSize = pStats.externalCodeSize;
         externalDataSize = pStats.externalDataSize;
         externalCacheSize = pStats.externalCacheSize;
@@ -175,6 +239,12 @@ public class PackageStats implements Parcelable {
         dest.writeLong(codeSize);
         dest.writeLong(dataSize);
         dest.writeLong(cacheSize);
+        dest.writeLong(apkSize);
+        dest.writeLong(libSize);
+        dest.writeLong(dmSize);
+        dest.writeLong(dexoptSize);
+        dest.writeLong(curProfSize);
+        dest.writeLong(refProfSize);
         dest.writeLong(externalCodeSize);
         dest.writeLong(externalDataSize);
         dest.writeLong(externalCacheSize);
@@ -183,7 +253,7 @@ public class PackageStats implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (!(obj instanceof PackageStats)) {
             return false;
         }
@@ -194,6 +264,12 @@ public class PackageStats implements Parcelable {
                 && codeSize == otherStats.codeSize
                 && dataSize == otherStats.dataSize
                 && cacheSize == otherStats.cacheSize
+                && apkSize == otherStats.apkSize
+                && libSize == otherStats.libSize
+                && dmSize == otherStats.dmSize
+                && dexoptSize == otherStats.dexoptSize
+                && curProfSize == otherStats.curProfSize
+                && refProfSize == otherStats.refProfSize
                 && externalCodeSize == otherStats.externalCodeSize
                 && externalDataSize == otherStats.externalDataSize
                 && externalCacheSize == otherStats.externalCacheSize
@@ -204,7 +280,9 @@ public class PackageStats implements Parcelable {
     @Override
     public int hashCode() {
         return Objects.hash(packageName, userHandle, codeSize, dataSize,
-                cacheSize, externalCodeSize, externalDataSize, externalCacheSize, externalMediaSize,
+                apkSize, libSize, dmSize, dexoptSize, curProfSize,
+                refProfSize, cacheSize, externalCodeSize,
+                externalDataSize, externalCacheSize, externalMediaSize,
                 externalObbSize);
     }
 

@@ -22,5 +22,6 @@ package android.text.style;
  * that if the class also impacts size or other metrics, it should instead
  * implement {@link UpdateLayout}.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface UpdateAppearance {
 }

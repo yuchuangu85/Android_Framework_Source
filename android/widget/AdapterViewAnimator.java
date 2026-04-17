@@ -18,6 +18,7 @@ package android.widget;
 
 import android.animation.AnimatorInflater;
 import android.animation.ObjectAnimator;
+import android.companion.virtualdevice.flags.Flags;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.TypedArray;
@@ -29,7 +30,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
-import android.widget.RemoteViews.OnClickHandler;
+import android.widget.RemoteViews.InteractionHandler;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -45,7 +46,6 @@ import java.util.HashMap;
  */
 public abstract class AdapterViewAnimator extends AdapterView<Adapter>
         implements RemoteViewsAdapter.RemoteAdapterConnectionCallback, Advanceable {
-    private static final String TAG = "RemoteViewAnimator";
 
     /**
      * The index of the current child, which appears anywhere from the beginning
@@ -160,6 +160,8 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
 
     private Runnable mPendingCheckForTap;
 
+    private final int mTapTimeoutMillis;
+
     private static final int DEFAULT_ANIMATION_DURATION = 200;
 
     public AdapterViewAnimator(Context context) {
@@ -180,6 +182,9 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
 
         final TypedArray a = context.obtainStyledAttributes(attrs,
                 com.android.internal.R.styleable.AdapterViewAnimator, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, com.android.internal.R.styleable.AdapterViewAnimator,
+                attrs, a, defStyleAttr, defStyleRes);
+
         int resource = a.getResourceId(
                 com.android.internal.R.styleable.AdapterViewAnimator_inAnimation, 0);
         if (resource > 0) {
@@ -201,6 +206,9 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
 
         mLoopViews = a.getBoolean(
                 com.android.internal.R.styleable.AdapterViewAnimator_loopViews, false);
+        mTapTimeoutMillis = Flags.viewconfigurationApis()
+                ? ViewConfiguration.get(context).getTapTimeoutMillis()
+                : ViewConfiguration.getTapTimeout();
 
         a.recycle();
 
@@ -409,24 +417,29 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
     }
 
     void refreshChildren() {
-        if (mAdapter == null) return;
+        final int adapterCount = mAdapter == null ? 0 : getCount();
         for (int i = mCurrentWindowStart; i <= mCurrentWindowEnd; i++) {
             int index = modulo(i, getWindowSize());
 
-            int adapterCount = getCount();
-            // get the fresh child from the adapter
-            final View updatedChild = mAdapter.getView(modulo(i, adapterCount), null, this);
+            final View updatedChild;
+            if (i < adapterCount) {
+                // get the fresh child from the adapter
+                updatedChild = mAdapter.getView(modulo(i, adapterCount), null, this);
 
-            if (updatedChild.getImportantForAccessibility() == IMPORTANT_FOR_ACCESSIBILITY_AUTO) {
-                updatedChild.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
+                if (updatedChild.getImportantForAccessibility()
+                        == IMPORTANT_FOR_ACCESSIBILITY_AUTO) {
+                    updatedChild.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
+                }
+            } else {
+                updatedChild = null;
             }
 
             if (mViewsMap.containsKey(index)) {
                 final FrameLayout fl = (FrameLayout) mViewsMap.get(index).view;
-                // add the new child to the frame, if it exists
+                // flush out the old child
+                fl.removeAllViewsInLayout();
                 if (updatedChild != null) {
-                    // flush out the old child
-                    fl.removeAllViewsInLayout();
+                    // add the new child to the frame, if it exists
                     fl.addView(updatedChild);
                 }
             }
@@ -626,7 +639,7 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
                             mPendingCheckForTap = new CheckForTap();
                         }
                         mTouchMode = TOUCH_MODE_DOWN_IN_CURRENT_VIEW;
-                        postDelayed(mPendingCheckForTap, ViewConfiguration.getTapTimeout());
+                        postDelayed(mPendingCheckForTap, mTapTimeoutMillis);
                     }
                 }
                 break;
@@ -801,7 +814,7 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
             return "AdapterViewAnimator.SavedState{ whichChild = " + this.whichChild + " }";
         }
 
-        public static final Parcelable.Creator<SavedState> CREATOR
+        public static final @android.annotation.NonNull Parcelable.Creator<SavedState> CREATOR
                 = new Parcelable.Creator<SavedState>() {
             public SavedState createFromParcel(Parcel in) {
                 return new SavedState(in);
@@ -1013,11 +1026,11 @@ public abstract class AdapterViewAnimator extends AdapterView<Adapter>
      * 
      * @hide
      */
-    public void setRemoteViewsOnClickHandler(OnClickHandler handler) {
+    public void setRemoteViewsOnClickHandler(InteractionHandler handler) {
         // Ensure that we don't already have a RemoteViewsAdapter that is bound to an existing
         // service handling the specified intent.
         if (mRemoteViewsAdapter != null) {
-            mRemoteViewsAdapter.setRemoteViewsOnClickHandler(handler);
+            mRemoteViewsAdapter.setRemoteViewsInteractionHandler(handler);
         }
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -53,6 +53,7 @@ import java.util.function.IntFunction;
  * @since 1.8
  * @hide Visible for CTS testing only (OpenJDK8 tests).
  */
+// Android-changed: Made public for CTS tests only.
 public abstract class PipelineHelper<P_OUT> {
 
     /**
@@ -70,12 +71,13 @@ public abstract class PipelineHelper<P_OUT> {
      * @return the combined stream and operation flags
      * @see StreamOpFlag
      */
+    // Android-changed: Made public for CTS tests only.
     public abstract int getStreamAndOpFlags();
 
     /**
      * Returns the exact output size of the portion of the output resulting from
      * applying the pipeline stages described by this {@code PipelineHelper} to
-     * the the portion of the input described by the provided
+     * the portion of the input described by the provided
      * {@code Spliterator}, if known.  If not known or known infinite, will
      * return {@code -1}.
      *
@@ -83,7 +85,8 @@ public abstract class PipelineHelper<P_OUT> {
      * The exact output size is known if the {@code Spliterator} has the
      * {@code SIZED} characteristic, and the operation flags
      * {@link StreamOpFlag#SIZED} is known on the combined stream and operation
-     * flags.
+     * flags. The exact output size may differ from spliterator size,
+     * if pipeline contains a slice operation.
      *
      * @param spliterator the spliterator describing the relevant portion of the
      *        source data
@@ -99,7 +102,7 @@ public abstract class PipelineHelper<P_OUT> {
      * @implSpec
      * The implementation behaves as if:
      * <pre>{@code
-     *     intoWrapped(wrapSink(sink), spliterator);
+     *     copyInto(wrapSink(sink), spliterator);
      * }</pre>
      *
      * @param sink the {@code Sink} to receive the results
@@ -137,8 +140,9 @@ public abstract class PipelineHelper<P_OUT> {
      *
      * @param wrappedSink the destination {@code Sink}
      * @param spliterator the source {@code Spliterator}
+     * @return true if the cancellation was requested
      */
-    abstract <P_IN> void copyIntoWithCancel(Sink<P_IN> wrappedSink, Spliterator<P_IN> spliterator);
+    abstract <P_IN> boolean copyIntoWithCancel(Sink<P_IN> wrappedSink, Spliterator<P_IN> spliterator);
 
     /**
      * Takes a {@code Sink} that accepts elements of the output type of the
@@ -151,6 +155,7 @@ public abstract class PipelineHelper<P_OUT> {
      * @return a {@code Sink} that implements the pipeline stages and sends
      *         results to the provided {@code Sink}
      */
+    // Android-changed: Made public for CTS tests only.
     public abstract<P_IN> Sink<P_IN> wrapSink(Sink<P_OUT> sink);
 
     /**
@@ -162,7 +167,7 @@ public abstract class PipelineHelper<P_OUT> {
     abstract<P_IN> Spliterator<P_OUT> wrapSpliterator(Spliterator<P_IN> spliterator);
 
     /**
-     * Constructs a @{link Node.Builder} compatible with the output shape of
+     * Constructs a {@link Node.Builder} compatible with the output shape of
      * this {@code PipelineHelper}.
      *
      * @param exactSizeIfKnown if >=0 then a builder will be created that has a
@@ -198,6 +203,7 @@ public abstract class PipelineHelper<P_OUT> {
      * @param generator a factory function for array instances
      * @return the {@code Node} containing all output elements
      */
+    // Android-changed: Made public for CTS tests only.
     public abstract<P_IN> Node<P_OUT> evaluate(Spliterator<P_IN> spliterator,
                                         boolean flatten,
                                         IntFunction<P_OUT[]> generator);

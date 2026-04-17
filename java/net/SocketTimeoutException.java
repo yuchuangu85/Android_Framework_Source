@@ -48,16 +48,4 @@ public class SocketTimeoutException extends java.io.InterruptedIOException {
      * Construct a new SocketTimeoutException with no detailed message.
      */
     public SocketTimeoutException() {}
-
-    /** @hide */
-    // Android-added: Additional constructor for internal use.
-    public SocketTimeoutException(Throwable cause) {
-        super(cause);
-    }
-
-    /** @hide */
-    // Android-added: Additional constructor for internal use.
-    public SocketTimeoutException(String msg, Throwable cause) {
-        super(msg, cause);
-    }
 }

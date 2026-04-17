@@ -219,7 +219,7 @@ public final class ReprocessFormatsMap {
         }
 
         throw new IllegalArgumentException(
-                String.format("Input format %x was not one in #getInputs", format));
+                String.format("Input format 0x%x was not one in #getInputs", format));
     }
 
     /**

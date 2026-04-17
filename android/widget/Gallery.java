@@ -18,9 +18,11 @@ package android.widget;
 
 import android.annotation.NonNull;
 import android.annotation.Widget;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.AttributeSet;
 import android.util.Log;
@@ -55,7 +57,7 @@ import com.android.internal.R;
  * @attr ref android.R.styleable#Gallery_gravity
  * 
  * @deprecated This widget is no longer supported. Other horizontally scrolling
- * widgets include {@link HorizontalScrollView} and {@link android.support.v4.view.ViewPager}
+ * widgets include {@link HorizontalScrollView} and {@link androidx.viewpager.widget.ViewPager}
  * from the support library.
  */
 @Deprecated
@@ -75,6 +77,7 @@ public class Gallery extends AbsSpinner implements GestureDetector.OnGestureList
     /**
      * Horizontal spacing between items.
      */
+    @UnsupportedAppUsage
     private int mSpacing = 0;
 
     /**
@@ -103,21 +106,25 @@ public class Gallery extends AbsSpinner implements GestureDetector.OnGestureList
     /**
      * Helper for detecting touch gestures.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private GestureDetector mGestureDetector;
 
     /**
      * The position of the item that received the user's down touch.
      */
+    @UnsupportedAppUsage
     private int mDownTouchPosition;
 
     /**
      * The view of the item that received the user's down touch.
      */
+    @UnsupportedAppUsage
     private View mDownTouchView;
     
     /**
      * Executes the delta scrolls from a fling or scroll movement. 
      */
+    @UnsupportedAppUsage
     private FlingRunnable mFlingRunnable = new FlingRunnable();
 
     /**
@@ -143,6 +150,7 @@ public class Gallery extends AbsSpinner implements GestureDetector.OnGestureList
     /**
      * The currently selected item's child.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private View mSelectedChild;
     
     /**
@@ -205,6 +213,8 @@ public class Gallery extends AbsSpinner implements GestureDetector.OnGestureList
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, com.android.internal.R.styleable.Gallery, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, com.android.internal.R.styleable.Gallery,
+                attrs, a, defStyleAttr, defStyleRes);
 
         int index = a.getInt(com.android.internal.R.styleable.Gallery_gravity, -1);
         if (index >= 0) {
@@ -380,6 +390,7 @@ public class Gallery extends AbsSpinner implements GestureDetector.OnGestureList
      * 
      * @param deltaX Change in X from the previous event.
      */
+    @UnsupportedAppUsage
     void trackMotionScroll(int deltaX) {
 
         if (getChildCount() == 0) {
@@ -420,7 +431,8 @@ public class Gallery extends AbsSpinner implements GestureDetector.OnGestureList
             mSelectedCenterOffset = childLeft + childCenter - galleryCenter;
         }
 
-        onScrollChanged(0, 0, 0, 0); // dummy values, View's implementation does not use these.
+        // placeholder values, View's implementation does not use these.
+        onScrollChanged(0, 0, 0, 0);
 
         invalidate();
     }
@@ -472,6 +484,7 @@ public class Gallery extends AbsSpinner implements GestureDetector.OnGestureList
     /**
      * @return The center of this Gallery.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private int getCenterOfGallery() {
         return (getWidth() - mPaddingLeft - mPaddingRight) / 2 + mPaddingLeft;
     }
@@ -479,6 +492,7 @@ public class Gallery extends AbsSpinner implements GestureDetector.OnGestureList
     /**
      * @return The center of the given view.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private static int getCenterOfView(View view) {
         return view.getLeft() + view.getWidth() / 2;
     }
@@ -696,6 +710,7 @@ public class Gallery extends AbsSpinner implements GestureDetector.OnGestureList
         updateSelectedItemMetadata();
     }
 
+    @UnsupportedAppUsage
     private void fillToGalleryLeft() {
         if (mIsRtl) {
             fillToGalleryLeftRtl();
@@ -767,6 +782,7 @@ public class Gallery extends AbsSpinner implements GestureDetector.OnGestureList
         }
     }
     
+    @UnsupportedAppUsage
     private void fillToGalleryRight() {
         if (mIsRtl) {
             fillToGalleryRightRtl();
@@ -851,6 +867,7 @@ public class Gallery extends AbsSpinner implements GestureDetector.OnGestureList
      *        building from left to right)?
      * @return A view that has been added to the gallery
      */
+    @UnsupportedAppUsage
     private View makeAndAddView(int position, int offset, int x, boolean fromLeft) {
 
         View child;
@@ -1289,6 +1306,7 @@ public class Gallery extends AbsSpinner implements GestureDetector.OnGestureList
         return super.onKeyUp(keyCode, event);
     }
     
+    @UnsupportedAppUsage
     boolean moveDirection(int direction) {
         direction = isLayoutRtl() ? -direction : direction;
         int targetPosition = mSelectedPosition + direction;
@@ -1468,6 +1486,7 @@ public class Gallery extends AbsSpinner implements GestureDetector.OnGestureList
             removeCallbacks(this);
         }
         
+        @UnsupportedAppUsage
         public void startUsingVelocity(int initialVelocity) {
             if (initialVelocity == 0) return;
             

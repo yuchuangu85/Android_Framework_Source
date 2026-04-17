@@ -16,59 +16,100 @@
 
 package android.bluetooth;
 
+import static android.Manifest.permission.BLUETOOTH_CONNECT;
+
+import android.annotation.FlaggedApi;
+import android.annotation.Hide;
+import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.annotation.SuppressLint;
+import android.annotation.SystemApi;
+import android.bluetooth.annotations.RequiresBluetoothConnectPermission;
 
-/**
- * A helper to show a system "Device Picker" activity to the user.
- *
- * @hide
- */
+import com.android.bluetooth.flags.Flags;
+
+/** A helper to show a system "Device Picker" activity to the user. */
+@Hide
+@SystemApi
 public interface BluetoothDevicePicker {
-    public static final String EXTRA_NEED_AUTH =
-            "android.bluetooth.devicepicker.extra.NEED_AUTH";
-    public static final String EXTRA_FILTER_TYPE =
-            "android.bluetooth.devicepicker.extra.FILTER_TYPE";
-    public static final String EXTRA_LAUNCH_PACKAGE =
-            "android.bluetooth.devicepicker.extra.LAUNCH_PACKAGE";
-    public static final String EXTRA_LAUNCH_CLASS =
-            "android.bluetooth.devicepicker.extra.DEVICE_PICKER_LAUNCH_CLASS";
 
     /**
-     * Broadcast when one BT device is selected from BT device picker screen.
-     * Selected {@link BluetoothDevice} is returned in extra data named
-     * {@link BluetoothDevice#EXTRA_DEVICE}.
+     * Extra for filter type used with {@link #ACTION_LAUNCH}. The value must be a boolean
+     * indicating whether the device should need authentication or not.
      */
-    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    public static final String ACTION_DEVICE_SELECTED =
-            "android.bluetooth.devicepicker.action.DEVICE_SELECTED";
+    @SuppressLint("ActionValue")
+    String EXTRA_NEED_AUTH = "android.bluetooth.devicepicker.extra.NEED_AUTH";
 
     /**
-     * Broadcast when someone want to select one BT device from devices list.
-     * This intent contains below extra data:
-     * - {@link #EXTRA_NEED_AUTH} (boolean): if need authentication
-     * - {@link #EXTRA_FILTER_TYPE} (int): what kinds of device should be
-     * listed
-     * - {@link #EXTRA_LAUNCH_PACKAGE} (string): where(which package) this
-     * intent come from
-     * - {@link #EXTRA_LAUNCH_CLASS} (string): where(which class) this intent
-     * come from
+     * Extra for filter type used with {@link #ACTION_LAUNCH}. This extra must contain the filter
+     * type that will be applied to the device list. Possible values are {@link #FILTER_TYPE_ALL},
+     * {@link #FILTER_TYPE_AUDIO}, {@link #FILTER_TYPE_TRANSFER}, {@link #FILTER_TYPE_PANU}, and
+     * {@link #FILTER_TYPE_NAP}.
      */
+    @SuppressLint("ActionValue")
+    String EXTRA_FILTER_TYPE = "android.bluetooth.devicepicker.extra.FILTER_TYPE";
+
+    /**
+     * Extra for filter type used with {@link #ACTION_LAUNCH}. This extra must contain the package
+     * name that called {@link #ACTION_LAUNCH}.
+     */
+    @SuppressLint("ActionValue")
+    String EXTRA_LAUNCH_PACKAGE = "android.bluetooth.devicepicker.extra.LAUNCH_PACKAGE";
+
+    /**
+     * Extra for filter type used with {@link #ACTION_LAUNCH}. This extra must contain the class
+     * name that called {@link #ACTION_LAUNCH}.
+     */
+    @SuppressLint("ActionValue")
+    String EXTRA_LAUNCH_CLASS = "android.bluetooth.devicepicker.extra.DEVICE_PICKER_LAUNCH_CLASS";
+
+    /**
+     * Extra for the original ACTION_SEND or ACTION_SEND_MULTIPLE intent that triggered the BT
+     * sharing.
+     */
+    @FlaggedApi(Flags.FLAG_OPP_DEVICE_PICKER_EXTRA_INTENT_APIS)
+    String EXTRA_DEVICE_PICKER_ORIGINAL_SEND_INTENT =
+            "android.bluetooth.extra.DEVICE_PICKER_ORIGINAL_SEND_INTENT";
+
+    /**
+     * Broadcast when one BT device is selected from BT device picker screen. Selected {@link
+     * BluetoothDevice} is returned in extra data named {@link BluetoothDevice#EXTRA_DEVICE}.
+     */
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    public static final String ACTION_LAUNCH =
-            "android.bluetooth.devicepicker.action.LAUNCH";
+    @SuppressLint("ActionValue")
+    String ACTION_DEVICE_SELECTED = "android.bluetooth.devicepicker.action.DEVICE_SELECTED";
+
+    /**
+     * Broadcast when someone want to select one BT device from devices list. This intent contains
+     * below extra data: - {@link #EXTRA_NEED_AUTH} (boolean): if need authentication - {@link
+     * #EXTRA_FILTER_TYPE} (int): what kinds of device should be listed - {@link
+     * #EXTRA_LAUNCH_PACKAGE} (string): where(which package) this intent come from - {@link
+     * #EXTRA_LAUNCH_CLASS} (string): where(which class) this intent come from
+     */
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(BLUETOOTH_CONNECT)
+    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+    @SuppressLint("ActionValue")
+    String ACTION_LAUNCH = "android.bluetooth.devicepicker.action.LAUNCH";
 
     /** Ask device picker to show all kinds of BT devices */
-    public static final int FILTER_TYPE_ALL = 0;
+    int FILTER_TYPE_ALL = 0;
+
     /** Ask device picker to show BT devices that support AUDIO profiles */
-    public static final int FILTER_TYPE_AUDIO = 1;
+    int FILTER_TYPE_AUDIO = 1;
+
     /** Ask device picker to show BT devices that support Object Transfer */
-    public static final int FILTER_TYPE_TRANSFER = 2;
+    int FILTER_TYPE_TRANSFER = 2;
+
     /**
-     * Ask device picker to show BT devices that support
-     * Personal Area Networking User (PANU) profile
+     * Ask device picker to show BT devices that support Personal Area Networking User (PANU)
+     * profile
      */
-    public static final int FILTER_TYPE_PANU = 3;
+    int FILTER_TYPE_PANU = 3;
+
     /** Ask device picker to show BT devices that support Network Access Point (NAP) profile */
-    public static final int FILTER_TYPE_NAP = 4;
+    int FILTER_TYPE_NAP = 4;
 }

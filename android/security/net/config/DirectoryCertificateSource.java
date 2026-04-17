@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,26 +16,25 @@
 
 package android.security.net.config;
 
-import android.os.Environment;
-import android.os.UserHandle;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.util.ArraySet;
 import android.util.Log;
-import android.util.Pair;
+
+import libcore.io.IoUtils;
+
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.InputStream;
 import java.io.IOException;
-import java.security.cert.Certificate;
+import java.io.InputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.Collections;
 import java.util.Set;
-import libcore.io.IoUtils;
-
-import com.android.org.conscrypt.Hex;
-import com.android.org.conscrypt.NativeCrypto;
 
 import javax.security.auth.x500.X500Principal;
 
@@ -64,6 +63,7 @@ abstract class DirectoryCertificateSource implements CertificateSource {
     protected abstract boolean isCertMarkedAsRemoved(String caFile);
 
     @Override
+    @NonNull
     public Set<X509Certificate> getCertificates() {
         // TODO: loading all of these is wasteful, we should instead use a keystore style API.
         synchronized (mLock) {
@@ -89,7 +89,8 @@ abstract class DirectoryCertificateSource implements CertificateSource {
     }
 
     @Override
-    public X509Certificate findBySubjectAndPublicKey(final X509Certificate cert) {
+    @Nullable
+    public X509Certificate findBySubjectAndPublicKey(@NonNull final X509Certificate cert) {
         return findCert(cert.getSubjectX500Principal(), new CertSelector() {
             @Override
             public boolean match(X509Certificate ca) {
@@ -99,7 +100,8 @@ abstract class DirectoryCertificateSource implements CertificateSource {
     }
 
     @Override
-    public X509Certificate findByIssuerAndSignature(final X509Certificate cert) {
+    @Nullable
+    public X509Certificate findByIssuerAndSignature(@NonNull final X509Certificate cert) {
         return findCert(cert.getIssuerX500Principal(), new CertSelector() {
             @Override
             public boolean match(X509Certificate ca) {
@@ -114,7 +116,8 @@ abstract class DirectoryCertificateSource implements CertificateSource {
     }
 
     @Override
-    public Set<X509Certificate> findAllByIssuerAndSignature(final X509Certificate cert) {
+    @NonNull
+    public Set<X509Certificate> findAllByIssuerAndSignature(@NonNull final X509Certificate cert) {
         return findCerts(cert.getIssuerX500Principal(), new CertSelector() {
             @Override
             public boolean match(X509Certificate ca) {
@@ -192,8 +195,36 @@ abstract class DirectoryCertificateSource implements CertificateSource {
     }
 
     private String getHash(X500Principal name) {
-        int hash = NativeCrypto.X509_NAME_hash_old(name);
-        return Hex.intToHexString(hash, 8);
+        int hash = hashName(name);
+        return intToHexString(hash, 8);
+    }
+
+    private static final char[] DIGITS = {'0', '1', '2', '3', '4', '5', '6', '7',
+                                          '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+
+    private static String intToHexString(int i, int minWidth) {
+        int bufLen = 8; // Max number of hex digits in an int
+        char[] buf = new char[bufLen];
+        int cursor = bufLen;
+
+        do {
+            buf[--cursor] = DIGITS[i & 0xf];
+        } while ((i >>>= 4) != 0 || (bufLen - cursor < minWidth));
+
+        return new String(buf, cursor, bufLen - cursor);
+    }
+
+    // This code matches the code in X509_NAME_hash_old() in Conscrypt, which in turn matches
+    // the names of certificate files.  It must be kept in sync.
+    private static int hashName(X500Principal principal) {
+        try {
+            byte[] digest = MessageDigest.getInstance("MD5").digest(principal.getEncoded());
+            int offset = 0;
+            return (((digest[offset++] & 0xff) << 0) | ((digest[offset++] & 0xff) << 8)
+                    | ((digest[offset++] & 0xff) << 16) | ((digest[offset] & 0xff) << 24));
+        } catch (NoSuchAlgorithmException e) {
+            throw new AssertionError(e);
+        }
     }
 
     private X509Certificate readCertificate(String file) {

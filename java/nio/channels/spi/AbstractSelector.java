@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -43,9 +43,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * after, respectively, invoking an I/O operation that might block
  * indefinitely.  In order to ensure that the {@link #end end} method is always
  * invoked, these methods should be used within a
- * <tt>try</tt>&nbsp;...&nbsp;<tt>finally</tt> block:
+ * {@code try}&nbsp;...&nbsp;{@code finally} block:
  *
- * <blockquote><pre>
+ * <blockquote><pre id="be">
  * try {
  *     begin();
  *     // Perform blocking I/O operation here
@@ -70,7 +70,7 @@ public abstract class AbstractSelector
     extends Selector
 {
 
-    private AtomicBoolean selectorOpen = new AtomicBoolean(true);
+    private final AtomicBoolean selectorOpen = new AtomicBoolean(true);
 
     // The provider that created this selector
     private final SelectorProvider provider;
@@ -197,7 +197,7 @@ public abstract class AbstractSelector
      * Marks the beginning of an I/O operation that might block indefinitely.
      *
      * <p> This method should be invoked in tandem with the {@link #end end}
-     * method, using a <tt>try</tt>&nbsp;...&nbsp;<tt>finally</tt> block as
+     * method, using a {@code try}&nbsp;...&nbsp;{@code finally} block as
      * shown <a href="#be">above</a>, in order to implement interruption for
      * this selector.
      *
@@ -223,7 +223,7 @@ public abstract class AbstractSelector
      * Marks the end of an I/O operation that might block indefinitely.
      *
      * <p> This method should be invoked in tandem with the {@link #begin begin}
-     * method, using a <tt>try</tt>&nbsp;...&nbsp;<tt>finally</tt> block as
+     * method, using a {@code try}&nbsp;...&nbsp;{@code finally} block as
      * shown <a href="#be">above</a>, in order to implement interruption for
      * this selector.  </p>
      */

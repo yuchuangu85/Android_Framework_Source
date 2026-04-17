@@ -17,6 +17,7 @@ package android.text.method;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.graphics.Rect;
 import android.text.Spanned;
@@ -32,12 +33,14 @@ import java.util.Locale;
  *
  * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class AllCapsTransformationMethod implements TransformationMethod2 {
     private static final String TAG = "AllCapsTransformationMethod";
 
     private boolean mEnabled;
     private Locale mLocale;
 
+    @UnsupportedAppUsage
     public AllCapsTransformationMethod(@NonNull Context context) {
         mLocale = context.getResources().getConfiguration().getLocales().get(0);
     }

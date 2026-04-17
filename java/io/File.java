@@ -26,6 +26,11 @@
 
 package java.io;
 
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
+
+import dalvik.annotation.compat.VersionCodes;
+
 import java.net.URI;
 import java.net.URL;
 import java.net.MalformedURLException;
@@ -518,7 +523,7 @@ public class File
 
     /* -- Path operations -- */
 
-    // Android-changed: Android-specific path information
+    // Android-changed: Android-specific path information.
     /**
      * Tests whether this abstract pathname is absolute.  The definition of
      * absolute pathname is system dependent.  On Android, absolute paths start with
@@ -531,7 +536,7 @@ public class File
         return fs.isAbsolute(this);
     }
 
-    // Android-changed: Android-specific path information
+    // Android-changed: Android-specific path information.
     /**
      * Returns the absolute path of this file. An absolute path is a path that starts at a root
      * of the file system. On Android, there is only one root: {@code /}.
@@ -610,6 +615,17 @@ public class File
         }
         return fs.canonicalize(fs.resolve(this));
     }
+
+    // Android-added: Remove parent directory /.. at the rootfs. http://b/312399441
+    /**
+     * Canonicalize the parent directory of the root directory when app targets SDK level 35
+     * (Android 15) or higher. "/.." can be canonicalized into "/" according to POSIX.
+     *
+     * @hide
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = VersionCodes.VANILLA_ICE_CREAM)
+    public static final long CANONICALIZE_PARENT_OF_ROOT_DIR = 312399441L;
 
     /**
      * Returns the canonical form of this abstract pathname.  Equivalent to
@@ -737,8 +753,7 @@ public class File
 
     /* -- Attribute accessors -- */
 
-    // Android-changed. Removed javadoc comment about special privileges
-    // that doesn't make sense on android
+    // Android-changed: Removed inapplicable javadoc comment about special privileges.
     /**
      * Tests whether the application can read the file denoted by this
      * abstract pathname.
@@ -763,8 +778,7 @@ public class File
         return fs.checkAccess(this, FileSystem.ACCESS_READ);
     }
 
-    // Android-changed. Removed javadoc comment about special privileges
-    // that doesn't make sense on android
+    // Android-changed: Removed inapplicable javadoc comment about special privileges.
     /**
      * Tests whether the application can modify the file denoted by this
      * abstract pathname.
@@ -1450,8 +1464,7 @@ public class File
         return fs.setLastModifiedTime(this, time);
     }
 
-    // Android-changed. Removed javadoc comment about special privileges
-    // that doesn't make sense on Android.
+    // Android-changed: Removed inapplicable javadoc comment about special privileges.
     /**
      * Marks the file or directory named by this abstract pathname so that
      * only read operations are allowed. After invoking this method the file
@@ -1480,8 +1493,7 @@ public class File
         return fs.setReadOnly(this);
     }
 
-    // Android-changed. Removed javadoc comment about special privileges
-    // that doesn't make sense on Android.
+    // Android-changed: Removed inapplicable javadoc comment about special privileges.
     /**
      * Sets the owner's or everybody's write permission for this abstract
      * pathname.
@@ -1523,8 +1535,7 @@ public class File
         return fs.setPermission(this, FileSystem.ACCESS_WRITE, writable, ownerOnly);
     }
 
-    // Android-changed. Removed javadoc comment about special privileges
-    // that doesn't make sense on Android.
+    // Android-changed: Removed inapplicable javadoc comment about special privileges.
     /**
      * A convenience method to set the owner's write permission for this abstract
      * pathname.
@@ -1554,8 +1565,7 @@ public class File
         return setWritable(writable, true);
     }
 
-    // Android-changed. Removed javadoc comment about special privileges
-    // that doesn't make sense on Android.
+    // Android-changed: Removed inapplicable javadoc comment about special privileges.
     /**
      * Sets the owner's or everybody's read permission for this abstract
      * pathname.
@@ -1600,8 +1610,7 @@ public class File
         return fs.setPermission(this, FileSystem.ACCESS_READ, readable, ownerOnly);
     }
 
-    // Android-changed. Removed javadoc comment about special privileges
-    // that doesn't make sense on Android.
+    // Android-changed: Removed inapplicable javadoc comment about special privileges.
     /**
      * A convenience method to set the owner's read permission for this abstract
      * pathname.
@@ -1634,8 +1643,7 @@ public class File
         return setReadable(readable, true);
     }
 
-    // Android-changed. Removed javadoc comment about special privileges
-    // that doesn't make sense on Android.
+    // Android-changed: Removed inapplicable javadoc comment about special privileges.
     /**
      * Sets the owner's or everybody's execute permission for this abstract
      * pathname.
@@ -1680,8 +1688,7 @@ public class File
         return fs.setPermission(this, FileSystem.ACCESS_EXECUTE, executable, ownerOnly);
     }
 
-    // Android-changed. Removed javadoc comment about special privileges
-    // that doesn't make sense on Android.
+    // Android-changed: Removed inapplicable javadoc comment about special privileges.
     /**
      * A convenience method to set the owner's execute permission for this
      * abstract pathname.
@@ -1714,8 +1721,7 @@ public class File
         return setExecutable(executable, true);
     }
 
-    // Android-changed. Removed javadoc comment about special privileges
-    // that doesn't make sense on Android.
+    // Android-changed: Removed inapplicable javadoc comment about special privileges.
     /**
      * Tests whether the application can execute the file denoted by this
      * abstract pathname.
@@ -1873,8 +1879,7 @@ public class File
     private static class TempDirectory {
         private TempDirectory() { }
 
-        // Android-changed: Don't cache java.io.tmpdir value
-        // temporary directory location.
+        // Android-changed: Don't cache java.io.tmpdir value temporary directory location.
         /*
         private static final File tmpdir = new File(AccessController
            .doPrivileged(new GetPropertyAction("java.io.tmpdir")));
@@ -1888,8 +1893,8 @@ public class File
         static File generateFile(String prefix, String suffix, File dir)
             throws IOException
         {
-            // Android-changed: Use Math.randomIntInternal. This (pseudo) random number
-            // is initialized post-fork
+            // Android-changed: Use Math.randomIntInternal.
+            // This (pseudo) random number is initialized post-fork.
 
             long n = Math.randomLongInternal();
             if (n == Long.MIN_VALUE) {
@@ -1898,7 +1903,7 @@ public class File
                 n = Math.abs(n);
             }
 
-            // Android-changed: Reject invalid file prefixes
+            // Android-changed: Reject invalid file prefixes.
             // Use only the file name from the supplied prefix
             // prefix = (new File(prefix)).getName();
 
@@ -2171,10 +2176,10 @@ public class File
 
     private static final long PATH_OFFSET;
     private static final long PREFIX_LENGTH_OFFSET;
-    private static final sun.misc.Unsafe UNSAFE;
+    private static final jdk.internal.misc.Unsafe UNSAFE;
     static {
         try {
-            sun.misc.Unsafe unsafe = sun.misc.Unsafe.getUnsafe();
+            jdk.internal.misc.Unsafe unsafe = jdk.internal.misc.Unsafe.getUnsafe();
             PATH_OFFSET = unsafe.objectFieldOffset(
                     File.class.getDeclaredField("path"));
             PREFIX_LENGTH_OFFSET = unsafe.objectFieldOffset(

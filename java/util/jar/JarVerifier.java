@@ -33,7 +33,7 @@ import java.security.*;
 import java.security.cert.CertificateException;
 import java.util.zip.ZipEntry;
 
-import sun.misc.JarIndex;
+import jdk.internal.util.jar.JarIndex;
 import sun.security.util.ManifestDigester;
 import sun.security.util.ManifestEntryVerifier;
 import sun.security.util.SignatureFileVerifier;
@@ -85,6 +85,9 @@ class JarVerifier {
     /** the bytes for the manDig object */
     byte manifestRawBytes[] = null;
 
+    /** the manifest name this JarVerifier is created upon */
+    final String manifestName;
+
     /** controls eager signature validation */
     boolean eagerValidation;
 
@@ -94,7 +97,8 @@ class JarVerifier {
     /** collect -DIGEST-MANIFEST values for blacklist */
     private List<Object> manifestDigests;
 
-    public JarVerifier(byte rawBytes[]) {
+    public JarVerifier(String name, byte rawBytes[]) {
+        manifestName = name;
         manifestRawBytes = rawBytes;
         sigFileSigners = new Hashtable<>();
         verifiedSigners = new Hashtable<>();
@@ -333,6 +337,7 @@ class JarVerifier {
         }
     }
 
+    // Android-changed: @deprecated tag needs a description. http://b/110781661
     /**
      * Return an array of java.security.cert.Certificate objects for
      * the given file in the jar.
@@ -447,11 +452,14 @@ class JarVerifier {
                        InputStream is,
                        JarVerifier jv) throws IOException
         {
-            // Android-changed: Added to make sure inputs are not null. This allows to
-            // use is == null to detect closed verifier streams.
+            // BEGIN Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
+            // To know that null signals that the stream has been closed, we disallow
+            // it in the constructor. There's no need for anyone to pass null into this
+            // constructor, anyway.
             if (is == null) {
                 throw new NullPointerException("is == null");
             }
+            // END Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
             this.is = is;
             this.jv = jv;
             this.mev = new ManifestEntryVerifier(man);
@@ -463,11 +471,11 @@ class JarVerifier {
 
         public int read() throws IOException
         {
-            // Android-added.
+            // BEGIN Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
             if (is == null) {
                 throw new IOException("stream closed");
             }
-
+            // END Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
             if (numLeft > 0) {
                 int b = is.read();
                 jv.update(b, mev);
@@ -481,11 +489,11 @@ class JarVerifier {
         }
 
         public int read(byte b[], int off, int len) throws IOException {
-            // Android-added.
+            // BEGIN Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
             if (is == null) {
                 throw new IOException("stream closed");
             }
-
+            // END Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
             if ((numLeft > 0) && (numLeft < len)) {
                 len = (int)numLeft;
             }
@@ -513,11 +521,11 @@ class JarVerifier {
         }
 
         public int available() throws IOException {
-            // Android-added.
+            // BEGIN Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
             if (is == null) {
                 throw new IOException("stream closed");
             }
-
+            // END Android-added: Throw IOE, not NPE, if stream is closed. http://b/110695212
             return is.available();
         }
 
@@ -897,5 +905,25 @@ class JarVerifier {
 
     static CodeSource getUnsignedCS(URL url) {
         return new VerifierCodeSource(null, url, (java.security.cert.Certificate[]) null);
+    }
+
+    /**
+     * Returns whether the name is trusted. Used by
+     * {@link Manifest#getTrustedAttributes(String)}.
+     */
+    boolean isTrustedManifestEntry(String name) {
+        // How many signers? MANIFEST.MF is always verified
+        CodeSigner[] forMan = verifiedSigners.get(manifestName);
+        if (forMan == null) {
+            return true;
+        }
+        // Check sigFileSigners first, because we are mainly dealing with
+        // non-file entries which will stay in sigFileSigners forever.
+        CodeSigner[] forName = sigFileSigners.get(name);
+        if (forName == null) {
+            forName = verifiedSigners.get(name);
+        }
+        // Returns trusted if all signers sign the entry
+        return forName != null && forName.length == forMan.length;
     }
 }

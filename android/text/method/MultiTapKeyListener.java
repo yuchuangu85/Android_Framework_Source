@@ -36,6 +36,7 @@ import android.view.View;
  * with hardware keyboards.  Software input methods have no obligation to trigger
  * the methods in this class.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class MultiTapKeyListener extends BaseKeyListener
         implements SpanWatcher {
     private static MultiTapKeyListener[] sInstance =
@@ -120,16 +121,24 @@ public class MultiTapKeyListener extends BaseKeyListener
                 char current = content.charAt(selStart);
 
                 if (Character.isLowerCase(current)) {
-                    content.replace(selStart, selEnd,
-                                    String.valueOf(current).toUpperCase());
+                    replaceText(
+                            content,
+                            selStart,
+                            selEnd,
+                            String.valueOf(current).toUpperCase(),
+                            event);
                     removeTimeouts(content);
                     new Timeout(content); // for its side effects
 
                     return true;
                 }
                 if (Character.isUpperCase(current)) {
-                    content.replace(selStart, selEnd,
-                                    String.valueOf(current).toLowerCase());
+                    replaceText(
+                            content,
+                            selStart,
+                            selEnd,
+                            String.valueOf(current).toLowerCase(),
+                            event);
                     removeTimeouts(content);
                     new Timeout(content); // for its side effects
 
@@ -145,7 +154,7 @@ public class MultiTapKeyListener extends BaseKeyListener
                 if (ix >= 0) {
                     ix = (ix + 1) % (val.length());
 
-                    content.replace(selStart, selEnd, val, ix, ix + 1);
+                    replaceText(content, selStart, selEnd, val, ix, ix + 1, event);
                     removeTimeouts(content);
                     new Timeout(content); // for its side effects
 
@@ -193,7 +202,7 @@ public class MultiTapKeyListener extends BaseKeyListener
             content.setSpan(OLD_SEL_START, selStart, selStart,
                             Spannable.SPAN_MARK_MARK);
 
-            content.replace(selStart, selEnd, val, off, off + 1);
+            replaceText(content, selStart, selEnd, val, off, off + 1, event);
 
             int oldStart = content.getSpanStart(OLD_SEL_START);
             selEnd = Selection.getSelectionEnd(content);

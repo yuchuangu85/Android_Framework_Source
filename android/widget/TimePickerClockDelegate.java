@@ -121,12 +121,8 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
 
     // Localization data.
     private boolean mHourFormatShowLeadingZero;
+
     private boolean mHourFormatStartsAtZero;
-
-    // Most recent time announcement values for accessibility.
-    private CharSequence mLastAnnouncedText;
-    private boolean mLastAnnouncedIsHour;
-
     public TimePickerClockDelegate(TimePicker delegator, Context context, AttributeSet attrs,
             int defStyleAttr, int defStyleRes) {
         super(delegator, context);
@@ -155,6 +151,7 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
         mHourView.setOnDigitEnteredListener(mDigitEnteredListener);
         mHourView.setAccessibilityDelegate(
                 new ClickActionDelegate(context, R.string.select_hours));
+        mHourView.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         mSeparatorView = (TextView) mainView.findViewById(R.id.separator);
         mMinuteView = (NumericTextView) mainView.findViewById(R.id.minutes);
         mMinuteView.setOnClickListener(mClickListener);
@@ -162,6 +159,7 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
         mMinuteView.setOnDigitEnteredListener(mDigitEnteredListener);
         mMinuteView.setAccessibilityDelegate(
                 new ClickActionDelegate(context, R.string.select_minutes));
+        mMinuteView.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         mMinuteView.setRange(0, 59);
 
         // Set up AM/PM labels.
@@ -269,7 +267,7 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
             mRadialTimePickerModeButton.setContentDescription(
                     mTextInputPickerModeEnabledDescription);
             updateTextInputPicker();
-            InputMethodManager imm = InputMethodManager.peekInstance();
+            InputMethodManager imm = mContext.getSystemService(InputMethodManager.class);
             if (imm != null) {
                 imm.hideSoftInputFromWindow(mDelegator.getWindowToken(), 0);
             }
@@ -373,6 +371,7 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
             // Generate a non-activated color using the disabled alpha.
             final TypedArray ta = mContext.obtainStyledAttributes(ATTRS_DISABLED_ALPHA);
             final float disabledAlpha = ta.getFloat(0, 0.30f);
+            ta.recycle();
             defaultColor = multiplyAlphaComponent(activatedColor, disabledAlpha);
         }
 
@@ -434,7 +433,7 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
 
     private void updateRadialPicker(int index) {
         mRadialTimePickerView.initialize(mCurrentHour, mCurrentMinute, mIs24Hour);
-        setCurrentItemShowing(index, false, true);
+        setCurrentItemShowing(index, false);
     }
 
     private void updateHeaderAmPm() {
@@ -454,16 +453,13 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
                 (RelativeLayout.LayoutParams) mAmPmLayout.getLayoutParams();
         if (params.getRule(RelativeLayout.RIGHT_OF) != 0
                 || params.getRule(RelativeLayout.LEFT_OF) != 0) {
+            final int margin = (int) (mContext.getResources().getDisplayMetrics().density * 8);
             // Horizontal mode, with AM/PM appearing to left/right of hours and minutes.
             final boolean isAmPmAtLeft;
             if (TextUtils.getLayoutDirectionFromLocale(mLocale) == View.LAYOUT_DIRECTION_LTR) {
                 isAmPmAtLeft = isAmPmAtStart;
             } else {
                 isAmPmAtLeft = !isAmPmAtStart;
-            }
-            if (mIsAmPmAtLeft == isAmPmAtLeft) {
-                // AM/PM is already at the correct location. No change needed.
-                return;
             }
 
             if (isAmPmAtLeft) {
@@ -472,6 +468,14 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
             } else {
                 params.removeRule(RelativeLayout.LEFT_OF);
                 params.addRule(RelativeLayout.RIGHT_OF, mMinuteView.getId());
+            }
+
+            if (isAmPmAtStart) {
+                params.setMarginStart(0);
+                params.setMarginEnd(margin);
+            } else {
+                params.setMarginStart(margin);
+                params.setMarginEnd(0);
             }
             mIsAmPmAtLeft = isAmPmAtLeft;
         } else if (params.getRule(RelativeLayout.BELOW) != 0
@@ -780,18 +784,10 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
     private void updateHeaderHour(int hourOfDay, boolean announce) {
         final int localizedHour = getLocalizedHour(hourOfDay);
         mHourView.setValue(localizedHour);
-
-        if (announce) {
-            tryAnnounceForAccessibility(mHourView.getText(), true);
-        }
     }
 
     private void updateHeaderMinute(int minuteOfHour, boolean announce) {
         mMinuteView.setValue(minuteOfHour);
-
-        if (announce) {
-            tryAnnounceForAccessibility(mMinuteView.getText(), false);
-        }
     }
 
     /**
@@ -870,30 +866,11 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
         return -1;
     }
 
-    private void tryAnnounceForAccessibility(CharSequence text, boolean isHour) {
-        if (mLastAnnouncedIsHour != isHour || !text.equals(mLastAnnouncedText)) {
-            // TODO: Find a better solution, potentially live regions?
-            mDelegator.announceForAccessibility(text);
-            mLastAnnouncedText = text;
-            mLastAnnouncedIsHour = isHour;
-        }
-    }
-
     /**
      * Show either Hours or Minutes.
      */
-    private void setCurrentItemShowing(int index, boolean animateCircle, boolean announce) {
+    private void setCurrentItemShowing(int index, boolean animateCircle) {
         mRadialTimePickerView.setCurrentItemShowing(index, animateCircle);
-
-        if (index == HOUR_INDEX) {
-            if (announce) {
-                mDelegator.announceForAccessibility(mSelectHours);
-            }
-        } else {
-            if (announce) {
-                mDelegator.announceForAccessibility(mSelectMinutes);
-            }
-        }
 
         mHourView.setActivated(index == HOUR_INDEX);
         mMinuteView.setActivated(index == MINUTE_INDEX);
@@ -924,10 +901,7 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
                     final boolean isTransition = mAllowAutoAdvance && autoAdvance;
                     setHourInternal(newValue, FROM_RADIAL_PICKER, !isTransition, true);
                     if (isTransition) {
-                        setCurrentItemShowing(MINUTE_INDEX, true, false);
-
-                        final int localizedHour = getLocalizedHour(newValue);
-                        mDelegator.announceForAccessibility(localizedHour + ". " + mSelectMinutes);
+                        setCurrentItemShowing(MINUTE_INDEX, true);
                     }
                     break;
                 case RadialTimePickerView.MINUTES:
@@ -1024,10 +998,10 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
                         setAmOrPm(PM);
                         break;
                     case R.id.hours:
-                        setCurrentItemShowing(HOUR_INDEX, true, true);
+                        setCurrentItemShowing(HOUR_INDEX, true);
                         break;
                     case R.id.minutes:
-                        setCurrentItemShowing(MINUTE_INDEX, true, true);
+                        setCurrentItemShowing(MINUTE_INDEX, true);
                         break;
                     default:
                         // Failed to handle this click, don't vibrate.
@@ -1052,10 +1026,10 @@ class TimePickerClockDelegate extends TimePicker.AbstractTimePickerDelegate {
                     setAmOrPm(PM);
                     break;
                 case R.id.hours:
-                    setCurrentItemShowing(HOUR_INDEX, true, true);
+                    setCurrentItemShowing(HOUR_INDEX, true);
                     break;
                 case R.id.minutes:
-                    setCurrentItemShowing(MINUTE_INDEX, true, true);
+                    setCurrentItemShowing(MINUTE_INDEX, true);
                     break;
                 default:
                     // Failed to handle this click, don't vibrate.

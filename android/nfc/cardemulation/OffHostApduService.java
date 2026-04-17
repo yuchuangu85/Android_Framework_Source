@@ -31,7 +31,7 @@ import android.os.IBinder;
  * <div class="special reference">
  * <h3>Developer Guide</h3>
  * For a general introduction into the topic of card emulation,
- * please read the <a href="{@docRoot}guide/topics/nfc/ce.html">
+ * please read the <a href="{@docRoot}guide/topics/connectivity/nfc/hce.html">
  * NFC card emulation developer guide.</a></p>
  * </div>
  *
@@ -96,7 +96,7 @@ import android.os.IBinder;
  *     &lt;intent-filter&gt;
  *         &lt;action android:name="android.nfc.cardemulation.action.OFF_HOST_APDU_SERVICE"/&gt;
  *     &lt;/intent-filter&gt;
- *     &lt;meta-data android:name="android.nfc.cardemulation.off_host_apdu_ervice" android:resource="@xml/apduservice"/&gt;
+ *     &lt;meta-data android:name="android.nfc.cardemulation.off_host_apdu_service" android:resource="@xml/apduservice"/&gt;
  * &lt;/service&gt;</pre>
  *
  * This meta-data tag points to an apduservice.xml file.

@@ -26,6 +26,7 @@ import android.view.View;
 import android.view.ViewDebug;
 import android.view.ViewGroup;
 import android.view.ViewHierarchyEncoder;
+import android.view.inspector.InspectableProperty;
 
 /**
  * <p>A layout that arranges its children horizontally. A TableRow should
@@ -95,7 +96,7 @@ public class TableRow extends LinearLayout {
      *
      * @param columnIndex the index of the column
      * @param collapsed true if the column must be collapsed, false otherwise
-     * {@hide}
+     * @hide
      */
     void setColumnCollapsed(int columnIndex, boolean collapsed) {
         final View child = getVirtualChildAt(columnIndex);
@@ -282,7 +283,7 @@ public class TableRow extends LinearLayout {
      *
      * @return an array of integers corresponding to the width of each cell, or
      *         column, in this row
-     * {@hide}
+     * @hide
      */
     int[] getColumnsWidths(int widthMeasureSpec, int heightMeasureSpec) {
         final int numColumns = getVirtualChildCount();
@@ -335,7 +336,7 @@ public class TableRow extends LinearLayout {
      *                     honor
      * @throws IllegalArgumentException when columnWidths' length is smaller
      *         than the number of children in this row
-     * {@hide}
+     * @hide
      */
     void setColumnsWidthConstraints(int[] columnWidths) {
         if (columnWidths == null || columnWidths.length < getVirtualChildCount()) {
@@ -398,12 +399,14 @@ public class TableRow extends LinearLayout {
          * <p>The column index of the cell represented by the widget.</p>
          */
         @ViewDebug.ExportedProperty(category = "layout")
+        @InspectableProperty(name = "layout_column")
         public int column;
 
         /**
          * <p>The number of columns the widgets spans over.</p>
          */
         @ViewDebug.ExportedProperty(category = "layout")
+        @InspectableProperty(name = "layout_span")
         public int span;
 
         private static final int LOCATION = 0;

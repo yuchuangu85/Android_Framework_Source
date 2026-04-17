@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -37,6 +37,7 @@ import java.math.BigInteger;
  * @see DSAPrivateKey
  *
  * @author Benjamin Renaud
+ * @since 1.1
  */
 public interface DSAPublicKey extends DSAKey, java.security.PublicKey {
 
@@ -46,7 +47,13 @@ public interface DSAPublicKey extends DSAKey, java.security.PublicKey {
     * The class fingerprint that is set to indicate
     * serialization compatibility with a previous
     * version of the class.
+    *
+    * @deprecated A {@code serialVersionUID} field in an interface is
+    * ineffectual. Do not use; no replacement.
     */
+    @Deprecated
+    @SuppressWarnings("serial")
+    @java.io.Serial
     static final long serialVersionUID = 1234526332779022332L;
 
     /**

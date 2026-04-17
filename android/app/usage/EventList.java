@@ -16,23 +16,27 @@
 
 package android.app.usage;
 
+import android.app.usage.UsageEvents.Event;
+
 import java.util.ArrayList;
 
 /**
- * A container to keep {@link UsageEvents.Event usage events} in non-descending order of their
- * {@link UsageEvents.Event#mTimeStamp timestamps}.
+ * A container to keep {@link Event usage events} in non-descending order of their
+ * {@link Event#mTimeStamp timestamps}.
  *
  * @hide
  */
 public class EventList {
 
-    private final ArrayList<UsageEvents.Event> mEvents;
+    private final ArrayList<Event> mEvents;
+    private final EventListRateLimiter mEventListRateLimiter;
 
     /**
      * Create a new event list with default capacity
      */
     public EventList() {
         mEvents = new ArrayList<>();
+        mEventListRateLimiter = new EventListRateLimiter();
     }
 
     /**
@@ -51,21 +55,54 @@ public class EventList {
     }
 
     /**
-     * Returns the {@link UsageEvents.Event event} at the specified position in this list.
+     * Returns the {@link Event event} at the specified position in this list.
      * @param index the index of the event to return, such that {@code 0 <= index < size()}
-     * @return The {@link UsageEvents.Event event} at position {@code index}
+     * @return The {@link Event event} at position {@code index}
      */
-    public UsageEvents.Event get(int index) {
+    public Event get(int index) {
         return mEvents.get(index);
     }
 
     /**
-     * Inserts the given {@link UsageEvents.Event event} into the list while keeping the list sorted
-     * based on the event {@link UsageEvents.Event#mTimeStamp timestamps}.
+     * Inserts the given {@link Event event} into the list while keeping the list sorted
+     * based on the event {@link Event#mTimeStamp timestamps}.
      *
      * @param event The event to insert
      */
-    public void insert(UsageEvents.Event event) {
+    public void insert(Event event) {
+        insertInternal(event, /* skipThresholdChecks= */ false);
+    }
+
+    /**
+     * Same as {@link #insert(Event)} but used when inserting an obfuscated event
+     * from disk.
+     *
+     * @param event The obfuscated event to insert.
+     */
+    public void insertObfuscated(Event event) {
+        // If the event is obfuscated, the package name will be a token hence inserting it in the
+        // traditional way would lead the frequency counts to be inaccurate - skip the threshold
+        // checks and insert normally.
+        if (event.mPackage == null && event.mPackageToken != -1) {
+            insertInternal(event, /* skipThresholdChecks= */ true);
+        } else { // safety check in case this is called by mistake
+            insert(event);
+        }
+    }
+
+    private void insertInternal(Event event, boolean skipThresholdChecks) {
+        if (!skipThresholdChecks && !mEventListRateLimiter.shouldInsert(event)) {
+            // Remove the last event of this type so it gets replaced with the new one.
+            // This is a best effort to ensure an accurate timeline of events remains for consumers.
+            // TODO: b/452129902 - Add a new "drop event count" field and return that to consumers.
+            for (int i = mEvents.size() - 1; i >= 0; i--) {
+                if (mEventListRateLimiter.areMatchingEvents(event, mEvents.get(i))) {
+                    mEvents.remove(i);
+                    break;
+                }
+            }
+        }
+
         final int size = mEvents.size();
         // fast case: just append if this is the latest event
         if (size == 0 || event.mTimeStamp >= mEvents.get(size - 1).mTimeStamp) {
@@ -76,6 +113,24 @@ public class EventList {
         // greatest timestamp in the list.
         final int insertIndex = firstIndexOnOrAfter(event.mTimeStamp + 1);
         mEvents.add(insertIndex, event);
+
+        // TODO: b/452129902 - If the total size of mEvents exceeds a certain threshold in memory,
+        //  we should force a flush to disk operation.
+    }
+
+    /**
+     * Removes the event at the given index.
+     *
+     * @param index the index of the event to remove
+     * @return the event removed, or {@code null} if the index was out of bounds
+     */
+    public Event remove(int index) {
+        try {
+            return mEvents.remove(index);
+        } catch (IndexOutOfBoundsException e) {
+            // catch and handle the exception here instead of throwing it to the client
+            return null;
+        }
     }
 
     /**
@@ -102,5 +157,19 @@ public class EventList {
             }
         }
         return result;
+    }
+
+    /**
+     * Merge the {@link Event events} in the given {@link EventList list} into this
+     * list while keeping the list sorted based on the event {@link
+     * Event#mTimeStamp timestamps}.
+     *
+     * @param events The event list to merge
+     */
+    public void merge(EventList events) {
+        final int size = events.size();
+        for (int i = 0; i < size; i++) {
+            insertInternal(events.get(i), /* skipThresholdChecks= */ true);
+        }
     }
 }

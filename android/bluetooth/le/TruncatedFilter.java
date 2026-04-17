@@ -16,17 +16,24 @@
 
 package android.bluetooth.le;
 
+import android.annotation.Hide;
+import android.annotation.RequiresNoPermission;
 import android.annotation.SystemApi;
+import android.util.Log;
 
 import java.util.List;
 
 /**
  * A special scan filter that lets the client decide how the scan record should be stored.
  *
- * @hide
+ * @deprecated this is not used anywhere
  */
+@Hide
+@Deprecated
 @SystemApi
 public final class TruncatedFilter {
+    private static final String TAG = TruncatedFilter.class.getSimpleName();
+    private static final String MESSAGE = " is deprecated and not supported; Will be removed soon";
     private final ScanFilter mFilter;
     private final List<ResultStorageDescriptor> mStorageDescriptors;
 
@@ -37,23 +44,20 @@ public final class TruncatedFilter {
      * @param storageDescriptors Describes how the scan should be stored.
      */
     public TruncatedFilter(ScanFilter filter, List<ResultStorageDescriptor> storageDescriptors) {
+        Log.wtf(TAG, MESSAGE);
         mFilter = filter;
         mStorageDescriptors = storageDescriptors;
     }
 
-    /**
-     * Returns the scan filter.
-     */
+    /** Returns the scan filter. */
+    @RequiresNoPermission
     public ScanFilter getFilter() {
         return mFilter;
     }
 
-    /**
-     * Returns a list of descriptor for scan result storage.
-     */
+    /** Returns a list of descriptor for scan result storage. */
+    @RequiresNoPermission
     public List<ResultStorageDescriptor> getStorageDescriptors() {
         return mStorageDescriptors;
     }
-
-
 }

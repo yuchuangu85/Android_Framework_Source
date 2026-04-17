@@ -16,34 +16,109 @@
 
 package android.net.wifi.p2p;
 
-import android.os.Parcelable;
+import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.net.MacAddress;
+import android.net.wifi.OuiKeyedData;
+import android.net.wifi.ParcelUtil;
+import android.net.wifi.util.Environment;
+import android.os.Build;
 import android.os.Parcel;
+import android.os.Parcelable;
+import android.util.Log;
 
+import androidx.annotation.RequiresApi;
+
+import com.android.modules.utils.build.SdkLevel;
+import com.android.wifi.flags.Flags;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.regex.Pattern;
+import java.util.List;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * A class representing a Wi-Fi P2p group. A p2p group consists of a single group
  * owner and one or more clients. In the case of a group with only two devices, one
  * will be the group owner and the other will be a group client.
  *
- * {@see WifiP2pManager}
+ * @see WifiP2pManager
  */
 public class WifiP2pGroup implements Parcelable {
 
-    /** The temporary network id.
-     * {@hide} */
-    public static final int TEMPORARY_NET_ID = -1;
+    /**
+     * The temporary network id.
+     * @see #getNetworkId()
+     */
+    public static final int NETWORK_ID_TEMPORARY = -1;
 
-    /** The persistent network id.
+    /**
+     * The temporary network id.
+     *
+     * @hide
+     */
+    @UnsupportedAppUsage
+    public static final int TEMPORARY_NET_ID = NETWORK_ID_TEMPORARY;
+
+    /**
+     * The persistent network id.
      * If a matching persistent profile is found, use it.
      * Otherwise, create a new persistent profile.
-     * {@hide} */
-    public static final int PERSISTENT_NET_ID = -2;
+     * @see #getNetworkId()
+     */
+    public static final int NETWORK_ID_PERSISTENT = -2;
+
+    /**
+     * The definition of security type unknown. It is set when framework fails to derive the
+     * security type from the authentication key management provided by wpa_supplicant.
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int SECURITY_TYPE_UNKNOWN = -1;
+
+    /**
+     * The definition of security type WPA2-PSK.
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int SECURITY_TYPE_WPA2_PSK = 0;
+
+    /**
+     * The definition of security type WPA3-Compatibility Mode.
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int SECURITY_TYPE_WPA3_COMPATIBILITY = 1;
+
+    /**
+     * The definition of security type WPA3-SAE.
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int SECURITY_TYPE_WPA3_SAE = 2;
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = { "SECURITY_TYPE_" }, value = {
+            SECURITY_TYPE_UNKNOWN,
+            SECURITY_TYPE_WPA2_PSK,
+            SECURITY_TYPE_WPA3_COMPATIBILITY,
+            SECURITY_TYPE_WPA3_SAE,
+    })
+    public @interface SecurityType {}
+
+    /**
+     * Group owner P2P interface MAC address.
+     * @hide
+     */
+    @UnsupportedAppUsage
+    public byte[] interfaceAddress;
 
     /** The network name */
     private String mNetworkName;
@@ -60,10 +135,62 @@ public class WifiP2pGroup implements Parcelable {
     /** The passphrase used for WPA2-PSK */
     private String mPassphrase;
 
+    /** The security type of the group */
+    @SecurityType
+    private int mSecurityType;
+
     private String mInterface;
 
-    /** The network id in the wpa_supplicant */
+    /** The network ID in wpa_supplicant */
     private int mNetId;
+
+    /** The frequency (in MHz) used by this group */
+    private int mFrequency;
+
+    /** List of {@link OuiKeyedData} providing vendor-specific configuration data. */
+    private @NonNull List<OuiKeyedData> mVendorData = Collections.emptyList();
+
+    /**
+     * P2P Client IPV4 address allocated via EAPOL-Key exchange.
+     * @hide
+     */
+    public static class P2pGroupClientEapolIpAddressData {
+        /*
+         * The P2P Client IP address.
+         */
+        public final Inet4Address mIpAddressClient;
+        /*
+         * The P2P Group Owner IP address.
+         */
+        public final Inet4Address mIpAddressGo;
+        /*
+         * The subnet that the P2P Group Owner is using.
+         */
+        public final Inet4Address mIpAddressMask;
+
+        /*
+         * Set P2pClientEapolIpAddressData
+         */
+        public P2pGroupClientEapolIpAddressData(Inet4Address ipAddressClient,
+                Inet4Address ipAddressGo, Inet4Address ipAddressMask) {
+            this.mIpAddressClient = ipAddressClient;
+            this.mIpAddressGo = ipAddressGo;
+            this.mIpAddressMask = ipAddressMask;
+        }
+    }
+
+    /**
+     * P2P Client IP address information obtained via EAPOL Handshake.
+     * @hide
+     */
+    public P2pGroupClientEapolIpAddressData p2pClientEapolIpInfo;
+
+    /**
+     * P2P connection info of the current connection.
+     * This field is valid when the device is a client of the group.
+     */
+    @Nullable
+    private WifiP2pConnectionInfo mP2pClientConnectionInfo;
 
     /** P2P group started string pattern */
     private static final Pattern groupStartedPattern = Pattern.compile(
@@ -95,6 +222,7 @@ public class WifiP2pGroup implements Parcelable {
      *  Note: The events formats can be looked up in the wpa_supplicant code
      *  @hide
      */
+    @UnsupportedAppUsage
     public WifiP2pGroup(String supplicantEvent) throws IllegalArgumentException {
 
         String[] tokens = supplicantEvent.split(" ");
@@ -113,19 +241,20 @@ public class WifiP2pGroup implements Parcelable {
             }
 
             mNetworkName = match.group(1);
-            //freq and psk are unused right now
-            //int freq = Integer.parseInt(match.group(2));
+            // It throws NumberFormatException if the string cannot be parsed as an integer.
+            mFrequency = Integer.parseInt(match.group(2));
+            // psk is unused right now
             //String psk = match.group(3);
             mPassphrase = match.group(4);
             mOwner = new WifiP2pDevice(match.group(5));
             if (match.group(6) != null) {
-                mNetId = PERSISTENT_NET_ID;
+                mNetId = NETWORK_ID_PERSISTENT;
             } else {
-                mNetId = TEMPORARY_NET_ID;
+                mNetId = NETWORK_ID_TEMPORARY;
             }
         } else if (tokens[0].equals("P2P-INVITATION-RECEIVED")) {
             String sa = null;
-            mNetId = PERSISTENT_NET_ID;
+            mNetId = NETWORK_ID_PERSISTENT;
             for (String token : tokens) {
                 String[] nameValue = token.split("=");
                 if (nameValue.length != 2) continue;
@@ -169,6 +298,7 @@ public class WifiP2pGroup implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void setIsGroupOwner(boolean isGo) {
         mIsGroupOwner = isGo;
     }
@@ -198,7 +328,45 @@ public class WifiP2pGroup implements Parcelable {
         for (WifiP2pDevice client : mClients) {
             if (client.equals(device)) return;
         }
-        mClients.add(device);
+        mClients.add(new WifiP2pDevice(device));
+    }
+
+    /** @hide */
+    public void setClientInterfaceMacAddress(@NonNull String deviceAddress,
+            @NonNull final MacAddress interfaceMacAddress) {
+        if (null == interfaceMacAddress) {
+            Log.e("setClientInterfaceMacAddress", "cannot set null interface mac address");
+            return;
+        }
+        for (WifiP2pDevice client : mClients) {
+            if (client.deviceAddress.equals(deviceAddress)) {
+                Log.i("setClientInterfaceMacAddress", "device: " + deviceAddress
+                        + " interfaceAddress: " + interfaceMacAddress.toString());
+                client.setInterfaceMacAddress(interfaceMacAddress);
+                break;
+            }
+        }
+    }
+    /** @hide */
+    public void setClientIpAddress(@NonNull final MacAddress interfaceMacAddress,
+            @NonNull final InetAddress ipAddress) {
+        if (null == interfaceMacAddress) {
+            Log.e("setClientIpAddress", "cannot set IP address with null interface mac address");
+            return;
+        }
+        if (null == ipAddress) {
+            Log.e("setClientIpAddress", "Null IP - Failed to set IP address in WifiP2pDevice");
+            return;
+        }
+        for (WifiP2pDevice client : mClients) {
+            if (interfaceMacAddress.equals(client.getInterfaceMacAddress())) {
+                Log.i("setClientIpAddress", "Update the IP address"
+                        + " device: " + client.deviceAddress + " interfaceAddress: "
+                        + interfaceMacAddress.toString() + " IP: " + ipAddress.getHostAddress());
+                client.setIpAddress(ipAddress);
+                break;
+            }
+        }
     }
 
     /** @hide */
@@ -212,14 +380,18 @@ public class WifiP2pGroup implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public boolean isClientListEmpty() {
         return mClients.size() == 0;
     }
 
-    /** @hide Returns {@code true} if the device is part of the group */
-    public boolean contains(WifiP2pDevice device) {
-        if (mOwner.equals(device) || mClients.contains(device)) return true;
-        return false;
+    /**
+     * Returns {@code true} if the device is part of the group, {@code false} otherwise.
+     *
+     * @hide
+     */
+    public boolean contains(@Nullable WifiP2pDevice device) {
+        return mOwner.equals(device) || mClients.contains(device);
     }
 
     /** Get the list of clients currently part of the p2p group */
@@ -241,7 +413,68 @@ public class WifiP2pGroup implements Parcelable {
         return mPassphrase;
     }
 
+    /**
+     * Set the security type of the group.
+     *
+     * @param securityType One of the {@code SECURITY_TYPE_*}.
+     * @hide
+     */
+    public void setSecurityType(@SecurityType int securityType) {
+        mSecurityType = securityType;
+    }
+
+    /**
+     * Get the security type of the group.
+     *
+     * @return One of the {@code SECURITY_TYPE_*}.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public @SecurityType int getSecurityType() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        return mSecurityType;
+    }
+
+    /**
+     * Set the ConnectionInfo of the client device.
+     * @hide
+     */
+    public void setWifiP2pGroupClientConnectionInfo(WifiP2pConnectionInfo info) {
+        if (!Environment.isSdkNewerThanB()) {
+            throw new UnsupportedOperationException();
+        }
+        mP2pClientConnectionInfo = info;
+    }
+
+    /**
+     * Gets the P2P connection information for this device if it is a client in the group.
+     * If this device is the Group Owner, this will return {@code null}.
+     * <p>
+     * To get the most up-to-date information, an application should listen for the
+     * {@link WifiP2pManager#WIFI_P2P_CONNECTION_CHANGED_ACTION} broadcast. When this device joins a
+     * group as a client, the system updates the connection information and broadcasts the new
+     * group details in the {@link WifiP2pManager#EXTRA_WIFI_P2P_GROUP} extra.
+     * <p>
+     * Alternatively, an application can call {@link WifiP2pManager#requestGroupInfo} to get the
+     * latest group details.
+     *
+     * @return A {@link WifiP2pConnectionInfo} object if this device is a client, or {@code null} if
+     *         it is the Group Owner.
+     */
+    @RequiresApi(37)
+    @FlaggedApi(Flags.FLAG_WIFI_P2P_CONNECTION_INFO)
+    @Nullable
+    public WifiP2pConnectionInfo getWifiP2pGroupClientConnectionInfo() {
+        if (!Environment.isSdkNewerThanB()) {
+            throw new UnsupportedOperationException();
+        }
+        return mP2pClientConnectionInfo;
+    }
+
     /** @hide */
+    @UnsupportedAppUsage
     public void setInterface(String intf) {
         mInterface = intf;
     }
@@ -251,14 +484,115 @@ public class WifiP2pGroup implements Parcelable {
         return mInterface;
     }
 
-    /** @hide */
+    /** The network ID of the P2P group in wpa_supplicant. */
     public int getNetworkId() {
         return mNetId;
     }
 
     /** @hide */
+    @UnsupportedAppUsage
     public void setNetworkId(int netId) {
         this.mNetId = netId;
+    }
+
+    /** Get the operating frequency (in MHz) of the p2p group */
+    public int getFrequency() {
+        return mFrequency;
+    }
+
+    /** @hide */
+    public void setFrequency(int freq) {
+        this.mFrequency = freq;
+    }
+
+    /**
+     * Return the vendor-provided configuration data, if it exists. See also {@link
+     * #setVendorData(List)}
+     *
+     * @return Vendor configuration data, or empty list if it does not exist.
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    @NonNull
+    @SystemApi
+    public List<OuiKeyedData> getVendorData() {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        return mVendorData;
+    }
+
+    /**
+     * Set additional vendor-provided configuration data.
+     *
+     * @param vendorData List of {@link OuiKeyedData} containing the vendor-provided
+     *     configuration data. Note that multiple elements with the same OUI are allowed.
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    @SystemApi
+    public void setVendorData(@NonNull List<OuiKeyedData> vendorData) {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        if (vendorData == null) {
+            throw new IllegalArgumentException("setVendorData received a null value");
+        }
+        mVendorData = new ArrayList<>(vendorData);
+    }
+
+    /**
+     * Returns the BSSID, if this device is the group owner of the P2P group supporting Wi-Fi
+     * Direct R2 protocol.
+     * <p>
+     * The interface address of a Wi-Fi Direct R2 supported device is randomized. So for every
+     * group owner session a randomized interface address will be returned.
+     * <p>
+     * The BSSID returned will be {@code null}, if this device is a client device or a group owner
+     * which doesn't support Wi-Fi Direct R2 protocol.
+     * @return the BSSID.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    @Nullable
+    public MacAddress getGroupOwnerBssid() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        if (isGroupOwner() && getSecurityType() == SECURITY_TYPE_WPA3_SAE
+                && interfaceAddress != null) {
+            return MacAddress.fromBytes(interfaceAddress);
+        }
+        return null;
+    }
+
+    /** @hide */
+    @RequiresApi(37)
+    @FlaggedApi(Flags.FLAG_WIFI_P2P_CONNECTION_INFO)
+    public void setClientConnectionInfo(@NonNull String deviceAddress,
+                                        @NonNull final WifiP2pConnectionInfo connInfo) {
+        if (!Environment.isSdkNewerThanB()) {
+            throw new UnsupportedOperationException();
+        }
+        if (null == deviceAddress) {
+            Log.e("setClientConnectionInfo",
+                    "cannot set ConnectionInfo with null device mac address");
+            return;
+        }
+        if (null == connInfo) {
+            Log.e("setClientConnectionInfo", "cannot set null ConnectionInfo");
+            return;
+        }
+        for (WifiP2pDevice client : mClients) {
+            if (client.deviceAddress.equals(deviceAddress)) {
+                Log.i("setClientConnectionInfo", "Update the connection info"
+                        + " device: " + client.deviceAddress + " info: " + connInfo);
+                client.setWifiP2pConnectionInfo(connInfo);
+                break;
+            }
+        }
     }
 
     public String toString() {
@@ -271,6 +605,11 @@ public class WifiP2pGroup implements Parcelable {
         }
         sbuf.append("\n interface: ").append(mInterface);
         sbuf.append("\n networkId: ").append(mNetId);
+        sbuf.append("\n securityType: ").append(mSecurityType);
+
+        sbuf.append("\n frequency: ").append(mFrequency);
+        sbuf.append("\n vendorData: ").append(mVendorData);
+        sbuf.append("\n clientConnectionInfo: ").append(mP2pClientConnectionInfo);
         return sbuf.toString();
     }
 
@@ -289,6 +628,19 @@ public class WifiP2pGroup implements Parcelable {
             mPassphrase = source.getPassphrase();
             mInterface = source.getInterface();
             mNetId = source.getNetworkId();
+            if (Environment.isSdkAtLeastB() && Flags.wifiDirectR2()) {
+                mSecurityType = source.getSecurityType();
+            }
+            mFrequency = source.getFrequency();
+            if (SdkLevel.isAtLeastV()) {
+                mVendorData = new ArrayList<>(source.getVendorData());
+            }
+            if (Environment.isSdkNewerThanB() && Flags.wifiP2pConnectionInfo()) {
+                if (source.mP2pClientConnectionInfo != null) {
+                    mP2pClientConnectionInfo =
+                            new WifiP2pConnectionInfo(source.mP2pClientConnectionInfo);
+                }
+            }
         }
     }
 
@@ -304,28 +656,51 @@ public class WifiP2pGroup implements Parcelable {
         dest.writeString(mPassphrase);
         dest.writeString(mInterface);
         dest.writeInt(mNetId);
+        if (Environment.isSdkAtLeastB() && Flags.wifiDirectR2()) {
+            dest.writeInt(mSecurityType);
+        }
+        dest.writeInt(mFrequency);
+        if (SdkLevel.isAtLeastV()) {
+            dest.writeList(mVendorData);
+        }
+        if (Environment.isSdkNewerThanB() && Flags.wifiP2pConnectionInfo()) {
+            dest.writeParcelable(mP2pClientConnectionInfo, flags);
+        }
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<WifiP2pGroup> CREATOR =
-        new Creator<WifiP2pGroup>() {
-            public WifiP2pGroup createFromParcel(Parcel in) {
-                WifiP2pGroup group = new WifiP2pGroup();
-                group.setNetworkName(in.readString());
-                group.setOwner((WifiP2pDevice)in.readParcelable(null));
-                group.setIsGroupOwner(in.readByte() == (byte)1);
-                int clientCount = in.readInt();
-                for (int i=0; i<clientCount; i++) {
-                    group.addClient((WifiP2pDevice) in.readParcelable(null));
+    public static final @android.annotation.NonNull Creator<WifiP2pGroup> CREATOR =
+            new Creator<WifiP2pGroup>() {
+                public WifiP2pGroup createFromParcel(Parcel in) {
+                    WifiP2pGroup group = new WifiP2pGroup();
+                    group.setNetworkName(in.readString());
+                    group.setOwner((WifiP2pDevice) in.readParcelable(
+                            WifiP2pDevice.class.getClassLoader()));
+                    group.setIsGroupOwner(in.readByte() == (byte) 1);
+                    int clientCount = in.readInt();
+                    for (int i = 0; i < clientCount; i++) {
+                        group.addClient((WifiP2pDevice) in.readParcelable(
+                                WifiP2pDevice.class.getClassLoader()));
+                    }
+                    group.setPassphrase(in.readString());
+                    group.setInterface(in.readString());
+                    group.setNetworkId(in.readInt());
+                    if (Environment.isSdkAtLeastB() && Flags.wifiDirectR2()) {
+                        group.setSecurityType(in.readInt());
+                    }
+                    group.setFrequency(in.readInt());
+                    if (SdkLevel.isAtLeastV()) {
+                        group.setVendorData(ParcelUtil.readOuiKeyedDataList(in));
+                    }
+                    if (Environment.isSdkNewerThanB() && Flags.wifiP2pConnectionInfo()) {
+                        group.setWifiP2pGroupClientConnectionInfo(in.readParcelable(
+                                WifiP2pConnectionInfo.class.getClassLoader()));
+                    }
+                    return group;
                 }
-                group.setPassphrase(in.readString());
-                group.setInterface(in.readString());
-                group.setNetworkId(in.readInt());
-                return group;
-            }
 
-            public WifiP2pGroup[] newArray(int size) {
-                return new WifiP2pGroup[size];
-            }
+                public WifiP2pGroup[] newArray(int size) {
+                    return new WifiP2pGroup[size];
+                }
         };
 }

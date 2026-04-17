@@ -31,7 +31,7 @@ import static java.lang.annotation.RetentionPolicy.SOURCE;
  * Denotes that a numeric parameter, field or method return value is expected
  * to represent a dimension.
  *
- * {@hide}
+ * @hide
  */
 @Documented
 @Retention(SOURCE)

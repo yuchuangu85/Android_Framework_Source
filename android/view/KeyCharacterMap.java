@@ -16,12 +16,21 @@
 
 package android.view;
 
-import android.hardware.input.InputManager;
+
+import static com.android.hardware.input.Flags.removeFallbackModifiers;
+
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.hardware.input.InputManagerGlobal;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.method.MetaKeyKeyListener;
 import android.util.AndroidRuntimeException;
 import android.util.SparseIntArray;
+
+import com.android.internal.annotations.VisibleForTesting;
 
 import java.text.Normalizer;
 
@@ -123,7 +132,7 @@ public class KeyCharacterMap implements Parcelable {
     /**
      * Modifier keys may be chorded with character keys.
      *
-     * @see {#link #getModifierBehavior()} for more details.
+     * @see #getModifierBehavior()
      */
     public static final int MODIFIER_BEHAVIOR_CHORDED = 0;
 
@@ -131,7 +140,7 @@ public class KeyCharacterMap implements Parcelable {
      * Modifier keys may be chorded with character keys or they may toggle
      * into latched or locked states when pressed independently.
      *
-     * @see {#link #getModifierBehavior()} for more details.
+     * @see #getModifierBehavior()
      */
     public static final int MODIFIER_BEHAVIOR_CHORDED_OR_TOGGLED = 1;
 
@@ -172,12 +181,12 @@ public class KeyCharacterMap implements Parcelable {
     private static final int ACCENT_UMLAUT = '\u00A8';
     private static final int ACCENT_VERTICAL_LINE_ABOVE = '\u02C8';
     private static final int ACCENT_VERTICAL_LINE_BELOW = '\u02CC';
+    private static final int ACCENT_APOSTROPHE = '\'';
+    private static final int ACCENT_QUOTATION_MARK = '"';
 
-    /* Legacy dead key display characters used in previous versions of the API.
-     * We still support these characters by mapping them to their non-legacy version. */
-    private static final int ACCENT_GRAVE_LEGACY = '`';
-    private static final int ACCENT_CIRCUMFLEX_LEGACY = '^';
-    private static final int ACCENT_TILDE_LEGACY = '~';
+    private static final int ACCENT_GRAVE_FALLBACK = '`';
+    private static final int ACCENT_CIRCUMFLEX_FALLBACK = '^';
+    private static final int ACCENT_TILDE_FALLBACK = '~';
 
     private static final int CHAR_SPACE = ' ';
 
@@ -186,21 +195,21 @@ public class KeyCharacterMap implements Parcelable {
      */
     private static final SparseIntArray sCombiningToAccent = new SparseIntArray();
     private static final SparseIntArray sAccentToCombining = new SparseIntArray();
+    private static final SparseIntArray sAccentToFallback = new SparseIntArray();
     static {
-        addCombining('\u0300', ACCENT_GRAVE);
-        addCombining('\u0301', ACCENT_ACUTE);
-        addCombining('\u0302', ACCENT_CIRCUMFLEX);
-        addCombining('\u0303', ACCENT_TILDE);
+        // Combining, Accent, Fallback
+        addCombining('\u0300', ACCENT_GRAVE, ACCENT_GRAVE_FALLBACK);
+        addCombining('\u0301', ACCENT_ACUTE, ACCENT_APOSTROPHE);
+        addCombining('\u0302', ACCENT_CIRCUMFLEX, ACCENT_CIRCUMFLEX_FALLBACK);
+        addCombining('\u0303', ACCENT_TILDE, ACCENT_TILDE_FALLBACK);
         addCombining('\u0304', ACCENT_MACRON);
         addCombining('\u0306', ACCENT_BREVE);
         addCombining('\u0307', ACCENT_DOT_ABOVE);
-        addCombining('\u0308', ACCENT_UMLAUT);
+        addCombining('\u0308', ACCENT_UMLAUT, ACCENT_QUOTATION_MARK);
         addCombining('\u0309', ACCENT_HOOK_ABOVE);
         addCombining('\u030A', ACCENT_RING_ABOVE);
         addCombining('\u030B', ACCENT_DOUBLE_ACUTE);
         addCombining('\u030C', ACCENT_CARON);
-        addCombining('\u030D', ACCENT_VERTICAL_LINE_ABOVE);
-        //addCombining('\u030E', ACCENT_DOUBLE_VERTICAL_LINE_ABOVE);
         //addCombining('\u030F', ACCENT_DOUBLE_GRAVE);
         //addCombining('\u0310', ACCENT_CANDRABINDU);
         //addCombining('\u0311', ACCENT_INVERTED_BREVE);
@@ -224,16 +233,29 @@ public class KeyCharacterMap implements Parcelable {
         sCombiningToAccent.append('\u0340', ACCENT_GRAVE);
         sCombiningToAccent.append('\u0341', ACCENT_ACUTE);
         sCombiningToAccent.append('\u0343', ACCENT_COMMA_ABOVE);
+        sCombiningToAccent.append('\u030D', ACCENT_APOSTROPHE);
+        sCombiningToAccent.append('\u030E', ACCENT_QUOTATION_MARK);
 
-        // One-way legacy mappings to preserve compatibility with older applications.
-        sAccentToCombining.append(ACCENT_GRAVE_LEGACY, '\u0300');
-        sAccentToCombining.append(ACCENT_CIRCUMFLEX_LEGACY, '\u0302');
-        sAccentToCombining.append(ACCENT_TILDE_LEGACY, '\u0303');
+        // Legacy dead key display characters used in previous versions of the API.
+        // We still support these characters by mapping them to their non-legacy version.
+        sAccentToCombining.append(ACCENT_GRAVE_FALLBACK, '\u0300');
+        sAccentToCombining.append(ACCENT_CIRCUMFLEX_FALLBACK, '\u0302');
+        sAccentToCombining.append(ACCENT_TILDE_FALLBACK, '\u0303');
+
+        // One-way mappings to use the preferred accent
+        sAccentToCombining.append(ACCENT_APOSTROPHE, '\u0301');
+        sAccentToCombining.append(ACCENT_QUOTATION_MARK, '\u0308');
     }
 
     private static void addCombining(int combining, int accent) {
+        // If there is no reasonable fallback, use the accent as fallback
+        addCombining(combining, accent, accent);
+    }
+
+    private static void addCombining(int combining, int accent, int fallback) {
         sCombiningToAccent.append(combining, accent);
         sAccentToCombining.append(accent, combining);
+        sAccentToFallback.append(accent, fallback);
     }
 
     /**
@@ -271,7 +293,7 @@ public class KeyCharacterMap implements Parcelable {
         sDeadKeyCache.put(combination, result);
     }
 
-    public static final Parcelable.Creator<KeyCharacterMap> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<KeyCharacterMap> CREATOR =
             new Parcelable.Creator<KeyCharacterMap>() {
         public KeyCharacterMap createFromParcel(Parcel in) {
             return new KeyCharacterMap(in);
@@ -295,6 +317,12 @@ public class KeyCharacterMap implements Parcelable {
     private static native char nativeGetDisplayLabel(long ptr, int keyCode);
     private static native int nativeGetKeyboardType(long ptr);
     private static native KeyEvent[] nativeGetEvents(long ptr, char[] chars);
+    private static native KeyCharacterMap nativeObtainEmptyKeyCharacterMap(int deviceId);
+    private static native boolean nativeEquals(long ptr1, long ptr2);
+
+    private static native KeyCharacterMap nativeObtainMapWithOverlay(long ptrForBaseMap,
+            String layoutDescriptor, String overlay);
+    private static native int nativeGetMappedKey(long ptr, int scanCode);
 
     private KeyCharacterMap(Parcel in) {
         if (in == null) {
@@ -307,6 +335,7 @@ public class KeyCharacterMap implements Parcelable {
     }
 
     // Called from native
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private KeyCharacterMap(long ptr) {
         mPtr = ptr;
     }
@@ -320,16 +349,28 @@ public class KeyCharacterMap implements Parcelable {
     }
 
     /**
+     * Obtain empty key character map
+     * @param deviceId The input device ID
+     * @return The KeyCharacterMap object
+     * @hide
+     */
+    @VisibleForTesting
+    @Nullable
+    public static KeyCharacterMap obtainEmptyMap(int deviceId) {
+        return nativeObtainEmptyKeyCharacterMap(deviceId);
+    }
+
+    /**
      * Loads the key character maps for the keyboard with the specified device id.
      *
      * @param deviceId The device id of the keyboard.
      * @return The associated key character map.
-     * @throws {@link UnavailableException} if the key character map
+     * @throws UnavailableException if the key character map
      * could not be loaded because it was malformed or the default key character map
      * is missing from the system.
      */
     public static KeyCharacterMap load(int deviceId) {
-        final InputManager im = InputManager.getInstance();
+        final InputManagerGlobal im = InputManagerGlobal.getInstance();
         InputDevice inputDevice = im.getInputDevice(deviceId);
         if (inputDevice == null) {
             inputDevice = im.getInputDevice(VIRTUAL_KEYBOARD);
@@ -339,6 +380,38 @@ public class KeyCharacterMap implements Parcelable {
             }
         }
         return inputDevice.getKeyCharacterMap();
+    }
+
+    /**
+     * Loads the key character map with applied KCM overlay.
+     *
+     * @param layoutDescriptor descriptor of the applied overlay KCM
+     * @param overlay          string describing the overlay KCM
+     * @return The resultant key character map.
+     * @throws UnavailableException if the key character map
+     *                could not be loaded because it was malformed or the default key character map
+     *                is missing from the system.
+     * @hide
+     */
+    public static KeyCharacterMap load(@NonNull String layoutDescriptor, @NonNull String overlay) {
+        KeyCharacterMap virtualKcm = KeyCharacterMap.load(VIRTUAL_KEYBOARD);
+        KeyCharacterMap kcmWithOverlay = nativeObtainMapWithOverlay(virtualKcm.mPtr,
+                layoutDescriptor, overlay);
+        if (kcmWithOverlay == null) {
+            return virtualKcm;
+        }
+        return kcmWithOverlay;
+    }
+
+    /**
+     * Gets the mapped key for the provided scan code. Returns the provided default if no mapping
+     * found in the KeyCharacterMap.
+     *
+     * @hide
+     */
+    public int getMappedKeyOrDefault(int scanCode, int defaultKeyCode) {
+        int keyCode = nativeGetMappedKey(mPtr, scanCode);
+        return keyCode == KeyEvent.KEYCODE_UNKNOWN ? defaultKeyCode : keyCode;
     }
 
     /**
@@ -395,7 +468,15 @@ public class KeyCharacterMap implements Parcelable {
         FallbackAction action = FallbackAction.obtain();
         metaState = KeyEvent.normalizeMetaState(metaState);
         if (nativeGetFallbackAction(mPtr, keyCode, metaState, action)) {
-            action.metaState = KeyEvent.normalizeMetaState(action.metaState);
+            if (removeFallbackModifiers()) {
+                // Strip all modifiers. This is safe to do since only exact keyCode + metaState
+                // modifiers will trigger a fallback.
+                // E.g. Ctrl + Space -> language_switch (fallback generated)
+                //      Ctrl + Alt + Space -> Ctrl + Alt + Space (no fallback generated)
+                action.metaState = 0;
+            } else {
+                action.metaState = KeyEvent.normalizeMetaState(action.metaState);
+            }
             return action;
         }
         action.recycle();
@@ -438,7 +519,7 @@ public class KeyCharacterMap implements Parcelable {
      * @param keyCode The keycode.
      * @param chars The array of matching characters to consider.
      * @return The matching associated character, or 0 if none.
-     * @throws {@link IllegalArgumentException} if the passed array of characters is null.
+     * @throws IllegalArgumentException if the passed array of characters is null.
      */
     public char getMatch(int keyCode, char[] chars) {
         return getMatch(keyCode, chars, 0);
@@ -453,7 +534,7 @@ public class KeyCharacterMap implements Parcelable {
      * @param chars The array of matching characters to consider.
      * @param metaState The preferred meta key modifier state.
      * @return The matching associated character, or 0 if none.
-     * @throws {@link IllegalArgumentException} if the passed array of characters is null.
+     * @throws IllegalArgumentException if the passed array of characters is null.
      */
     public char getMatch(int keyCode, char[] chars, int metaState) {
         if (chars == null) {
@@ -486,11 +567,10 @@ public class KeyCharacterMap implements Parcelable {
      * @return The combined character, or 0 if the characters cannot be combined.
      */
     public static int getDeadChar(int accent, int c) {
-        if (c == accent || CHAR_SPACE == c) {
+        if (c == accent || c == CHAR_SPACE) {
             // The same dead character typed twice or a dead character followed by a
-            // space should both produce the non-combining version of the combining char.
-            // In this case we don't even need to compute the combining character.
-            return accent;
+            // space should produce the fallback character.
+            return sAccentToFallback.get(accent, accent);
         }
 
         int combining = sAccentToCombining.get(accent);
@@ -513,6 +593,17 @@ public class KeyCharacterMap implements Parcelable {
             }
         }
         return combined;
+    }
+
+    /**
+     * Get the combining character that corresponds with the provided accent.
+     *
+     * @param accent The accent character.  eg. '`'
+     * @return The combining character
+     * @hide
+     */
+    public static int getCombiningChar(int accent) {
+        return sAccentToCombining.get(accent);
     }
 
     /**
@@ -600,7 +691,7 @@ public class KeyCharacterMap implements Parcelable {
      * @param chars The sequence of characters to generate.
      * @return An array of {@link KeyEvent} objects, or null if the given char array
      *         can not be generated using the current key character map.
-     * @throws {@link IllegalArgumentException} if the passed array of characters is null.
+     * @throws IllegalArgumentException if the passed array of characters is null.
      */
     public KeyEvent[] getEvents(char[] chars) {
         if (chars == null) {
@@ -689,20 +780,19 @@ public class KeyCharacterMap implements Parcelable {
     }
 
     /**
-     * Queries the framework about whether any physical keys exist on the
-     * any keyboard attached to the device that are capable of producing the given key code.
+     * Queries the framework about whether any physical keys exist on any currently attached input
+     * devices that are capable of producing the given key code.
      *
      * @param keyCode The key code to query.
      * @return True if at least one attached keyboard supports the specified key code.
      */
     public static boolean deviceHasKey(int keyCode) {
-        return InputManager.getInstance().deviceHasKeys(new int[] { keyCode })[0];
+        return InputManagerGlobal.getInstance().deviceHasKeys(new int[] { keyCode })[0];
     }
 
     /**
-     * Queries the framework about whether any physical keys exist on the
-     * any keyboard attached to the device that are capable of producing the given
-     * array of key codes.
+     * Queries the framework about whether any physical keys exist on any currently attached input
+     * devices that are capable of producing the given array of key codes.
      *
      * @param keyCodes The array of key codes to query.
      * @return A new array of the same size as the key codes array whose elements
@@ -710,7 +800,7 @@ public class KeyCharacterMap implements Parcelable {
      * at the same index in the key codes array.
      */
     public static boolean[] deviceHasKeys(int[] keyCodes) {
-        return InputManager.getInstance().deviceHasKeys(keyCodes);
+        return InputManagerGlobal.getInstance().deviceHasKeys(keyCodes);
     }
 
     @Override
@@ -724,6 +814,18 @@ public class KeyCharacterMap implements Parcelable {
     @Override
     public int describeContents() {
         return 0;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null || !(obj instanceof KeyCharacterMap)) {
+            return false;
+        }
+        KeyCharacterMap peer = (KeyCharacterMap) obj;
+        if (mPtr == 0 || peer.mPtr == 0) {
+            return mPtr == peer.mPtr;
+        }
+        return nativeEquals(mPtr, peer.mPtr);
     }
 
     /**
@@ -748,7 +850,9 @@ public class KeyCharacterMap implements Parcelable {
 
         private FallbackAction next;
 
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public int keyCode;
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public int metaState;
 
         private FallbackAction() {

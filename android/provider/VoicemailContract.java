@@ -18,6 +18,7 @@ package android.provider;
 
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.annotation.TestApi;
 import android.content.ComponentName;
 import android.content.ContentResolver;
 import android.content.ContentValues;
@@ -28,7 +29,6 @@ import android.net.Uri;
 import android.provider.CallLog.Calls;
 import android.telecom.PhoneAccount;
 import android.telecom.PhoneAccountHandle;
-import android.telecom.Voicemail;
 
 import java.util.List;
 
@@ -289,6 +289,7 @@ public class VoicemailContract {
          * Path to the media content file. Internal only field.
          * @hide
          */
+        @TestApi
         public static final String _DATA = "_data";
 
         // Note: PHONE_ACCOUNT_* constant values are "subscription_*" due to a historic naming

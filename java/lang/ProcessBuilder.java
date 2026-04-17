@@ -693,8 +693,8 @@ public final class ProcessBuilder
      * @throws IllegalArgumentException
      *         if the redirect does not correspond to a valid source
      *         of data, that is, has type
-     *         {@link Redirect.Type#WRITE WRITE} or
-     *         {@link Redirect.Type#APPEND APPEND}
+     *         {@link ProcessBuilder.Redirect.Type#WRITE WRITE} or
+     *         {@link ProcessBuilder.Redirect.Type#APPEND APPEND}
      * @since  1.7
      */
     public ProcessBuilder redirectInput(Redirect source) {
@@ -725,7 +725,7 @@ public final class ProcessBuilder
      * @throws IllegalArgumentException
      *         if the redirect does not correspond to a valid
      *         destination of data, that is, has type
-     *         {@link Redirect.Type#READ READ}
+     *         {@link ProcessBuilder.Redirect.Type#READ READ}
      * @since  1.7
      */
     public ProcessBuilder redirectOutput(Redirect destination) {
@@ -759,7 +759,7 @@ public final class ProcessBuilder
      * @throws IllegalArgumentException
      *         if the redirect does not correspond to a valid
      *         destination of data, that is, has type
-     *         {@link Redirect.Type#READ READ}
+     *         {@link ProcessBuilder.Redirect.Type#READ READ}
      * @since  1.7
      */
     public ProcessBuilder redirectError(Redirect destination) {

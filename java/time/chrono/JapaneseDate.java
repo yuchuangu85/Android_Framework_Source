@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -91,7 +91,6 @@ import java.util.Objects;
 import sun.util.calendar.CalendarDate;
 import sun.util.calendar.LocalGregorianCalendar;
 
-// Android-changed: removed ValueBased paragraph.
 /**
  * A date in the Japanese Imperial calendar system.
  * <p>
@@ -111,12 +110,20 @@ import sun.util.calendar.LocalGregorianCalendar;
  * Calling {@code japaneseDate.get(YEAR)} will return 2012.<br>
  * Calling {@code japaneseDate.get(ERA)} will return 2, corresponding to
  * {@code JapaneseChronology.ERA_HEISEI}.<br>
+ * <p>
+ * This is a <a href="{@docRoot}/java.base/java/lang/doc-files/ValueBased.html">value-based</a>
+ * class; programmers should treat instances that are
+ * {@linkplain #equals(Object) equal} as interchangeable and should not
+ * use instances for synchronization, or unpredictable behavior may
+ * occur. For example, in a future release, synchronization may fail.
+ * The {@code equals} method should be used for comparisons.
  *
  * @implSpec
  * This class is immutable and thread-safe.
  *
  * @since 1.8
  */
+@jdk.internal.ValueBased
 public final class JapaneseDate
         extends ChronoLocalDateImpl<JapaneseDate>
         implements ChronoLocalDate, Serializable {
@@ -124,6 +131,7 @@ public final class JapaneseDate
     /**
      * Serialization version.
      */
+    @java.io.Serial
     private static final long serialVersionUID = -305327627230580483L;
 
     /**
@@ -133,11 +141,11 @@ public final class JapaneseDate
     /**
      * The JapaneseEra of this date.
      */
-    private transient JapaneseEra era;
+    private final transient JapaneseEra era;
     /**
      * The Japanese imperial calendar year of this date.
      */
-    private transient int yearOfEra;
+    private final transient int yearOfEra;
 
     /**
      * The first day supported by the JapaneseChronology is Meiji 6, January 1st.
@@ -432,30 +440,25 @@ public final class JapaneseDate
                 field == ALIGNED_WEEK_OF_MONTH || field == ALIGNED_WEEK_OF_YEAR) {
             return false;
         }
-        // Android-changed: Apply upstream OpenJDK 9 compilation fix.
-        // Applied OpenJDK 9 change from http://hg.openjdk.java.net/jdk9/dev/jdk/rev/2b7b09c81bf1
-        // On OpenJDK 8, either version is supported and has the same behavior.
-        // return ChronoLocalDate.super.isSupported(field);
         return super.isSupported(field);
     }
 
     @Override
     public ValueRange range(TemporalField field) {
-        if (field instanceof ChronoField) {
+        if (field instanceof ChronoField chronoField) {
             if (isSupported(field)) {
-                ChronoField f = (ChronoField) field;
-                switch (f) {
-                    case DAY_OF_MONTH: return ValueRange.of(1, lengthOfMonth());
-                    case DAY_OF_YEAR: return ValueRange.of(1, lengthOfYear());
-                    case YEAR_OF_ERA: {
+                return switch (chronoField) {
+                    case DAY_OF_MONTH -> ValueRange.of(1, lengthOfMonth());
+                    case DAY_OF_YEAR -> ValueRange.of(1, lengthOfYear());
+                    case YEAR_OF_ERA -> {
                         // Android-changed: use #createCalendar() to create calendar.
                         Calendar jcal = JapaneseChronology.createCalendar();
                         jcal.set(Calendar.ERA, era.getValue() + JapaneseEra.ERA_OFFSET);
                         jcal.set(yearOfEra, isoDate.getMonthValue() - 1, isoDate.getDayOfMonth());
-                        return ValueRange.of(1, jcal.getActualMaximum(Calendar.YEAR));
+                        yield ValueRange.of(1, jcal.getActualMaximum(Calendar.YEAR));
                     }
-                }
-                return getChronology().range(f);
+                    default -> getChronology().range(chronoField);
+                };
             }
             throw new UnsupportedTemporalTypeException("Unsupported field: " + field);
         }
@@ -464,13 +467,13 @@ public final class JapaneseDate
 
     @Override
     public long getLong(TemporalField field) {
-        if (field instanceof ChronoField) {
+        if (field instanceof ChronoField cf) {
             // same as ISO:
             // DAY_OF_WEEK, DAY_OF_MONTH, EPOCH_DAY, MONTH_OF_YEAR, PROLEPTIC_MONTH, YEAR
             //
             // calendar specific fields
             // DAY_OF_YEAR, YEAR_OF_ERA, ERA
-            switch ((ChronoField) field) {
+            switch (cf) {
                 case ALIGNED_DAY_OF_WEEK_IN_MONTH:
                 case ALIGNED_DAY_OF_WEEK_IN_YEAR:
                 case ALIGNED_WEEK_OF_MONTH:
@@ -513,17 +516,16 @@ public final class JapaneseDate
     //-----------------------------------------------------------------------
     @Override
     public JapaneseDate with(TemporalField field, long newValue) {
-        if (field instanceof ChronoField) {
-            ChronoField f = (ChronoField) field;
-            if (getLong(f) == newValue) {  // getLong() validates for supported fields
+        if (field instanceof ChronoField chronoField) {
+            if (getLong(chronoField) == newValue) {  // getLong() validates for supported fields
                 return this;
             }
-            switch (f) {
+            switch (chronoField) {
                 case YEAR_OF_ERA:
                 case YEAR:
                 case ERA: {
-                    int nvalue = getChronology().range(f).checkValidIntValue(newValue, f);
-                    switch (f) {
+                    int nvalue = getChronology().range(chronoField).checkValidIntValue(newValue, chronoField);
+                    switch (chronoField) {
                         case YEAR_OF_ERA:
                             return this.withYear(nvalue);
                         case YEAR:
@@ -633,8 +635,8 @@ public final class JapaneseDate
     }
 
     @Override
-    public JapaneseDate minus(long amountToAdd, TemporalUnit unit) {
-        return super.minus(amountToAdd, unit);
+    public JapaneseDate minus(long amountToSubtract, TemporalUnit unit) {
+        return super.minus(amountToSubtract, unit);
     }
 
     @Override
@@ -696,11 +698,8 @@ public final class JapaneseDate
         if (this == obj) {
             return true;
         }
-        if (obj instanceof JapaneseDate) {
-            JapaneseDate otherDate = (JapaneseDate) obj;
-            return this.isoDate.equals(otherDate.isoDate);
-        }
-        return false;
+        return (obj instanceof JapaneseDate otherDate)
+            && this.isoDate.equals(otherDate.isoDate);
     }
 
     /**
@@ -720,13 +719,14 @@ public final class JapaneseDate
      * @param s the stream to read
      * @throws InvalidObjectException always
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s) throws InvalidObjectException {
         throw new InvalidObjectException("Deserialization via serialization delegate");
     }
 
     /**
      * Writes the object using a
-     * <a href="../../../serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
+     * <a href="{@docRoot}/serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
      * @serialData
      * <pre>
      *  out.writeByte(4);                 // identifies a JapaneseDate
@@ -737,6 +737,7 @@ public final class JapaneseDate
      *
      * @return the instance of {@code Ser}, not null
      */
+    @java.io.Serial
     private Object writeReplace() {
         return new Ser(Ser.JAPANESE_DATE_TYPE, this);
     }

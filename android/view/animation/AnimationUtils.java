@@ -16,17 +16,26 @@
 
 package android.view.animation;
 
+import static android.view.flags.Flags.FLAG_EXPECTED_PRESENTATION_TIME_READ_ONLY;
+import static android.view.flags.Flags.expectedPresentationTimeReadOnly;
+
 import android.annotation.AnimRes;
+import android.annotation.FlaggedApi;
 import android.annotation.InterpolatorRes;
 import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.content.res.Resources.NotFoundException;
 import android.content.res.Resources.Theme;
 import android.content.res.XmlResourceParser;
 import android.os.SystemClock;
+import android.ravenwood.annotation.RavenwoodIgnore;
+import android.ravenwood.annotation.RavenwoodKeepPartialClass;
 import android.util.AttributeSet;
+import android.util.TimeUtils;
 import android.util.Xml;
+import android.view.InflateException;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -37,6 +46,9 @@ import java.io.IOException;
  * Defines common utilities for working with animations.
  *
  */
+// This class would probably just work as-is on Ravenwood, but until we port the test, we just keep
+// the minimal surface for Choreographer.
+@RavenwoodKeepPartialClass(comment = "Keeping just enough for Choreographer to work")
 public class AnimationUtils {
 
     /**
@@ -45,10 +57,16 @@ public class AnimationUtils {
     private static final int TOGETHER = 0;
     private static final int SEQUENTIALLY = 1;
 
+    private static boolean sExpectedPresentationTimeFlagValue;
+    static {
+        sExpectedPresentationTimeFlagValue = expectedPresentationTimeReadOnly();
+    }
+
     private static class AnimationState {
         boolean animationClockLocked;
         long currentVsyncTimeMillis;
         long lastReportedTimeMillis;
+        long mExpectedPresentationTimeNanos;
     };
 
     private static ThreadLocal<AnimationState> sAnimationState
@@ -58,6 +76,43 @@ public class AnimationUtils {
             return new AnimationState();
         }
     };
+
+    /**
+     * Locks AnimationUtils{@link #currentAnimationTimeMillis()} and
+     * AnimationUtils{@link #expectedPresentationTimeNanos()} to a fixed value for the current
+     * thread. This is used by {@link android.view.Choreographer} to ensure that all accesses
+     * during a vsync update are synchronized to the timestamp of the vsync.
+     *
+     * It is also exposed to tests to allow for rapid, flake-free headless testing.
+     *
+     * Must be followed by a call to {@link #unlockAnimationClock()} to allow time to
+     * progress. Failing to do this will result in stuck animations, scrolls, and flings.
+     *
+     * Note that time is not allowed to "rewind" and must perpetually flow forward. So the
+     * lock may fail if the time is in the past from a previously returned value, however
+     * time will be frozen for the duration of the lock. The clock is a thread-local, so
+     * ensure that {@link #lockAnimationClock(long)}, {@link #unlockAnimationClock()},
+     * {@link #currentAnimationTimeMillis()}, and {@link #expectedPresentationTimeNanos()}
+     * are all called on the same thread.
+     *
+     * This is also not reference counted in any way. Any call to {@link #unlockAnimationClock()}
+     * will unlock the clock for everyone on the same thread. It is therefore recommended
+     * for tests to use their own thread to ensure that there is no collision with any existing
+     * {@link android.view.Choreographer} instance.
+     *
+     * @hide
+     */
+    @TestApi
+    @FlaggedApi(FLAG_EXPECTED_PRESENTATION_TIME_READ_ONLY)
+    @RavenwoodIgnore
+    public static void lockAnimationClock(long vsyncMillis, long expectedPresentationTimeNanos) {
+        AnimationState state = sAnimationState.get();
+        state.animationClockLocked = true;
+        state.currentVsyncTimeMillis = vsyncMillis;
+        if (!sExpectedPresentationTimeFlagValue) {
+            state.mExpectedPresentationTimeNanos = expectedPresentationTimeNanos;
+        }
+    }
 
     /**
      * Locks AnimationUtils{@link #currentAnimationTimeMillis()} to a fixed value for the current
@@ -80,9 +135,14 @@ public class AnimationUtils {
      * for tests to use their own thread to ensure that there is no collision with any existing
      * {@link android.view.Choreographer} instance.
      *
+     * Have to add the method back because of b/307888459.
+     * Remove this method once the lockAnimationClock(long, long) change
+     * is landed to aosp/android14-tests-dev branch.
+     *
      * @hide
-     * */
+     */
     @TestApi
+    @RavenwoodIgnore
     public static void lockAnimationClock(long vsyncMillis) {
         AnimationState state = sAnimationState.get();
         state.animationClockLocked = true;
@@ -96,6 +156,7 @@ public class AnimationUtils {
      * @hide
      */
     @TestApi
+    @RavenwoodIgnore
     public static void unlockAnimationClock() {
         sAnimationState.get().animationClockLocked = false;
     }
@@ -122,11 +183,42 @@ public class AnimationUtils {
     }
 
     /**
+     * The expected presentation time of a frame in the {@link System#nanoTime()}.
+     * Developers should prefer using this method over {@link #currentAnimationTimeMillis()}
+     * because it offers a more accurate time for the calculating animation progress.
+     *
+     * @return the expected presentation time of a frame in the
+     *         {@link System#nanoTime()} time base.
+     */
+    @FlaggedApi(FLAG_EXPECTED_PRESENTATION_TIME_READ_ONLY)
+    public static long getExpectedPresentationTimeNanos() {
+        if (!sExpectedPresentationTimeFlagValue) {
+            return SystemClock.uptimeMillis() * TimeUtils.NANOS_PER_MS;
+        }
+
+        AnimationState state = sAnimationState.get();
+        return state.mExpectedPresentationTimeNanos;
+    }
+
+    /**
+     * The expected presentation time of a frame in the {@link SystemClock#uptimeMillis()}.
+     * Developers should prefer using this method over {@link #currentAnimationTimeMillis()}
+     * because it offers a more accurate time for the calculating animation progress.
+     *
+     * @return the expected presentation time of a frame in the
+     *         {@link SystemClock#uptimeMillis()} time base.
+     */
+    @FlaggedApi(FLAG_EXPECTED_PRESENTATION_TIME_READ_ONLY)
+    public static long getExpectedPresentationTimeMillis() {
+        return getExpectedPresentationTimeNanos() / TimeUtils.NANOS_PER_MS;
+    }
+
+    /**
      * Loads an {@link Animation} object from a resource
      *
      * @param context Application context used to access resources
      * @param id The resource id of the animation to load
-     * @return The animation object reference by the specified id
+     * @return The animation object referenced by the specified id
      * @throws NotFoundException when the animation cannot be loaded
      */
     public static Animation loadAnimation(Context context, @AnimRes int id)
@@ -136,16 +228,9 @@ public class AnimationUtils {
         try {
             parser = context.getResources().getAnimation(id);
             return createAnimationFromXml(context, parser);
-        } catch (XmlPullParserException ex) {
-            NotFoundException rnf = new NotFoundException("Can't load animation resource ID #0x" +
-                    Integer.toHexString(id));
-            rnf.initCause(ex);
-            throw rnf;
-        } catch (IOException ex) {
-            NotFoundException rnf = new NotFoundException("Can't load animation resource ID #0x" +
-                    Integer.toHexString(id));
-            rnf.initCause(ex);
-            throw rnf;
+        } catch (XmlPullParserException | IOException ex) {
+            throw new NotFoundException(
+                    "Can't load animation resource ID #0x" + Integer.toHexString(id), ex);
         } finally {
             if (parser != null) parser.close();
         }
@@ -157,8 +242,10 @@ public class AnimationUtils {
         return createAnimationFromXml(c, parser, null, Xml.asAttributeSet(parser));
     }
 
-    private static Animation createAnimationFromXml(Context c, XmlPullParser parser,
-            AnimationSet parent, AttributeSet attrs) throws XmlPullParserException, IOException {
+    @UnsupportedAppUsage
+    private static Animation createAnimationFromXml(
+            Context c, XmlPullParser parser, AnimationSet parent, AttributeSet attrs)
+            throws XmlPullParserException, IOException, InflateException {
 
         Animation anim = null;
 
@@ -166,8 +253,8 @@ public class AnimationUtils {
         int type;
         int depth = parser.getDepth();
 
-        while (((type=parser.next()) != XmlPullParser.END_TAG || parser.getDepth() > depth)
-               && type != XmlPullParser.END_DOCUMENT) {
+        while (((type = parser.next()) != XmlPullParser.END_TAG || parser.getDepth() > depth)
+                && type != XmlPullParser.END_DOCUMENT) {
 
             if (type != XmlPullParser.START_TAG) {
                 continue;
@@ -188,8 +275,10 @@ public class AnimationUtils {
                 anim = new TranslateAnimation(c, attrs);
             } else if (name.equals("cliprect")) {
                 anim = new ClipRectAnimation(c, attrs);
+            } else if (name.equals("extend")) {
+                anim = new ExtendAnimation(c, attrs);
             } else {
-                throw new RuntimeException("Unknown animation name: " + parser.getName());
+                throw new InflateException("Unknown animation name: " + parser.getName());
             }
 
             if (parent != null) {
@@ -206,7 +295,7 @@ public class AnimationUtils {
      *
      * @param context Application context used to access resources
      * @param id The resource id of the animation to load
-     * @return The animation object reference by the specified id
+     * @return The animation controller object referenced by the specified id
      * @throws NotFoundException when the layout animation controller cannot be loaded
      */
     public static LayoutAnimationController loadLayoutAnimation(Context context, @AnimRes int id)
@@ -216,29 +305,24 @@ public class AnimationUtils {
         try {
             parser = context.getResources().getAnimation(id);
             return createLayoutAnimationFromXml(context, parser);
-        } catch (XmlPullParserException ex) {
-            NotFoundException rnf = new NotFoundException("Can't load animation resource ID #0x" +
-                    Integer.toHexString(id));
-            rnf.initCause(ex);
-            throw rnf;
-        } catch (IOException ex) {
-            NotFoundException rnf = new NotFoundException("Can't load animation resource ID #0x" +
-                    Integer.toHexString(id));
-            rnf.initCause(ex);
-            throw rnf;
+        } catch (XmlPullParserException | IOException | InflateException ex) {
+            throw new NotFoundException(
+                    "Can't load animation resource ID #0x" + Integer.toHexString(id), ex);
         } finally {
             if (parser != null) parser.close();
         }
     }
 
-    private static LayoutAnimationController createLayoutAnimationFromXml(Context c,
-            XmlPullParser parser) throws XmlPullParserException, IOException {
+    private static LayoutAnimationController createLayoutAnimationFromXml(
+            Context c, XmlPullParser parser)
+            throws XmlPullParserException, IOException, InflateException {
 
         return createLayoutAnimationFromXml(c, parser, Xml.asAttributeSet(parser));
     }
 
-    private static LayoutAnimationController createLayoutAnimationFromXml(Context c,
-            XmlPullParser parser, AttributeSet attrs) throws XmlPullParserException, IOException {
+    private static LayoutAnimationController createLayoutAnimationFromXml(
+            Context c, XmlPullParser parser, AttributeSet attrs)
+            throws XmlPullParserException, IOException, InflateException {
 
         LayoutAnimationController controller = null;
 
@@ -259,7 +343,7 @@ public class AnimationUtils {
             } else if ("gridLayoutAnimation".equals(name)) {
                 controller = new GridLayoutAnimationController(c, attrs);
             } else {
-                throw new RuntimeException("Unknown layout animation name: " + name);
+                throw new InflateException("Unknown layout animation name: " + name);
             }
         }
 
@@ -329,7 +413,7 @@ public class AnimationUtils {
      *
      * @param context Application context used to access resources
      * @param id The resource id of the animation to load
-     * @return The animation object reference by the specified id
+     * @return The interpolator object referenced by the specified id
      * @throws NotFoundException
      */
     public static Interpolator loadInterpolator(Context context, @AnimRes @InterpolatorRes int id)
@@ -338,16 +422,9 @@ public class AnimationUtils {
         try {
             parser = context.getResources().getAnimation(id);
             return createInterpolatorFromXml(context.getResources(), context.getTheme(), parser);
-        } catch (XmlPullParserException ex) {
-            NotFoundException rnf = new NotFoundException("Can't load animation resource ID #0x" +
-                    Integer.toHexString(id));
-            rnf.initCause(ex);
-            throw rnf;
-        } catch (IOException ex) {
-            NotFoundException rnf = new NotFoundException("Can't load animation resource ID #0x" +
-                    Integer.toHexString(id));
-            rnf.initCause(ex);
-            throw rnf;
+        } catch (XmlPullParserException | IOException | InflateException ex) {
+            throw new NotFoundException(
+                    "Can't load animation resource ID #0x" + Integer.toHexString(id), ex);
         } finally {
             if (parser != null) parser.close();
         }
@@ -359,34 +436,30 @@ public class AnimationUtils {
      *
      * @param res The resources
      * @param id The resource id of the animation to load
-     * @return The interpolator object reference by the specified id
+     * @return The interpolator object referenced by the specified id
      * @throws NotFoundException
      * @hide
      */
-    public static Interpolator loadInterpolator(Resources res, Theme theme, int id) throws NotFoundException {
+    public static Interpolator loadInterpolator(Resources res, Theme theme, int id)
+            throws NotFoundException {
         XmlResourceParser parser = null;
         try {
             parser = res.getAnimation(id);
             return createInterpolatorFromXml(res, theme, parser);
-        } catch (XmlPullParserException ex) {
-            NotFoundException rnf = new NotFoundException("Can't load animation resource ID #0x" +
-                    Integer.toHexString(id));
-            rnf.initCause(ex);
-            throw rnf;
-        } catch (IOException ex) {
-            NotFoundException rnf = new NotFoundException("Can't load animation resource ID #0x" +
-                    Integer.toHexString(id));
-            rnf.initCause(ex);
-            throw rnf;
+        } catch (XmlPullParserException | IOException | InflateException ex) {
+            throw new NotFoundException(
+                    "Can't load animation resource ID #0x" + Integer.toHexString(id), ex);
         } finally {
-            if (parser != null)
+            if (parser != null) {
                 parser.close();
+            }
         }
 
     }
 
-    private static Interpolator createInterpolatorFromXml(Resources res, Theme theme, XmlPullParser parser)
-            throws XmlPullParserException, IOException {
+    private static Interpolator createInterpolatorFromXml(
+            Resources res, Theme theme, XmlPullParser parser)
+            throws XmlPullParserException, IOException, InflateException {
 
         BaseInterpolator interpolator = null;
 
@@ -426,7 +499,7 @@ public class AnimationUtils {
             } else if (name.equals("pathInterpolator")) {
                 interpolator = new PathInterpolator(res, theme, attrs);
             } else {
-                throw new RuntimeException("Unknown interpolator name: " + parser.getName());
+                throw new InflateException("Unknown interpolator name: " + parser.getName());
             }
         }
         return interpolator;

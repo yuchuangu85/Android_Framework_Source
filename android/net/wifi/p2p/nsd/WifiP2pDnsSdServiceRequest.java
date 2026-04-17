@@ -22,9 +22,9 @@ import android.net.wifi.p2p.WifiP2pManager;
  * A class for creating a Bonjour service discovery request for use with
  * {@link WifiP2pManager#addServiceRequest} and {@link WifiP2pManager#removeServiceRequest}
  *
- * {@see WifiP2pManager}
- * {@see WifiP2pServiceRequest}
- * {@see WifiP2pUpnpServiceRequest}
+ * @see WifiP2pManager
+ * @see WifiP2pServiceRequest
+ * @see WifiP2pUpnpServiceRequest
  */
 public class WifiP2pDnsSdServiceRequest extends WifiP2pServiceRequest {
 

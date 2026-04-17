@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -62,31 +62,36 @@ import java.nio.ByteBuffer;
  * <p> Socket options are configured using the {@link #setOption(SocketOption,Object)
  * setOption} method. Asynchronous socket channels support the following options:
  * <blockquote>
- * <table border summary="Socket options">
+ * <table class="striped">
+ * <caption style="display:none">Socket options</caption>
+ * <thead>
  *   <tr>
- *     <th>Option Name</th>
- *     <th>Description</th>
+ *     <th scope="col">Option Name</th>
+ *     <th scope="col">Description</th>
  *   </tr>
+ * </thead>
+ * <tbody>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_SNDBUF SO_SNDBUF} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#SO_SNDBUF SO_SNDBUF} </th>
  *     <td> The size of the socket send buffer </td>
  *   </tr>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_RCVBUF SO_RCVBUF} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#SO_RCVBUF SO_RCVBUF} </th>
  *     <td> The size of the socket receive buffer </td>
  *   </tr>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_KEEPALIVE SO_KEEPALIVE} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#SO_KEEPALIVE SO_KEEPALIVE} </th>
  *     <td> Keep connection alive </td>
  *   </tr>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#SO_REUSEADDR SO_REUSEADDR} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#SO_REUSEADDR SO_REUSEADDR} </th>
  *     <td> Re-use address </td>
  *   </tr>
  *   <tr>
- *     <td> {@link java.net.StandardSocketOptions#TCP_NODELAY TCP_NODELAY} </td>
+ *     <th scope="row"> {@link java.net.StandardSocketOptions#TCP_NODELAY TCP_NODELAY} </th>
  *     <td> Disable the Nagle algorithm </td>
  *   </tr>
+ * </tbody>
  * </table>
  * </blockquote>
  * Additional (implementation specific) options may also be supported.
@@ -452,11 +457,11 @@ public abstract class AsynchronousSocketChannel
      * at the moment that the read is attempted.
      *
      * <p> Suppose that a byte sequence of length <i>n</i> is read, where
-     * <tt>0</tt>&nbsp;<tt>&lt;</tt>&nbsp;<i>n</i>&nbsp;<tt>&lt;=</tt>&nbsp;<i>r</i>.
-     * Up to the first <tt>dsts[offset].remaining()</tt> bytes of this sequence
-     * are transferred into buffer <tt>dsts[offset]</tt>, up to the next
-     * <tt>dsts[offset+1].remaining()</tt> bytes are transferred into buffer
-     * <tt>dsts[offset+1]</tt>, and so forth, until the entire byte sequence
+     * {@code 0}&nbsp;{@code <}&nbsp;<i>n</i>&nbsp;{@code <=}&nbsp;<i>r</i>.
+     * Up to the first {@code dsts[offset].remaining()} bytes of this sequence
+     * are transferred into buffer {@code dsts[offset]}, up to the next
+     * {@code dsts[offset+1].remaining()} bytes are transferred into buffer
+     * {@code dsts[offset+1]}, and so forth, until the entire byte sequence
      * is transferred into the given buffers.  As many bytes as possible are
      * transferred into each buffer, hence the final position of each updated
      * buffer, except the last updated buffer, is guaranteed to be equal to
@@ -606,11 +611,11 @@ public abstract class AsynchronousSocketChannel
      * at the moment that the write is attempted.
      *
      * <p> Suppose that a byte sequence of length <i>n</i> is written, where
-     * <tt>0</tt>&nbsp;<tt>&lt;</tt>&nbsp;<i>n</i>&nbsp;<tt>&lt;=</tt>&nbsp;<i>r</i>.
-     * Up to the first <tt>srcs[offset].remaining()</tt> bytes of this sequence
-     * are written from buffer <tt>srcs[offset]</tt>, up to the next
-     * <tt>srcs[offset+1].remaining()</tt> bytes are written from buffer
-     * <tt>srcs[offset+1]</tt>, and so forth, until the entire byte sequence is
+     * {@code 0}&nbsp;{@code <}&nbsp;<i>n</i>&nbsp;{@code <=}&nbsp;<i>r</i>.
+     * Up to the first {@code srcs[offset].remaining()} bytes of this sequence
+     * are written from buffer {@code srcs[offset]}, up to the next
+     * {@code srcs[offset+1].remaining()} bytes are written from buffer
+     * {@code srcs[offset+1]}, and so forth, until the entire byte sequence is
      * written.  As many bytes as possible are written from each buffer, hence
      * the final position of each updated buffer, except the last updated
      * buffer, is guaranteed to be equal to that buffer's limit. The underlying

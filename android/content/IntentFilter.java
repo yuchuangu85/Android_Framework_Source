@@ -16,14 +16,26 @@
 
 package android.content;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.Disabled;
+import android.compat.annotation.Overridable;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.pm.Flags;
 import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.PatternMatcher;
+import android.os.PersistableBundle;
 import android.text.TextUtils;
 import android.util.AndroidException;
+import android.util.ArraySet;
 import android.util.Log;
 import android.util.Printer;
 import android.util.proto.ProtoOutputStream;
@@ -38,8 +50,13 @@ import java.io.IOException;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 
 /**
  * Structured description of Intent values to be matched.  An IntentFilter can
@@ -58,9 +75,7 @@ import java.util.Set;
  * multiple possible matching values (via {@link #addAction},
  * {@link #addDataType}, {@link #addDataScheme}, {@link #addDataSchemeSpecificPart},
  * {@link #addDataAuthority}, {@link #addDataPath}, and {@link #addCategory}, respectively).
- * For actions, the field
- * will not be tested if no values have been given (treating it as a wildcard);
- * if no data characteristics are specified, however, then the filter will
+ * For actions, if no data characteristics are specified, then the filter will
  * only match intents that contain no data.
  *
  * <p>The data characteristic is
@@ -123,7 +138,7 @@ import java.util.Set;
  *
  * <p><strong>Data Authority</strong> matches if any of the given values match
  * the Intent's data authority <em>and</em> one of the data schemes in the filter
- * has matched the Intent, <em>or</em> no authories were supplied in the filter.
+ * has matched the Intent, <em>or</em> no authorities were supplied in the filter.
  * The Intent authority is determined by calling
  * {@link Intent#getData} and {@link android.net.Uri#getAuthority} on that URI.
  * <em>Note that authority matching here is <b>case sensitive</b>, unlike
@@ -142,10 +157,14 @@ import java.util.Set;
  * that unlike the action, an IntentFilter with no categories
  * will only match an Intent that does not have any categories.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class IntentFilter implements Parcelable {
+    private static final String TAG = "IntentFilter";
+
     private static final String AGLOB_STR = "aglob";
     private static final String SGLOB_STR = "sglob";
     private static final String PREFIX_STR = "prefix";
+    private static final String SUFFIX_STR = "suffix";
     private static final String LITERAL_STR = "literal";
     private static final String PATH_STR = "path";
     private static final String PORT_STR = "port";
@@ -153,11 +172,33 @@ public class IntentFilter implements Parcelable {
     private static final String AUTH_STR = "auth";
     private static final String SSP_STR = "ssp";
     private static final String SCHEME_STR = "scheme";
+    private static final String STATIC_TYPE_STR = "staticType";
     private static final String TYPE_STR = "type";
+    private static final String GROUP_STR = "group";
     private static final String CAT_STR = "cat";
     private static final String NAME_STR = "name";
     private static final String ACTION_STR = "action";
     private static final String AUTO_VERIFY_STR = "autoVerify";
+    private static final String EXTRAS_STR = "extras";
+    private static final String URI_RELATIVE_FILTER_GROUP_STR = "uriRelativeFilterGroup";
+
+    private static final int[] EMPTY_INT_ARRAY = new int[0];
+    private static final long[] EMPTY_LONG_ARRAY = new long[0];
+    private static final double[] EMPTY_DOUBLE_ARRAY = new double[0];
+    private static final String[] EMPTY_STRING_ARRAY = new String[0];
+    private static final boolean[] EMPTY_BOOLEAN_ARRAY = new boolean[0];
+
+    /**
+     * An intent with action set as null used to always pass the action test during intent
+     * filter matching. This causes a lot of confusion and unexpected intent matches.
+     * Null action intents should be blocked when the intent sender application targets V or higher.
+     *
+     * @hide
+     */
+    @ChangeId
+    @Disabled
+    @Overridable
+    public static final long BLOCK_NULL_ACTION_INTENTS = 293560872;
 
     /**
      * The filter {@link #setPriority} value at which system high-priority
@@ -254,6 +295,11 @@ public class IntentFilter implements Parcelable {
      * that were not in the Intent.
      */
     public static final int NO_MATCH_CATEGORY = -4;
+    /**
+     * That filter didn't match due to different extras data.
+     * @hide
+     */
+    public static final int NO_MATCH_EXTRAS = -5;
 
     /**
      * HTTP scheme.
@@ -270,16 +316,39 @@ public class IntentFilter implements Parcelable {
      */
     public static final String SCHEME_HTTPS = "https";
 
+    /**
+     * Package scheme
+     *
+     * @see #addDataScheme(String)
+     * @hide
+     */
+    public static final String SCHEME_PACKAGE = "package";
+
+    /**
+     * The value to indicate a wildcard for incoming match arguments.
+     * @hide
+     */
+    public static final String WILDCARD = "*";
+    /** @hide */
+    public static final String WILDCARD_PATH = "/" + WILDCARD;
+
     private int mPriority;
+    @UnsupportedAppUsage
     private int mOrder;
-    private final ArrayList<String> mActions;
+    @UnsupportedAppUsage
+    private final ArraySet<String> mActions;
     private ArrayList<String> mCategories = null;
     private ArrayList<String> mDataSchemes = null;
     private ArrayList<PatternMatcher> mDataSchemeSpecificParts = null;
     private ArrayList<AuthorityEntry> mDataAuthorities = null;
     private ArrayList<PatternMatcher> mDataPaths = null;
+    private ArrayList<UriRelativeFilterGroup> mUriRelativeFilterGroups = null;
+    private ArrayList<String> mStaticDataTypes = null;
     private ArrayList<String> mDataTypes = null;
-    private boolean mHasPartialTypes = false;
+    private ArrayList<String> mMimeGroups = null;
+    private boolean mHasStaticPartialTypes = false;
+    private boolean mHasDynamicPartialTypes = false;
+    private PersistableBundle mExtras = null;
 
     private static final int STATE_VERIFY_AUTO         = 0x00000001;
     private static final int STATE_NEED_VERIFY         = 0x00000010;
@@ -400,7 +469,7 @@ public class IntentFilter implements Parcelable {
      */
     public IntentFilter() {
         mPriority = 0;
-        mActions = new ArrayList<String>();
+        mActions = new ArraySet<>();
     }
 
     /**
@@ -412,7 +481,7 @@ public class IntentFilter implements Parcelable {
      */
     public IntentFilter(String action) {
         mPriority = 0;
-        mActions = new ArrayList<String>();
+        mActions = new ArraySet<>();
         addAction(action);
     }
 
@@ -435,7 +504,7 @@ public class IntentFilter implements Parcelable {
     public IntentFilter(String action, String dataType)
         throws MalformedMimeTypeException {
         mPriority = 0;
-        mActions = new ArrayList<String>();
+        mActions = new ArraySet<>();
         addAction(action);
         addDataType(dataType);
     }
@@ -448,9 +517,12 @@ public class IntentFilter implements Parcelable {
     public IntentFilter(IntentFilter o) {
         mPriority = o.mPriority;
         mOrder = o.mOrder;
-        mActions = new ArrayList<String>(o.mActions);
+        mActions = new ArraySet<>(o.mActions);
         if (o.mCategories != null) {
             mCategories = new ArrayList<String>(o.mCategories);
+        }
+        if (o.mStaticDataTypes != null) {
+            mStaticDataTypes = new ArrayList<String>(o.mStaticDataTypes);
         }
         if (o.mDataTypes != null) {
             mDataTypes = new ArrayList<String>(o.mDataTypes);
@@ -467,15 +539,53 @@ public class IntentFilter implements Parcelable {
         if (o.mDataPaths != null) {
             mDataPaths = new ArrayList<PatternMatcher>(o.mDataPaths);
         }
-        mHasPartialTypes = o.mHasPartialTypes;
+        if (o.mUriRelativeFilterGroups != null) {
+            mUriRelativeFilterGroups =
+                    new ArrayList<UriRelativeFilterGroup>(o.mUriRelativeFilterGroups);
+        }
+        if (o.mMimeGroups != null) {
+            mMimeGroups = new ArrayList<String>(o.mMimeGroups);
+        }
+        if (o.mExtras != null) {
+            mExtras = new PersistableBundle(o.mExtras);
+        }
+        mHasStaticPartialTypes = o.mHasStaticPartialTypes;
+        mHasDynamicPartialTypes = o.mHasDynamicPartialTypes;
         mVerifyState = o.mVerifyState;
         mInstantAppVisibility = o.mInstantAppVisibility;
+    }
+
+    /** @hide */
+    public String toLongString() {
+        // Not implemented directly as toString() due to potential memory regression
+        final StringBuilder sb = new StringBuilder();
+        sb.append("IntentFilter {");
+        sb.append(" pri=");
+        sb.append(mPriority);
+        if (countActions() > 0) {
+            sb.append(" act=");
+            sb.append(mActions.toString());
+        }
+        if (countCategories() > 0) {
+            sb.append(" cat=");
+            sb.append(mCategories.toString());
+        }
+        if (countDataSchemes() > 0) {
+            sb.append(" sch=");
+            sb.append(mDataSchemes.toString());
+        }
+        if (Flags.relativeReferenceIntentFilters() && countUriRelativeFilterGroups() > 0) {
+            sb.append(" grp=");
+            sb.append(mUriRelativeFilterGroups.toString());
+        }
+        sb.append(" }");
+        return sb.toString();
     }
 
     /**
      * Modify priority of this filter.  This only affects receiver filters.
      * The priority of activity filters are set in XML and cannot be changed
-     * programatically. The default priority is 0. Positive values will be
+     * programmatically. The default priority is 0. Positive values will be
      * before the default, lower values will be after it. Applications should
      * use a value that is larger than {@link #SYSTEM_LOW_PRIORITY} and
      * smaller than {@link #SYSTEM_HIGH_PRIORITY} .
@@ -536,6 +646,7 @@ public class IntentFilter implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public final void setAutoVerify(boolean autoVerify) {
         mVerifyState &= ~STATE_VERIFY_AUTO;
         if (autoVerify) mVerifyState |= STATE_VERIFY_AUTO;
@@ -581,7 +692,7 @@ public class IntentFilter implements Parcelable {
      * has at least one HTTP or HTTPS data URI pattern defined, and optionally
      * does not define any non-http/https data URI patterns.
      *
-     * This will check if if the Intent action is {@link android.content.Intent#ACTION_VIEW} and
+     * This will check if the Intent action is {@link android.content.Intent#ACTION_VIEW} and
      * the Intent category is {@link android.content.Intent#CATEGORY_BROWSABLE} and the Intent
      * data scheme is "http" or "https".
      *
@@ -622,7 +733,7 @@ public class IntentFilter implements Parcelable {
         }
 
         // We get here if:
-        //   1) onlyWebSchemes and no non-web schemes were found, i.e success; or
+        //   1) onlyWebSchemes and no non-web schemes were found, i.e. success; or
         //   2) !onlyWebSchemes and no http/https schemes were found, i.e. failure.
         return onlyWebSchemes;
     }
@@ -632,7 +743,7 @@ public class IntentFilter implements Parcelable {
      *
      * @return True if the filter needs to be automatically verified. False otherwise.
      *
-     * This will check if if the Intent action is {@link android.content.Intent#ACTION_VIEW} and
+     * This will check if the Intent action is {@link android.content.Intent#ACTION_VIEW} and
      * the Intent category is {@link android.content.Intent#CATEGORY_BROWSABLE} and the Intent
      * data scheme is "http" or "https".
      *
@@ -651,6 +762,7 @@ public class IntentFilter implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public final boolean isVerified() {
         if ((mVerifyState & STATE_NEED_VERIFY_CHECKED) == STATE_NEED_VERIFY_CHECKED) {
             return ((mVerifyState & STATE_NEED_VERIFY) == STATE_NEED_VERIFY);
@@ -700,9 +812,7 @@ public class IntentFilter implements Parcelable {
      * @param action Name of the action to match, such as Intent.ACTION_VIEW.
      */
     public final void addAction(String action) {
-        if (!mActions.contains(action)) {
-            mActions.add(action.intern());
-        }
+        mActions.add(action.intern());
     }
 
     /**
@@ -713,10 +823,20 @@ public class IntentFilter implements Parcelable {
     }
 
     /**
+     * Returns the number of actions in the filter, or {@code 0} if there are no actions.
+     * <p> This method provides a safe alternative to {@link #countActions()}, which
+     * may throw an exception if there are no actions.
+     * @hide
+     */
+    public final int safeCountActions() {
+        return mActions == null ? 0 : mActions.size();
+    }
+
+    /**
      * Return an action in the filter.
      */
     public final String getAction(int index) {
-        return mActions.get(index);
+        return mActions.valueAt(index);
     }
 
     /**
@@ -740,6 +860,34 @@ public class IntentFilter implements Parcelable {
      * @return True if the action is listed in the filter.
      */
     public final boolean matchAction(String action) {
+        return matchAction(action, false /*wildcardSupported*/, null /*ignoreActions*/);
+    }
+
+    /**
+     * Variant of {@link #matchAction(String)} that allows a wildcard for the provided action.
+     * @param wildcardSupported if true, will allow action to use wildcards
+     * @param ignoreActions if not null, the set of actions to should not be considered valid while
+     *                      calculating the match
+     */
+    private boolean matchAction(String action, boolean wildcardSupported,
+            @Nullable Collection<String> ignoreActions) {
+        if (wildcardSupported && WILDCARD.equals(action)) {
+            if (ignoreActions == null) {
+                return !mActions.isEmpty();
+            }
+            if (mActions.size() > ignoreActions.size()) {
+                return true;    // some actions are definitely not ignored
+            }
+            for (int i = mActions.size() - 1; i >= 0; i--) {
+                if (!ignoreActions.contains(mActions.valueAt(i))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (ignoreActions != null && ignoreActions.contains(action)) {
+            return false;
+        }
         return hasAction(action);
     }
 
@@ -772,25 +920,108 @@ public class IntentFilter implements Parcelable {
      */
     public final void addDataType(String type)
         throws MalformedMimeTypeException {
+        processMimeType(type, (internalType, isPartial) -> {
+            if (mDataTypes == null) {
+                mDataTypes = new ArrayList<>();
+            }
+            if (mStaticDataTypes == null) {
+                mStaticDataTypes = new ArrayList<>();
+            }
+
+            if (mDataTypes.contains(internalType)) {
+                return;
+            }
+
+            mDataTypes.add(internalType.intern());
+            mStaticDataTypes.add(internalType.intern());
+            mHasStaticPartialTypes = mHasStaticPartialTypes || isPartial;
+        });
+    }
+
+    /**
+     * Add a new Intent data type <em>from MIME group</em> to match against.  If any types are
+     * included in the filter, then an Intent's data must be <em>either</em>
+     * one of these types <em>or</em> a matching scheme.  If no data types
+     * are included, then an Intent will only match if it specifies no data.
+     *
+     * <p><em>Note: MIME type matching in the Android framework is
+     * case-sensitive, unlike formal RFC MIME types.  As a result,
+     * you should always write your MIME types with lower case letters,
+     * and any MIME types you receive from outside of Android should be
+     * converted to lower case before supplying them here.</em></p>
+     *
+     * <p>Throws {@link MalformedMimeTypeException} if the given MIME type is
+     * not syntactically correct.
+     *
+     * @param type Name of the data type to match, such as "vnd.android.cursor.dir/person".
+     *
+     * @see #clearDynamicDataTypes()
+     * @hide
+     */
+    public final void addDynamicDataType(String type)
+            throws MalformedMimeTypeException {
+        processMimeType(type, (internalType, isPartial) -> {
+            if (mDataTypes == null) {
+                mDataTypes = new ArrayList<>();
+            }
+
+            if (!mDataTypes.contains(internalType)) {
+                mDataTypes.add(internalType.intern());
+
+                mHasDynamicPartialTypes = mHasDynamicPartialTypes || isPartial;
+            }
+        });
+    }
+
+    /**
+     * Process mime type - convert to representation used internally and check if type is partial,
+     * and then call provided action
+     */
+    private void processMimeType(String type, BiConsumer<String, Boolean> action)
+            throws MalformedMimeTypeException {
         final int slashpos = type.indexOf('/');
         final int typelen = type.length();
-        if (slashpos > 0 && typelen >= slashpos+2) {
-            if (mDataTypes == null) mDataTypes = new ArrayList<String>();
-            if (typelen == slashpos+2 && type.charAt(slashpos+1) == '*') {
-                String str = type.substring(0, slashpos);
-                if (!mDataTypes.contains(str)) {
-                    mDataTypes.add(str.intern());
-                }
-                mHasPartialTypes = true;
-            } else {
-                if (!mDataTypes.contains(type)) {
-                    mDataTypes.add(type.intern());
-                }
-            }
+        if (slashpos <= 0 || typelen < slashpos + 2) {
+            throw new MalformedMimeTypeException(type);
+        }
+
+        String internalType = type;
+        boolean isPartialType = false;
+        if (typelen == slashpos + 2 && type.charAt(slashpos + 1) == '*') {
+            internalType = type.substring(0, slashpos);
+            isPartialType = true;
+        }
+
+        action.accept(internalType, isPartialType);
+    }
+
+    /**
+     * Remove all previously added Intent data types from IntentFilter.
+     *
+     * @see #addDynamicDataType(String)
+     * @hide
+     */
+    public final void clearDynamicDataTypes() {
+        if (mDataTypes == null) {
             return;
         }
 
-        throw new MalformedMimeTypeException(type);
+        if (mStaticDataTypes != null) {
+            mDataTypes.clear();
+            mDataTypes.addAll(mStaticDataTypes);
+        } else {
+            mDataTypes = null;
+        }
+
+        mHasDynamicPartialTypes = false;
+    }
+
+    /**
+     * Return the number of static data types in the filter.
+     * @hide
+     */
+    public int countStaticDataTypes() {
+        return mStaticDataTypes != null ? mStaticDataTypes.size() : 0;
     }
 
     /**
@@ -806,8 +1037,19 @@ public class IntentFilter implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public final boolean hasExactDataType(String type) {
         return mDataTypes != null && mDataTypes.contains(type);
+    }
+
+    /** @hide */
+    public final boolean hasExactDynamicDataType(String type) {
+        return hasExactDataType(type) && !hasExactStaticDataType(type);
+    }
+
+    /** @hide */
+    public final boolean hasExactStaticDataType(String type) {
+        return mStaticDataTypes != null && mStaticDataTypes.contains(type);
     }
 
     /**
@@ -821,7 +1063,7 @@ public class IntentFilter implements Parcelable {
      * Return a data type in the filter.
      */
     public final String getDataType(int index) {
-        return mDataTypes.get(index);
+        return mDataTypes != null ?  mDataTypes.get(index) : null;
     }
 
     /**
@@ -829,6 +1071,44 @@ public class IntentFilter implements Parcelable {
      */
     public final Iterator<String> typesIterator() {
         return mDataTypes != null ? mDataTypes.iterator() : null;
+    }
+
+    /**
+     * Return copy of filter's data types.
+     * @hide
+     */
+    public final List<String> dataTypes() {
+        return mDataTypes != null ? new ArrayList<>(mDataTypes) : null;
+    }
+
+    /** @hide */
+    public final void addMimeGroup(String name) {
+        if (mMimeGroups == null) {
+            mMimeGroups = new ArrayList<>();
+        }
+        if (!mMimeGroups.contains(name)) {
+            mMimeGroups.add(name);
+        }
+    }
+
+    /** @hide */
+    public final boolean hasMimeGroup(String name) {
+        return mMimeGroups != null && mMimeGroups.contains(name);
+    }
+
+    /** @hide */
+    public final String getMimeGroup(int index) {
+        return mMimeGroups.get(index);
+    }
+
+    /** @hide */
+    public final int countMimeGroups() {
+        return mMimeGroups != null ? mMimeGroups.size() : 0;
+    }
+
+    /** @hide */
+    public final Iterator<String> mimeGroupsIterator() {
+        return mMimeGroups != null ? mMimeGroups.iterator() : null;
     }
 
     /**
@@ -919,7 +1199,7 @@ public class IntentFilter implements Parcelable {
             dest.writeInt(mPort);
         }
 
-        void writeToProto(ProtoOutputStream proto, long fieldId) {
+        void dumpDebug(ProtoOutputStream proto, long fieldId) {
             long token = proto.start(fieldId);
             // The original host information is already contained in host and wild, no output now.
             proto.write(AuthorityEntryProto.HOST, mHost);
@@ -951,7 +1231,7 @@ public class IntentFilter implements Parcelable {
         }
 
         @Override
-        public boolean equals(Object obj) {
+        public boolean equals(@Nullable Object obj) {
             if (obj instanceof AuthorityEntry) {
                 final AuthorityEntry other = (AuthorityEntry)obj;
                 return match(other);
@@ -970,22 +1250,41 @@ public class IntentFilter implements Parcelable {
          * {@link IntentFilter#MATCH_CATEGORY_HOST}.
          */
         public int match(Uri data) {
+            return match(data, false);
+        }
+
+        /**
+         * Variant of {@link #match(Uri)} that supports wildcards on the scheme, host and
+         * path of the provided {@link Uri}
+         *
+         * @param wildcardSupported if true, will allow parameters to use wildcards
+         * @hide
+         */
+        public int match(Uri data, boolean wildcardSupported) {
             String host = data.getHost();
             if (host == null) {
-                return NO_MATCH_DATA;
+                if (wildcardSupported && mWild && mHost.isEmpty()) {
+                    // special case, if no host is provided, but the Authority is wildcard, match
+                    return MATCH_CATEGORY_HOST;
+                } else {
+                    return NO_MATCH_DATA;
+                }
             }
             if (false) Log.v("IntentFilter",
                     "Match host " + host + ": " + mHost);
-            if (mWild) {
-                if (host.length() < mHost.length()) {
+            if (!wildcardSupported || !WILDCARD.equals(host)) {
+                if (mWild) {
+                    if (host.length() < mHost.length()) {
+                        return NO_MATCH_DATA;
+                    }
+                    host = host.substring(host.length() - mHost.length());
+                }
+                if (host.compareToIgnoreCase(mHost) != 0) {
                     return NO_MATCH_DATA;
                 }
-                host = host.substring(host.length()-mHost.length());
             }
-            if (host.compareToIgnoreCase(mHost) != 0) {
-                return NO_MATCH_DATA;
-            }
-            if (mPort >= 0) {
+            // if we're dealing with wildcard support, we ignore ports
+            if (!wildcardSupported && mPort >= 0) {
                 if (mPort != data.getPort()) {
                     return NO_MATCH_DATA;
                 }
@@ -1014,7 +1313,8 @@ public class IntentFilter implements Parcelable {
      * path, or a simple pattern, depending on <var>type</var>.
      * @param type Determines how <var>ssp</var> will be compared to
      * determine a match: either {@link PatternMatcher#PATTERN_LITERAL},
-     * {@link PatternMatcher#PATTERN_PREFIX}, or
+     * {@link PatternMatcher#PATTERN_PREFIX},
+     * {@link PatternMatcher#PATTERN_SUFFIX}, or
      * {@link PatternMatcher#PATTERN_SIMPLE_GLOB}.
      *
      * @see #matchData
@@ -1057,8 +1357,20 @@ public class IntentFilter implements Parcelable {
      *         filter.
      */
     public final boolean hasDataSchemeSpecificPart(String data) {
+        return hasDataSchemeSpecificPart(data, false);
+    }
+
+    /**
+     * Variant of {@link #hasDataSchemeSpecificPart(String)} that supports wildcards on the provided
+     * ssp.
+     * @param supportWildcards if true, will allow parameters to use wildcards
+     */
+    private boolean hasDataSchemeSpecificPart(String data, boolean supportWildcards) {
         if (mDataSchemeSpecificParts == null) {
             return false;
+        }
+        if (supportWildcards && WILDCARD.equals(data) && mDataSchemeSpecificParts.size() > 0) {
+            return true;
         }
         final int numDataSchemeSpecificParts = mDataSchemeSpecificParts.size();
         for (int i = 0; i < numDataSchemeSpecificParts; i++) {
@@ -1071,6 +1383,7 @@ public class IntentFilter implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public final boolean hasDataSchemeSpecificPart(PatternMatcher ssp) {
         if (mDataSchemeSpecificParts == null) {
             return false;
@@ -1154,6 +1467,7 @@ public class IntentFilter implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public final boolean hasDataAuthority(AuthorityEntry auth) {
         if (mDataAuthorities == null) {
             return false;
@@ -1193,7 +1507,8 @@ public class IntentFilter implements Parcelable {
      * path, or a simple pattern, depending on <var>type</var>.
      * @param type Determines how <var>path</var> will be compared to
      * determine a match: either {@link PatternMatcher#PATTERN_LITERAL},
-     * {@link PatternMatcher#PATTERN_PREFIX}, or
+     * {@link PatternMatcher#PATTERN_PREFIX},
+     * {@link PatternMatcher#PATTERN_SUFFIX}, or
      * {@link PatternMatcher#PATTERN_SIMPLE_GLOB}.
      *
      * @see #matchData
@@ -1236,8 +1551,20 @@ public class IntentFilter implements Parcelable {
      *         filter.
      */
     public final boolean hasDataPath(String data) {
+        return hasDataPath(data, false);
+    }
+
+    /**
+     * Variant of {@link #hasDataPath(String)} that supports wildcards on the provided scheme, host,
+     * and path.
+     * @param wildcardSupported if true, will allow parameters to use wildcards
+     */
+    private boolean hasDataPath(String data, boolean wildcardSupported) {
         if (mDataPaths == null) {
             return false;
+        }
+        if (wildcardSupported && WILDCARD_PATH.equals(data)) {
+            return true;
         }
         final int numDataPaths = mDataPaths.size();
         for (int i = 0; i < numDataPaths; i++) {
@@ -1250,6 +1577,7 @@ public class IntentFilter implements Parcelable {
     }
 
     /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public final boolean hasDataPath(PatternMatcher path) {
         if (mDataPaths == null) {
             return false;
@@ -1272,6 +1600,63 @@ public class IntentFilter implements Parcelable {
     }
 
     /**
+     * Add a new URI relative filter group to match against the Intent data.  The
+     * intent filter must include one or more schemes (via {@link #addDataScheme})
+     * <em>and</em> one or more authorities (via {@link #addDataAuthority}) for
+     * the group to be considered.
+     *
+     * <p>Groups will be matched in the order they were added and matching will only
+     * be done if no data paths match or if none are included. If both data paths and
+     * groups are not included, then only the scheme/authority must match.</p>
+     *
+     * @param group A {@link UriRelativeFilterGroup} to match the URI.
+     *
+     * @see UriRelativeFilterGroup
+     * @see #matchData
+     * @see #addDataScheme
+     * @see #addDataAuthority
+     */
+    @FlaggedApi(Flags.FLAG_RELATIVE_REFERENCE_INTENT_FILTERS)
+    public final void addUriRelativeFilterGroup(@NonNull UriRelativeFilterGroup group) {
+        Objects.requireNonNull(group);
+        if (mUriRelativeFilterGroups == null) {
+            mUriRelativeFilterGroups = new ArrayList<>();
+        }
+        mUriRelativeFilterGroups.add(group);
+    }
+
+    /**
+     * Return the number of URI relative filter groups in the intent filter.
+     */
+    @FlaggedApi(Flags.FLAG_RELATIVE_REFERENCE_INTENT_FILTERS)
+    public final int countUriRelativeFilterGroups() {
+        return mUriRelativeFilterGroups == null ? 0 : mUriRelativeFilterGroups.size();
+    }
+
+    /**
+     * Return a URI relative filter group in the intent filter.
+     *
+     * <p>Note: use of this method will result in a NullPointerException
+     * if no groups exists for this intent filter.</p>
+     *
+     * @param index index of the element to return
+     * @throws IndexOutOfBoundsException if index is out of range
+     */
+    @FlaggedApi(Flags.FLAG_RELATIVE_REFERENCE_INTENT_FILTERS)
+    @NonNull
+    public final UriRelativeFilterGroup getUriRelativeFilterGroup(int index) {
+        return mUriRelativeFilterGroups.get(index);
+    }
+
+    /**
+     * Removes all existing URI relative filter groups in the intent filter.
+     */
+    @FlaggedApi(Flags.FLAG_RELATIVE_REFERENCE_INTENT_FILTERS)
+    public final void clearUriRelativeFilterGroups() {
+        mUriRelativeFilterGroups = null;
+    }
+
+    /**
      * Match this intent filter against the given Intent data.  This ignores
      * the data scheme -- unlike {@link #matchData}, the authority will match
      * regardless of whether there is a matching scheme.
@@ -1282,13 +1667,24 @@ public class IntentFilter implements Parcelable {
      * {@link #MATCH_CATEGORY_PORT}, {@link #NO_MATCH_DATA}.
      */
     public final int matchDataAuthority(Uri data) {
-        if (mDataAuthorities == null || data == null) {
+        return matchDataAuthority(data, false);
+    }
+
+    /**
+     * Variant of {@link #matchDataAuthority(Uri)} that allows wildcard matching of the provided
+     * authority.
+     *
+     * @param wildcardSupported if true, will allow parameters to use wildcards
+     * @hide
+     */
+    public final int matchDataAuthority(Uri data, boolean wildcardSupported) {
+        if (data == null || mDataAuthorities == null) {
             return NO_MATCH_DATA;
         }
         final int numDataAuthorities = mDataAuthorities.size();
         for (int i = 0; i < numDataAuthorities; i++) {
             final AuthorityEntry ae = mDataAuthorities.get(i);
-            int match = ae.match(data);
+            int match = ae.match(data, wildcardSupported);
             if (match >= 0) {
                 return match;
             }
@@ -1335,18 +1731,29 @@ public class IntentFilter implements Parcelable {
      * @see #match
      */
     public final int matchData(String type, String scheme, Uri data) {
-        final ArrayList<String> types = mDataTypes;
+        return matchData(type, scheme, data, false);
+    }
+
+    /**
+     * Variant of {@link #matchData(String, String, Uri)} that allows wildcard matching
+     * of the provided type, scheme, host and path parameters.
+     * @param wildcardSupported if true, will allow parameters to use wildcards
+     */
+    private int matchData(String type, String scheme, Uri data, boolean wildcardSupported) {
+        final boolean wildcardWithMimegroups = wildcardSupported && countMimeGroups() != 0;
+        final List<String> types = mDataTypes;
         final ArrayList<String> schemes = mDataSchemes;
 
         int match = MATCH_CATEGORY_EMPTY;
 
-        if (types == null && schemes == null) {
+        if (!wildcardWithMimegroups && types == null && schemes == null) {
             return ((type == null && data == null)
                 ? (MATCH_CATEGORY_EMPTY+MATCH_ADJUSTMENT_NORMAL) : NO_MATCH_DATA);
         }
 
         if (schemes != null) {
-            if (schemes.contains(scheme != null ? scheme : "")) {
+            if (schemes.contains(scheme != null ? scheme : "")
+                    || wildcardSupported && WILDCARD.equals(scheme)) {
                 match = MATCH_CATEGORY_SCHEME;
             } else {
                 return NO_MATCH_DATA;
@@ -1354,22 +1761,34 @@ public class IntentFilter implements Parcelable {
 
             final ArrayList<PatternMatcher> schemeSpecificParts = mDataSchemeSpecificParts;
             if (schemeSpecificParts != null && data != null) {
-                match = hasDataSchemeSpecificPart(data.getSchemeSpecificPart())
+                match = hasDataSchemeSpecificPart(data.getSchemeSpecificPart(), wildcardSupported)
                         ? MATCH_CATEGORY_SCHEME_SPECIFIC_PART : NO_MATCH_DATA;
             }
             if (match != MATCH_CATEGORY_SCHEME_SPECIFIC_PART) {
                 // If there isn't any matching ssp, we need to match an authority.
                 final ArrayList<AuthorityEntry> authorities = mDataAuthorities;
                 if (authorities != null) {
-                    int authMatch = matchDataAuthority(data);
+                    int authMatch = matchDataAuthority(data, wildcardSupported);
                     if (authMatch >= 0) {
                         final ArrayList<PatternMatcher> paths = mDataPaths;
-                        if (paths == null) {
-                            match = authMatch;
-                        } else if (hasDataPath(data.getPath())) {
-                            match = MATCH_CATEGORY_PATH;
+                        final ArrayList<UriRelativeFilterGroup> groups = mUriRelativeFilterGroups;
+                        if (Flags.relativeReferenceIntentFilters()) {
+                            if (paths == null && groups == null) {
+                                match = authMatch;
+                            } else if (hasDataPath(data.getPath(), wildcardSupported)
+                                    || matchRelRefGroups(data)) {
+                                match = MATCH_CATEGORY_PATH;
+                            } else {
+                                return NO_MATCH_DATA;
+                            }
                         } else {
-                            return NO_MATCH_DATA;
+                            if (paths == null) {
+                                match = authMatch;
+                            } else if (hasDataPath(data.getPath(), wildcardSupported)) {
+                                match = MATCH_CATEGORY_PATH;
+                            } else {
+                                return NO_MATCH_DATA;
+                            }
                         }
                     } else {
                         return NO_MATCH_DATA;
@@ -1388,12 +1807,15 @@ public class IntentFilter implements Parcelable {
             // to force everyone to say they handle content: or file: URIs.
             if (scheme != null && !"".equals(scheme)
                     && !"content".equals(scheme)
-                    && !"file".equals(scheme)) {
+                    && !"file".equals(scheme)
+                    && !(wildcardSupported && WILDCARD.equals(scheme))) {
                 return NO_MATCH_DATA;
             }
         }
 
-        if (types != null) {
+        if (wildcardWithMimegroups) {
+            return MATCH_CATEGORY_TYPE;
+        } else if (types != null) {
             if (findMimeType(type)) {
                 match = MATCH_CATEGORY_TYPE;
             } else {
@@ -1408,6 +1830,13 @@ public class IntentFilter implements Parcelable {
         }
 
         return match + MATCH_ADJUSTMENT_NORMAL;
+    }
+
+    private boolean matchRelRefGroups(Uri data) {
+        if (mUriRelativeFilterGroups == null) {
+            return false;
+        }
+        return UriRelativeFilterGroup.matchGroupsToUri(mUriRelativeFilterGroups, data);
     }
 
     /**
@@ -1494,6 +1923,449 @@ public class IntentFilter implements Parcelable {
     }
 
     /**
+     * Match this filter against an Intent's extras. An intent must
+     * have all the extras specified by the filter with the same values,
+     * for the match to succeed.
+     *
+     * <p> An intent con have other extras in addition to those specified
+     * by the filter and it would not affect whether the match succeeds or not.
+     *
+     * @param extras The extras included in the intent, as returned by
+     *               Intent.getExtras().
+     *
+     * @return If all extras match (success), null; else the name of the
+     *         first extra that didn't match.
+     *
+     * @hide
+     */
+    private String matchExtras(@Nullable Bundle extras) {
+        if (mExtras == null) {
+            return null;
+        }
+        final Set<String> keys = mExtras.keySet();
+        for (String key : keys) {
+            if (extras == null) {
+                return key;
+            }
+            final Object value = mExtras.get(key);
+            final Object otherValue = extras.get(key);
+            if (otherValue == null || value.getClass() != otherValue.getClass()
+                    || !Objects.deepEquals(value, otherValue)) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Add a new extra name and value to match against. If an extra is included in the filter,
+     * then an Intent must have an extra with the same {@code name} and {@code value} for it to
+     * match.
+     *
+     * <p> Subsequent calls to this method with the same {@code name} will override any previously
+     * set {@code value}.
+     *
+     * @param name the name of the extra to match against.
+     * @param value the value of the extra to match against.
+     *
+     * @hide
+     */
+    public final void addExtra(@NonNull String name, int value) {
+        Objects.requireNonNull(name);
+        if (mExtras == null) {
+            mExtras = new PersistableBundle();
+        }
+        mExtras.putInt(name, value);
+    }
+
+    /**
+     * Return the value of the extra with {@code name} included in the filter.
+     *
+     * @return the value that was previously set using {@link #addExtra(String, int)} or
+     *         {@code 0} if no value has been set.
+     * @hide
+     */
+    public final int getIntExtra(@NonNull String name) {
+        Objects.requireNonNull(name);
+        return mExtras == null ? 0 : mExtras.getInt(name);
+    }
+
+    /**
+     * Add a new extra name and value to match against. If an extra is included in the filter,
+     * then an Intent must have an extra with the same {@code name} and {@code value} for it to
+     * match.
+     *
+     * <p> Subsequent calls to this method with the same {@code name} will override any previously
+     * set {@code value}.
+     *
+     * @param name the name of the extra to match against.
+     * @param value the value of the extra to match against.
+     *
+     * @hide
+     */
+    public final void addExtra(@NonNull String name, @NonNull int[] value) {
+        Objects.requireNonNull(name);
+        Objects.requireNonNull(value);
+        if (mExtras == null) {
+            mExtras = new PersistableBundle();
+        }
+        mExtras.putIntArray(name, value);
+    }
+
+    /**
+     * Return the value of the extra with {@code name} included in the filter.
+     *
+     * @return the value that was previously set using {@link #addExtra(String, int[])} or
+     *         an empty int array if no value has been set.
+     * @hide
+     */
+    @NonNull
+    public final int[] getIntArrayExtra(@NonNull String name) {
+        Objects.requireNonNull(name);
+        return mExtras == null ? EMPTY_INT_ARRAY : mExtras.getIntArray(name);
+    }
+
+    /**
+     * Add a new extra name and value to match against. If an extra is included in the filter,
+     * then an Intent must have an extra with the same {@code name} and {@code value} for it to
+     * match.
+     *
+     * <p> Subsequent calls to this method with the same {@code name} will override any previously
+     * set {@code value}.
+     *
+     * @param name the name of the extra to match against.
+     * @param value the value of the extra to match against.
+     *
+     * @hide
+     */
+    public final void addExtra(@NonNull String name, long value) {
+        Objects.requireNonNull(name);
+        if (mExtras == null) {
+            mExtras = new PersistableBundle();
+        }
+        mExtras.putLong(name, value);
+    }
+
+    /**
+     * Return the value of the extra with {@code name} included in the filter.
+     *
+     * @return the value that was previously set using {@link #addExtra(String, long)} or
+     *         {@code 0L} if no value has been set.
+     * @hide
+     */
+    public final long getLongExtra(@NonNull String name) {
+        Objects.requireNonNull(name);
+        return mExtras == null ? 0L : mExtras.getLong(name);
+    }
+
+    /**
+     * Add a new extra name and value to match against. If an extra is included in the filter,
+     * then an Intent must have an extra with the same {@code name} and {@code value} for it to
+     * match.
+     *
+     * <p> Subsequent calls to this method with the same {@code name} will override any previously
+     * set {@code value}.
+     *
+     * @param name the name of the extra to match against.
+     * @param value the value of the extra to match against.
+     *
+     * @hide
+     */
+    public final void addExtra(@NonNull String name, @NonNull long[] value) {
+        Objects.requireNonNull(name);
+        Objects.requireNonNull(value);
+        if (mExtras == null) {
+            mExtras = new PersistableBundle();
+        }
+        mExtras.putLongArray(name, value);
+    }
+
+    /**
+     * Return the value of the extra with {@code name} included in the filter.
+     *
+     * @return the value that was previously set using {@link #addExtra(String, long[])} or
+     *         an empty long array if no value has been set.
+     * @hide
+     */
+    @NonNull
+    public final long[] getLongArrayExtra(@NonNull String name) {
+        Objects.requireNonNull(name);
+        return mExtras == null ? EMPTY_LONG_ARRAY : mExtras.getLongArray(name);
+    }
+
+    /**
+     * Add a new extra name and value to match against. If an extra is included in the filter,
+     * then an Intent must have an extra with the same {@code name} and {@code value} for it to
+     * match.
+     *
+     * <p> Subsequent calls to this method with the same {@code name} will override any previously
+     * set {@code value}.
+     *
+     * @param name the name of the extra to match against.
+     * @param value the value of the extra to match against.
+     *
+     * @hide
+     */
+    public final void addExtra(@NonNull String name, double value) {
+        Objects.requireNonNull(name);
+        if (mExtras == null) {
+            mExtras = new PersistableBundle();
+        }
+        mExtras.putDouble(name, value);
+    }
+
+    /**
+     * Return the value of the extra with {@code name} included in the filter.
+     *
+     * @return the value that was previously set using {@link #addExtra(String, double)} or
+     *         {@code 0.0} if no value has been set.
+     * @hide
+     */
+    @NonNull
+    public final double getDoubleExtra(@NonNull String name) {
+        Objects.requireNonNull(name);
+        return mExtras == null ? 0.0 : mExtras.getDouble(name);
+    }
+
+    /**
+     * Add a new extra name and value to match against. If an extra is included in the filter,
+     * then an Intent must have an extra with the same {@code name} and {@code value} for it to
+     * match.
+     *
+     * <p> Subsequent calls to this method with the same {@code name} will override any previously
+     * set {@code value}.
+     *
+     * @param name the name of the extra to match against.
+     * @param value the value of the extra to match against.
+     *
+     * @hide
+     */
+    public final void addExtra(@NonNull String name, @NonNull double[] value) {
+        Objects.requireNonNull(name);
+        Objects.requireNonNull(value);
+        if (mExtras == null) {
+            mExtras = new PersistableBundle();
+        }
+        mExtras.putDoubleArray(name, value);
+    }
+
+    /**
+     * Return the value of the extra with {@code name} included in the filter.
+     *
+     * @return the value that was previously set using {@link #addExtra(String, double[])} or
+     *         an empty double array if no value has been set.
+     * @hide
+     */
+    @NonNull
+    public final double[] getDoubleArrayExtra(@NonNull String name) {
+        Objects.requireNonNull(name);
+        return mExtras == null ? EMPTY_DOUBLE_ARRAY : mExtras.getDoubleArray(name);
+    }
+
+    /**
+     * Add a new extra name and value to match against. If an extra is included in the filter,
+     * then an Intent must have an extra with the same {@code name} and {@code value} for it to
+     * match.
+     *
+     * <p> Subsequent calls to this method with the same {@code name} will override any previously
+     * set {@code value}.
+     *
+     * @param name the name of the extra to match against.
+     * @param value the value of the extra to match against.
+     *
+     * @hide
+     */
+    public final void addExtra(@NonNull String name, @NonNull String value) {
+        Objects.requireNonNull(name);
+        Objects.requireNonNull(value);
+        if (mExtras == null) {
+            mExtras = new PersistableBundle();
+        }
+        mExtras.putString(name, value);
+    }
+
+    /**
+     * Return the value of the extra with {@code name} included in the filter.
+     *
+     * @return the value that was previously set using {@link #addExtra(String, String)} or a
+     *         {@code null} if no value has been set.
+     * @hide
+     */
+    @Nullable
+    public final String getStringExtra(@NonNull String name) {
+        Objects.requireNonNull(name);
+        return mExtras == null ? null : mExtras.getString(name);
+    }
+
+    /**
+     * Add a new extra name and value to match against. If an extra is included in the filter,
+     * then an Intent must have an extra with the same {@code name} and {@code value} for it to
+     * match.
+     *
+     * <p> Subsequent calls to this method with the same {@code name} will override any previously
+     * set {@code value}.
+     *
+     * @param name the name of the extra to match against.
+     * @param value the value of the extra to match against.
+     *
+     * @hide
+     */
+    public final void addExtra(@NonNull String name, @NonNull String[] value) {
+        Objects.requireNonNull(name);
+        Objects.requireNonNull(value);
+        if (mExtras == null) {
+            mExtras = new PersistableBundle();
+        }
+        mExtras.putStringArray(name, value);
+    }
+
+    /**
+     * Return the value of the extra with {@code name} included in the filter.
+     *
+     * @return the value that was previously set using {@link #addExtra(String, String[])} or
+     *         an empty string array if no value has been set.
+     * @hide
+     */
+    @NonNull
+    public final String[] getStringArrayExtra(@NonNull String name) {
+        Objects.requireNonNull(name);
+        return mExtras == null ? EMPTY_STRING_ARRAY : mExtras.getStringArray(name);
+    }
+
+    /**
+     * Add a new extra name and value to match against. If an extra is included in the filter,
+     * then an Intent must have an extra with the same {@code name} and {@code value} for it to
+     * match.
+     *
+     * <p> Subsequent calls to this method with the same {@code name} will override any previously
+     * set {@code value}.
+     *
+     * @param name the name of the extra to match against.
+     * @param value the value of the extra to match against.
+     *
+     * @hide
+     */
+    public final void addExtra(@NonNull String name, boolean value) {
+        Objects.requireNonNull(name);
+        if (mExtras == null) {
+            mExtras = new PersistableBundle();
+        }
+        mExtras.putBoolean(name, value);
+    }
+
+    /**
+     * Return the value of the extra with {@code name} included in the filter.
+     *
+     * @return the value that was previously set using {@link #addExtra(String, boolean)} or
+     *         {@code false} if no value has been set.
+     * @hide
+     */
+    public final boolean getBooleanExtra(@NonNull String name) {
+        Objects.requireNonNull(name);
+        return mExtras == null ? false : mExtras.getBoolean(name);
+    }
+
+    /**
+     * Add a new extra name and value to match against. If an extra is included in the filter,
+     * then an Intent must have an extra with the same {@code name} and {@code value} for it to
+     * match.
+     *
+     * <p> Subsequent calls to this method with the same {@code name} will override any previously
+     * set {@code value}.
+     *
+     * @param name the name of the extra to match against.
+     * @param value the value of the extra to match against.
+     *
+     * @hide
+     */
+    public final void addExtra(@NonNull String name, @NonNull boolean[] value) {
+        Objects.requireNonNull(name);
+        Objects.requireNonNull(value);
+        if (mExtras == null) {
+            mExtras = new PersistableBundle();
+        }
+        mExtras.putBooleanArray(name, value);
+    }
+
+    /**
+     * Return the value of the extra with {@code name} included in the filter.
+     *
+     * @return the value that was previously set using {@link #addExtra(String, boolean[])} or
+     *         an empty boolean array if no value has been set.
+     * @hide
+     */
+    @NonNull
+    public final boolean[] getBooleanArrayExtra(@NonNull String name) {
+        Objects.requireNonNull(name);
+        return mExtras == null ? EMPTY_BOOLEAN_ARRAY : mExtras.getBooleanArray(name);
+    }
+
+    /**
+     * Returns whether or not an extra with {@code name} is included in the filter.
+     *
+     * @return {@code true} if an extra with {@code name} is included in the filter.
+     *         Otherwise {@code false}.
+     * @hide
+     */
+    public final boolean hasExtra(@NonNull String name) {
+        Objects.requireNonNull(name);
+        return mExtras == null ? false : mExtras.containsKey(name);
+    }
+
+    /**
+     * Set the intent extras to match against. For this filter to match an
+     * intent, it must contain all the {@code extras} set.
+     *
+     * <p> Subsequent calls to this method  will override any previously set extras.
+     *
+     * @param extras The intent extras to match against.
+     * @hide
+     */
+    public final void setExtras(@NonNull PersistableBundle extras) {
+        mExtras = extras;
+    }
+
+    /**
+     * Return the intent extras included in this filter.
+     *
+     * @return the extras that were previously set using {@link #setExtras(PersistableBundle)} or
+     *         an empty {@link PersistableBundle} object if no extras were set.
+     * @hide
+     */
+    public final @NonNull PersistableBundle getExtras() {
+        return mExtras == null ? new PersistableBundle() : mExtras;
+    }
+
+    /**
+     * Return a {@link Predicate} which tests whether this filter matches the
+     * given <var>intent</var>.
+     * <p>
+     * The intent's type will always be tested using a simple
+     * {@link Intent#getType()} check. To instead perform a detailed type
+     * resolution before matching, use
+     * {@link #asPredicateWithTypeResolution(ContentResolver)}.
+     */
+    public @NonNull Predicate<Intent> asPredicate() {
+        return i -> match(null, i, false, TAG) >= 0;
+    }
+
+    /**
+     * Return a {@link Predicate} which tests whether this filter matches the
+     * given <var>intent</var>.
+     * <p>
+     * The intent's type will always be resolved by calling
+     * {@link Intent#resolveType(ContentResolver)} before matching.
+     *
+     * @param resolver to be used when calling
+     *            {@link Intent#resolveType(ContentResolver)} before matching.
+     */
+    public @NonNull Predicate<Intent> asPredicateWithTypeResolution(
+            @NonNull ContentResolver resolver) {
+        Objects.requireNonNull(resolver);
+        return i -> match(resolver, i, true, TAG) >= 0;
+    }
+
+    /**
      * Test whether this filter matches the given <var>intent</var>.
      *
      * @param intent The Intent to compare against.
@@ -1515,7 +2387,9 @@ public class IntentFilter implements Parcelable {
             boolean resolve, String logTag) {
         String type = resolve ? intent.resolveType(resolver) : intent.getType();
         return match(intent.getAction(), type, intent.getScheme(),
-                     intent.getData(), intent.getCategories(), logTag);
+                     intent.getData(), intent.getCategories(), logTag,
+                     false /* supportWildcards */, null /* ignoreActions */,
+                     intent.getExtras());
     }
 
     /**
@@ -1548,13 +2422,43 @@ public class IntentFilter implements Parcelable {
      */
     public final int match(String action, String type, String scheme,
             Uri data, Set<String> categories, String logTag) {
-        if (action != null && !matchAction(action)) {
+        return match(action, type, scheme, data, categories, logTag, false /*supportWildcards*/,
+                null /*ignoreActions*/);
+    }
+
+    /**
+     * Variant of {@link #match(ContentResolver, Intent, boolean, String)} that supports wildcards
+     * in the action, type, scheme, host and path.
+     * @param supportWildcards if true, will allow supported parameters to use wildcards to match
+     *                         this filter
+     * @param ignoreActions a collection of actions that, if not null should be ignored and not used
+     *                      if provided as the matching action or the set of actions defined by this
+     *                      filter
+     * @hide
+     */
+    public final int match(String action, String type, String scheme,
+            Uri data, Set<String> categories, String logTag, boolean supportWildcards,
+            @Nullable Collection<String> ignoreActions) {
+        return match(action, type, scheme, data, categories, logTag, supportWildcards,
+                ignoreActions, null /* extras */);
+    }
+
+    /**
+     * Variant of {@link #match(String, String, String, Uri, Set, String, boolean, Collection)}
+     * that supports matching the extra values in the intent.
+     *
+     * @hide
+     */
+    public final int match(String action, String type, String scheme,
+            Uri data, Set<String> categories, String logTag, boolean supportWildcards,
+            @Nullable Collection<String> ignoreActions, @Nullable Bundle extras) {
+        if (action != null && !matchAction(action, supportWildcards, ignoreActions)) {
             if (false) Log.v(
                 logTag, "No matching action " + action + " for " + this);
             return NO_MATCH_ACTION;
         }
 
-        int dataMatch = matchData(type, scheme, data);
+        int dataMatch = matchData(type, scheme, data, supportWildcards);
         if (dataMatch < 0) {
             if (false) {
                 if (dataMatch == NO_MATCH_TYPE) {
@@ -1575,6 +2479,14 @@ public class IntentFilter implements Parcelable {
                 Log.v(logTag, "No matching category " + categoryMismatch + " for " + this);
             }
             return NO_MATCH_CATEGORY;
+        }
+
+        String extraMismatch = matchExtras(extras);
+        if (extraMismatch != null) {
+            if (false) {
+                Log.v(logTag, "Mismatch for extra key " + extraMismatch + " for " + this);
+            }
+            return NO_MATCH_EXTRAS;
         }
 
         // It would be nice to treat container activities as more
@@ -1600,7 +2512,7 @@ public class IntentFilter implements Parcelable {
         int N = countActions();
         for (int i=0; i<N; i++) {
             serializer.startTag(null, ACTION_STR);
-            serializer.attribute(null, NAME_STR, mActions.get(i));
+            serializer.attribute(null, NAME_STR, mActions.valueAt(i));
             serializer.endTag(null, ACTION_STR);
         }
         N = countCategories();
@@ -1609,13 +2521,12 @@ public class IntentFilter implements Parcelable {
             serializer.attribute(null, NAME_STR, mCategories.get(i));
             serializer.endTag(null, CAT_STR);
         }
-        N = countDataTypes();
+        writeDataTypesToXml(serializer);
+        N = countMimeGroups();
         for (int i=0; i<N; i++) {
-            serializer.startTag(null, TYPE_STR);
-            String type = mDataTypes.get(i);
-            if (type.indexOf('/') < 0) type = type + "/*";
-            serializer.attribute(null, NAME_STR, type);
-            serializer.endTag(null, TYPE_STR);
+            serializer.startTag(null, GROUP_STR);
+            serializer.attribute(null, NAME_STR, mMimeGroups.get(i));
+            serializer.endTag(null, GROUP_STR);
         }
         N = countDataSchemes();
         for (int i=0; i<N; i++) {
@@ -1639,6 +2550,9 @@ public class IntentFilter implements Parcelable {
                     break;
                 case PatternMatcher.PATTERN_ADVANCED_GLOB:
                     serializer.attribute(null, AGLOB_STR, pe.getPath());
+                    break;
+                case PatternMatcher.PATTERN_SUFFIX:
+                    serializer.attribute(null, SUFFIX_STR, pe.getPath());
                     break;
             }
             serializer.endTag(null, SSP_STR);
@@ -1670,9 +2584,67 @@ public class IntentFilter implements Parcelable {
                 case PatternMatcher.PATTERN_ADVANCED_GLOB:
                     serializer.attribute(null, AGLOB_STR, pe.getPath());
                     break;
+                case PatternMatcher.PATTERN_SUFFIX:
+                    serializer.attribute(null, SUFFIX_STR, pe.getPath());
+                    break;
             }
             serializer.endTag(null, PATH_STR);
         }
+        if (mExtras != null) {
+            serializer.startTag(null, EXTRAS_STR);
+            try {
+                mExtras.saveToXml(serializer);
+            } catch (XmlPullParserException e) {
+                throw new IllegalStateException("Failed to write extras: " + mExtras.toString(), e);
+            }
+            serializer.endTag(null, EXTRAS_STR);
+        }
+        if (Flags.relativeReferenceIntentFilters()) {
+            N = countUriRelativeFilterGroups();
+            for (int i = 0; i < N; i++) {
+                mUriRelativeFilterGroups.get(i).writeToXml(serializer);
+            }
+        }
+    }
+
+    /**
+     * Write data types (both static and dynamic) to XML.
+     * In implementation we rely on two facts:
+     * - {@link #mStaticDataTypes} is subsequence of {@link #mDataTypes}
+     * - both {@link #mStaticDataTypes} and {@link #mDataTypes} does not contain duplicates
+     */
+    private void writeDataTypesToXml(XmlSerializer serializer) throws IOException {
+        if (mStaticDataTypes == null) {
+            return;
+        }
+
+        int i = 0;
+        for (String staticType: mStaticDataTypes) {
+            while (!mDataTypes.get(i).equals(staticType)) {
+                writeDataTypeToXml(serializer, mDataTypes.get(i), TYPE_STR);
+                i++;
+            }
+
+            writeDataTypeToXml(serializer, staticType, STATIC_TYPE_STR);
+            i++;
+        }
+
+        while (i < mDataTypes.size()) {
+            writeDataTypeToXml(serializer, mDataTypes.get(i), TYPE_STR);
+            i++;
+        }
+    }
+
+    private void writeDataTypeToXml(XmlSerializer serializer, String type, String tag)
+            throws IOException {
+        serializer.startTag(null, tag);
+
+        if (type.indexOf('/') < 0) {
+            type = type + "/*";
+        }
+
+        serializer.attribute(null, NAME_STR, type);
+        serializer.endTag(null, tag);
     }
 
     public void readFromXml(XmlPullParser parser) throws XmlPullParserException,
@@ -1701,13 +2673,26 @@ public class IntentFilter implements Parcelable {
                 if (name != null) {
                     addCategory(name);
                 }
-            } else if (tagName.equals(TYPE_STR)) {
+            } else if (tagName.equals(STATIC_TYPE_STR)) {
                 String name = parser.getAttributeValue(null, NAME_STR);
                 if (name != null) {
                     try {
                         addDataType(name);
                     } catch (MalformedMimeTypeException e) {
                     }
+                }
+            } else if (tagName.equals(TYPE_STR)) {
+                String name = parser.getAttributeValue(null, NAME_STR);
+                if (name != null) {
+                    try {
+                        addDynamicDataType(name);
+                    } catch (MalformedMimeTypeException e) {
+                    }
+                }
+            } else if (tagName.equals(GROUP_STR)) {
+                String name = parser.getAttributeValue(null, NAME_STR);
+                if (name != null) {
+                    addMimeGroup(name);
                 }
             } else if (tagName.equals(SCHEME_STR)) {
                 String name = parser.getAttributeValue(null, NAME_STR);
@@ -1724,6 +2709,8 @@ public class IntentFilter implements Parcelable {
                     addDataSchemeSpecificPart(ssp, PatternMatcher.PATTERN_SIMPLE_GLOB);
                 } else if ((ssp=parser.getAttributeValue(null, AGLOB_STR)) != null) {
                     addDataSchemeSpecificPart(ssp, PatternMatcher.PATTERN_ADVANCED_GLOB);
+                } else if ((ssp=parser.getAttributeValue(null, SUFFIX_STR)) != null) {
+                    addDataSchemeSpecificPart(ssp, PatternMatcher.PATTERN_SUFFIX);
                 }
             } else if (tagName.equals(AUTH_STR)) {
                 String host = parser.getAttributeValue(null, HOST_STR);
@@ -1741,7 +2728,14 @@ public class IntentFilter implements Parcelable {
                     addDataPath(path, PatternMatcher.PATTERN_SIMPLE_GLOB);
                 } else if ((path=parser.getAttributeValue(null, AGLOB_STR)) != null) {
                     addDataPath(path, PatternMatcher.PATTERN_ADVANCED_GLOB);
+                } else if ((path=parser.getAttributeValue(null, SUFFIX_STR)) != null) {
+                    addDataPath(path, PatternMatcher.PATTERN_SUFFIX);
                 }
+            } else if (tagName.equals(EXTRAS_STR)) {
+                mExtras = PersistableBundle.restoreFromXml(parser);
+            } else if (Flags.relativeReferenceIntentFilters()
+                    && URI_RELATIVE_FILTER_GROUP_STR.equals(tagName)) {
+                addUriRelativeFilterGroup(new UriRelativeFilterGroup(parser));
             } else {
                 Log.w("IntentFilter", "Unknown tag parsing IntentFilter: " + tagName);
             }
@@ -1750,7 +2744,7 @@ public class IntentFilter implements Parcelable {
     }
 
     /** @hide */
-    public void writeToProto(ProtoOutputStream proto, long fieldId) {
+    public void dumpDebug(ProtoOutputStream proto, long fieldId) {
         long token = proto.start(fieldId);
         if (mActions.size() > 0) {
             Iterator<String> it = mActions.iterator();
@@ -1773,19 +2767,19 @@ public class IntentFilter implements Parcelable {
         if (mDataSchemeSpecificParts != null) {
             Iterator<PatternMatcher> it = mDataSchemeSpecificParts.iterator();
             while (it.hasNext()) {
-                it.next().writeToProto(proto, IntentFilterProto.DATA_SCHEME_SPECS);
+                it.next().dumpDebug(proto, IntentFilterProto.DATA_SCHEME_SPECS);
             }
         }
         if (mDataAuthorities != null) {
             Iterator<AuthorityEntry> it = mDataAuthorities.iterator();
             while (it.hasNext()) {
-                it.next().writeToProto(proto, IntentFilterProto.DATA_AUTHORITIES);
+                it.next().dumpDebug(proto, IntentFilterProto.DATA_AUTHORITIES);
             }
         }
         if (mDataPaths != null) {
             Iterator<PatternMatcher> it = mDataPaths.iterator();
             while (it.hasNext()) {
-                it.next().writeToProto(proto, IntentFilterProto.DATA_PATHS);
+                it.next().dumpDebug(proto, IntentFilterProto.DATA_PATHS);
             }
         }
         if (mDataTypes != null) {
@@ -1794,11 +2788,26 @@ public class IntentFilter implements Parcelable {
                 proto.write(IntentFilterProto.DATA_TYPES, it.next());
             }
         }
-        if (mPriority != 0 || mHasPartialTypes) {
+        if (mMimeGroups != null) {
+            Iterator<String> it = mMimeGroups.iterator();
+            while (it.hasNext()) {
+                proto.write(IntentFilterProto.MIME_GROUPS, it.next());
+            }
+        }
+        if (mPriority != 0 || hasPartialTypes()) {
             proto.write(IntentFilterProto.PRIORITY, mPriority);
-            proto.write(IntentFilterProto.HAS_PARTIAL_TYPES, mHasPartialTypes);
+            proto.write(IntentFilterProto.HAS_PARTIAL_TYPES, hasPartialTypes());
         }
         proto.write(IntentFilterProto.GET_AUTO_VERIFY, getAutoVerify());
+        if (mExtras != null) {
+            mExtras.dumpDebug(proto, IntentFilterProto.EXTRAS);
+        }
+        if (Flags.relativeReferenceIntentFilters() && mUriRelativeFilterGroups != null) {
+            Iterator<UriRelativeFilterGroup> it = mUriRelativeFilterGroups.iterator();
+            while (it.hasNext()) {
+                it.next().dumpDebug(proto, IntentFilterProto.URI_RELATIVE_FILTER_GROUPS);
+            }
+        }
         proto.end(token);
     }
 
@@ -1863,20 +2872,54 @@ public class IntentFilter implements Parcelable {
                 du.println(sb.toString());
             }
         }
-        if (mDataTypes != null) {
-            Iterator<String> it = mDataTypes.iterator();
+        if (mUriRelativeFilterGroups != null) {
+            Iterator<UriRelativeFilterGroup> it = mUriRelativeFilterGroups.iterator();
             while (it.hasNext()) {
                 sb.setLength(0);
-                sb.append(prefix); sb.append("Type: \"");
-                        sb.append(it.next()); sb.append("\"");
+                sb.append(prefix); sb.append("UriRelativeFilterGroup: \"");
+                sb.append(it.next()); sb.append("\"");
                 du.println(sb.toString());
             }
         }
-        if (mPriority != 0 || mOrder != 0 || mHasPartialTypes) {
+        if (mStaticDataTypes != null) {
+            Iterator<String> it = mStaticDataTypes.iterator();
+            while (it.hasNext()) {
+                sb.setLength(0);
+                sb.append(prefix); sb.append("StaticType: \"");
+                sb.append(it.next()); sb.append("\"");
+                du.println(sb.toString());
+            }
+        }
+        if (mDataTypes != null) {
+            Iterator<String> it = mDataTypes.iterator();
+            while (it.hasNext()) {
+                String dataType = it.next();
+                if (hasExactStaticDataType(dataType)) {
+                    continue;
+                }
+
+                sb.setLength(0);
+                sb.append(prefix); sb.append("Type: \"");
+                sb.append(dataType); sb.append("\"");
+                du.println(sb.toString());
+            }
+        }
+        if (mMimeGroups != null) {
+            Iterator<String> it = mMimeGroups.iterator();
+            while (it.hasNext()) {
+                sb.setLength(0);
+                sb.append(prefix); sb.append("MimeGroup: \"");
+                sb.append(it.next()); sb.append("\"");
+                du.println(sb.toString());
+            }
+        }
+        if (mPriority != 0 || mOrder != 0 || hasPartialTypes()) {
             sb.setLength(0);
-            sb.append(prefix); sb.append("mPriority="); sb.append(mPriority);
-                    sb.append(", mOrder="); sb.append(mOrder);
-                    sb.append(", mHasPartialTypes="); sb.append(mHasPartialTypes);
+            sb.append(prefix);
+            sb.append("mPriority="); sb.append(mPriority);
+            sb.append(", mOrder="); sb.append(mOrder);
+            sb.append(", mHasStaticPartialTypes="); sb.append(mHasStaticPartialTypes);
+            sb.append(", mHasDynamicPartialTypes="); sb.append(mHasDynamicPartialTypes);
             du.println(sb.toString());
         }
         if (getAutoVerify()) {
@@ -1884,9 +2927,14 @@ public class IntentFilter implements Parcelable {
             sb.append(prefix); sb.append("AutoVerify="); sb.append(getAutoVerify());
             du.println(sb.toString());
         }
+        if (mExtras != null) {
+            sb.setLength(0);
+            sb.append(prefix); sb.append("mExtras="); sb.append(mExtras.toString());
+            du.println(sb.toString());
+        }
     }
 
-    public static final Parcelable.Creator<IntentFilter> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<IntentFilter> CREATOR
             = new Parcelable.Creator<IntentFilter>() {
         public IntentFilter createFromParcel(Parcel source) {
             return new IntentFilter(source);
@@ -1902,7 +2950,7 @@ public class IntentFilter implements Parcelable {
     }
 
     public final void writeToParcel(Parcel dest, int flags) {
-        dest.writeStringList(mActions);
+        dest.writeStringArray(mActions.toArray(new String[mActions.size()]));
         if (mCategories != null) {
             dest.writeInt(1);
             dest.writeStringList(mCategories);
@@ -1915,9 +2963,21 @@ public class IntentFilter implements Parcelable {
         } else {
             dest.writeInt(0);
         }
+        if (mStaticDataTypes != null) {
+            dest.writeInt(1);
+            dest.writeStringList(mStaticDataTypes);
+        } else {
+            dest.writeInt(0);
+        }
         if (mDataTypes != null) {
             dest.writeInt(1);
             dest.writeStringList(mDataTypes);
+        } else {
+            dest.writeInt(0);
+        }
+        if (mMimeGroups != null) {
+            dest.writeInt(1);
+            dest.writeStringList(mMimeGroups);
         } else {
             dest.writeInt(0);
         }
@@ -1949,17 +3009,33 @@ public class IntentFilter implements Parcelable {
             dest.writeInt(0);
         }
         dest.writeInt(mPriority);
-        dest.writeInt(mHasPartialTypes ? 1 : 0);
+        dest.writeInt(mHasStaticPartialTypes ? 1 : 0);
+        dest.writeInt(mHasDynamicPartialTypes ? 1 : 0);
         dest.writeInt(getAutoVerify() ? 1 : 0);
         dest.writeInt(mInstantAppVisibility);
         dest.writeInt(mOrder);
+        if (mExtras != null) {
+            dest.writeInt(1);
+            mExtras.writeToParcel(dest, flags);
+        } else {
+            dest.writeInt(0);
+        }
+        if (Flags.relativeReferenceIntentFilters() && mUriRelativeFilterGroups != null) {
+            final int N = mUriRelativeFilterGroups.size();
+            dest.writeInt(N);
+            for (int i = 0; i < N; i++) {
+                mUriRelativeFilterGroups.get(i).writeToParcel(dest, flags);
+            }
+        } else {
+            dest.writeInt(0);
+        }
     }
 
     /**
      * For debugging -- perform a check on the filter, return true if it passed
      * or false if it failed.
      *
-     * {@hide}
+     * @hide
      */
     public boolean debugCheck() {
         return true;
@@ -1981,10 +3057,34 @@ public class IntentFilter implements Parcelable {
         */
     }
 
+    /**
+     * Perform a check on data paths and scheme specific parts of the intent filter.
+     * Return true if it passed.
+     * @hide
+     */
+    public boolean checkDataPathAndSchemeSpecificParts() {
+        final int numDataPath = mDataPaths == null
+                ? 0 : mDataPaths.size();
+        final int numDataSchemeSpecificParts = mDataSchemeSpecificParts == null
+                ? 0 : mDataSchemeSpecificParts.size();
+        for (int i = 0; i < numDataPath; i++) {
+            if (!mDataPaths.get(i).check()) {
+                return false;
+            }
+        }
+        for (int i = 0; i < numDataSchemeSpecificParts; i++) {
+            if (!mDataSchemeSpecificParts.get(i).check()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** @hide */
     public IntentFilter(Parcel source) {
-        mActions = new ArrayList<String>();
-        source.readStringList(mActions);
+        List<String> actions = new ArrayList<>();
+        source.readStringList(actions);
+        mActions = new ArraySet<>(actions);
         if (source.readInt() != 0) {
             mCategories = new ArrayList<String>();
             source.readStringList(mCategories);
@@ -1994,8 +3094,16 @@ public class IntentFilter implements Parcelable {
             source.readStringList(mDataSchemes);
         }
         if (source.readInt() != 0) {
+            mStaticDataTypes = new ArrayList<String>();
+            source.readStringList(mStaticDataTypes);
+        }
+        if (source.readInt() != 0) {
             mDataTypes = new ArrayList<String>();
             source.readStringList(mDataTypes);
+        }
+        if (source.readInt() != 0) {
+            mMimeGroups = new ArrayList<String>();
+            source.readStringList(mMimeGroups);
         }
         int N = source.readInt();
         if (N > 0) {
@@ -2019,10 +3127,25 @@ public class IntentFilter implements Parcelable {
             }
         }
         mPriority = source.readInt();
-        mHasPartialTypes = source.readInt() > 0;
+        mHasStaticPartialTypes = source.readInt() > 0;
+        mHasDynamicPartialTypes = source.readInt() > 0;
         setAutoVerify(source.readInt() > 0);
         setVisibilityToInstantApp(source.readInt());
         mOrder = source.readInt();
+        if (source.readInt() != 0) {
+            mExtras = PersistableBundle.CREATOR.createFromParcel(source);
+        }
+        N = source.readInt();
+        if (Flags.relativeReferenceIntentFilters() && N > 0) {
+            mUriRelativeFilterGroups = new ArrayList<UriRelativeFilterGroup>(N);
+            for (int i = 0; i < N; i++) {
+                mUriRelativeFilterGroups.add(new UriRelativeFilterGroup(source));
+            }
+        }
+    }
+
+    private boolean hasPartialTypes() {
+        return mHasStaticPartialTypes || mHasDynamicPartialTypes;
     }
 
     private final boolean findMimeType(String type) {
@@ -2043,13 +3166,13 @@ public class IntentFilter implements Parcelable {
         }
 
         // Deal with this IntentFilter wanting to match every Intent type.
-        if (mHasPartialTypes && t.contains("*")) {
+        if (hasPartialTypes() && t.contains("*")) {
             return true;
         }
 
         final int slashpos = type.indexOf('/');
         if (slashpos > 0) {
-            if (mHasPartialTypes && t.contains(type.substring(0, slashpos))) {
+            if (hasPartialTypes() && t.contains(type.substring(0, slashpos))) {
                 return true;
             }
             if (typeLength == slashpos+2 && type.charAt(slashpos+1) == '*') {
@@ -2089,5 +3212,82 @@ public class IntentFilter implements Parcelable {
     public String[] getHosts() {
         ArrayList<String> list = getHostsList();
         return list.toArray(new String[list.size()]);
+    }
+
+    /**
+     * @hide
+     */
+    public static boolean filterEquals(IntentFilter f1, IntentFilter f2) {
+        int s1 = f1.countActions();
+        int s2 = f2.countActions();
+        if (s1 != s2) {
+            return false;
+        }
+        for (int i=0; i<s1; i++) {
+            if (!f2.hasAction(f1.getAction(i))) {
+                return false;
+            }
+        }
+        s1 = f1.countCategories();
+        s2 = f2.countCategories();
+        if (s1 != s2) {
+            return false;
+        }
+        for (int i=0; i<s1; i++) {
+            if (!f2.hasCategory(f1.getCategory(i))) {
+                return false;
+            }
+        }
+        s1 = f1.countDataTypes();
+        s2 = f2.countDataTypes();
+        if (s1 != s2) {
+            return false;
+        }
+        for (int i=0; i<s1; i++) {
+            if (!f2.hasExactDataType(f1.getDataType(i))) {
+                return false;
+            }
+        }
+        s1 = f1.countDataSchemes();
+        s2 = f2.countDataSchemes();
+        if (s1 != s2) {
+            return false;
+        }
+        for (int i=0; i<s1; i++) {
+            if (!f2.hasDataScheme(f1.getDataScheme(i))) {
+                return false;
+            }
+        }
+        s1 = f1.countDataAuthorities();
+        s2 = f2.countDataAuthorities();
+        if (s1 != s2) {
+            return false;
+        }
+        for (int i=0; i<s1; i++) {
+            if (!f2.hasDataAuthority(f1.getDataAuthority(i))) {
+                return false;
+            }
+        }
+        s1 = f1.countDataPaths();
+        s2 = f2.countDataPaths();
+        if (s1 != s2) {
+            return false;
+        }
+        for (int i=0; i<s1; i++) {
+            if (!f2.hasDataPath(f1.getDataPath(i))) {
+                return false;
+            }
+        }
+        s1 = f1.countDataSchemeSpecificParts();
+        s2 = f2.countDataSchemeSpecificParts();
+        if (s1 != s2) {
+            return false;
+        }
+        for (int i=0; i<s1; i++) {
+            if (!f2.hasDataSchemeSpecificPart(f1.getDataSchemeSpecificPart(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 }

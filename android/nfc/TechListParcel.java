@@ -47,13 +47,13 @@ public class TechListParcel implements Parcelable {
         }
     }
 
-    public static final Creator<TechListParcel> CREATOR = new Creator<TechListParcel>() {
+    public static final @android.annotation.NonNull Creator<TechListParcel> CREATOR = new Creator<TechListParcel>() {
         @Override
         public TechListParcel createFromParcel(Parcel source) {
             int count = source.readInt();
             String[][] techLists = new String[count][];
             for (int i = 0; i < count; i++) {
-                techLists[i] = source.readStringArray();
+                techLists[i] = source.createStringArray();
             }
             return new TechListParcel(techLists);
         }

@@ -16,6 +16,7 @@
 package android.telephony.euicc;
 
 import android.annotation.IntDef;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -28,7 +29,6 @@ import com.android.internal.annotations.VisibleForTesting;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.Arrays;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -37,12 +37,15 @@ import java.util.List;
  */
 @SystemApi
 public final class EuiccRulesAuthTable implements Parcelable {
-    /** Profile policy rule flags */
+    /**
+     * Profile policy rule flags
+     *
+     * @removed mistakenly exposed previously
+     */
     @Retention(RetentionPolicy.SOURCE)
     @IntDef(flag = true, prefix = { "POLICY_RULE_FLAG_" }, value = {
             POLICY_RULE_FLAG_CONSENT_REQUIRED
     })
-    /** @hide */
     public @interface PolicyRuleFlag {}
 
     /** User consent is required to install the profile. */
@@ -204,7 +207,7 @@ public final class EuiccRulesAuthTable implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) {
             return true;
         }
@@ -239,6 +242,16 @@ public final class EuiccRulesAuthTable implements Parcelable {
                 && Arrays.equals(mPolicyRuleFlags, that.mPolicyRuleFlags);
     }
 
+    @Override
+    public int hashCode() {
+        int result = Arrays.hashCode(mPolicyRules);
+        result = 31 * result + Arrays.hashCode(mPolicyRuleFlags);
+        for (int i = 0; i < mCarrierIds.length; i++) {
+            result = 31 * result + Arrays.hashCode(mCarrierIds[i]);
+        }
+        return result;
+    }
+
     private EuiccRulesAuthTable(Parcel source) {
         mPolicyRules = source.createIntArray();
         int len = mPolicyRules.length;
@@ -249,7 +262,7 @@ public final class EuiccRulesAuthTable implements Parcelable {
         mPolicyRuleFlags = source.createIntArray();
     }
 
-    public static final Creator<EuiccRulesAuthTable> CREATOR =
+    public static final @android.annotation.NonNull Creator<EuiccRulesAuthTable> CREATOR =
             new Creator<EuiccRulesAuthTable>() {
                 @Override
                 public EuiccRulesAuthTable createFromParcel(Parcel source) {

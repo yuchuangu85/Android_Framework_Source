@@ -28,7 +28,6 @@ import android.os.Parcel;
 import android.os.Parcelable;
 
 import com.android.internal.util.ArrayUtils;
-import com.android.internal.util.Preconditions;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -42,7 +41,12 @@ import java.util.Objects;
  *
  * <p>They are constructed using {@link Builder} in a tree structure
  * that provides the OS some information about how the content should be displayed.
+ * @deprecated Slice framework has been deprecated, it will not receive any updates from
+ *          {@link android.os.Build.VANILLA_ICE_CREAM} and forward. If you are looking for a
+ *          framework that sends displayable data from one app to another, consider using
+ *          {@link android.app.appsearch.AppSearchManager}.
  */
+@Deprecated
 public final class Slice implements Parcelable {
 
     /**
@@ -196,13 +200,6 @@ public final class Slice implements Parcelable {
      */
     public static final String EXTRA_TOGGLE_STATE = "android.app.slice.extra.TOGGLE_STATE";
     /**
-     * Key to retrieve an extra added to an intent when the value of a slider is changed.
-     * @deprecated remove once support lib is update to use EXTRA_RANGE_VALUE instead
-     * @removed
-     */
-    @Deprecated
-    public static final String EXTRA_SLIDER_VALUE = "android.app.slice.extra.SLIDER_VALUE";
-    /**
      * Key to retrieve an extra added to an intent when the value of an input range is changed.
      */
     public static final String EXTRA_RANGE_VALUE = "android.app.slice.extra.RANGE_VALUE";
@@ -223,13 +220,6 @@ public final class Slice implements Parcelable {
      * Expected to be on an item of format {@link SliceItem#FORMAT_INT}.
      */
     public static final String SUBTYPE_COLOR = "color";
-    /**
-     * Subtype to tag an item as representing a slider.
-     * @deprecated remove once support lib is update to use SUBTYPE_RANGE instead
-     * @removed
-     */
-    @Deprecated
-    public static final String SUBTYPE_SLIDER = "slider";
     /**
      * Subtype to tag an item as representing a range.
      * Expected to be on an item of format {@link SliceItem#FORMAT_SLICE} containing
@@ -283,11 +273,7 @@ public final class Slice implements Parcelable {
 
     protected Slice(Parcel in) {
         mHints = in.readStringArray();
-        int n = in.readInt();
-        mItems = new SliceItem[n];
-        for (int i = 0; i < n; i++) {
-            mItems[i] = SliceItem.CREATOR.createFromParcel(in);
-        }
+        mItems = in.createTypedArray(SliceItem.CREATOR);
         mUri = Uri.CREATOR.createFromParcel(in);
         mSpec = in.readTypedObject(SliceSpec.CREATOR);
     }
@@ -323,10 +309,7 @@ public final class Slice implements Parcelable {
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeStringArray(mHints);
-        dest.writeInt(mItems.length);
-        for (int i = 0; i < mItems.length; i++) {
-            mItems[i].writeToParcel(dest, flags);
-        }
+        dest.writeTypedArray(mItems, flags);
         mUri.writeToParcel(dest, 0);
         dest.writeTypedObject(mSpec, flags);
     }
@@ -353,22 +336,18 @@ public final class Slice implements Parcelable {
 
     /**
      * A Builder used to construct {@link Slice}s
+     * @deprecated Slice framework has been deprecated, it will not receive any updates from
+     *          {@link android.os.Build.VANILLA_ICE_CREAM} and forward. If you are looking for a
+     *          framework that sends displayable data from one app to another, consider using
+     *          {@link android.app.appsearch.AppSearchManager}.
      */
+    @Deprecated
     public static class Builder {
 
         private final Uri mUri;
         private ArrayList<SliceItem> mItems = new ArrayList<>();
         private @SliceHint ArrayList<String> mHints = new ArrayList<>();
         private SliceSpec mSpec;
-
-        /**
-         * @deprecated TO BE REMOVED
-         * @removed
-         */
-        @Deprecated
-        public Builder(@NonNull Uri uri) {
-            mUri = uri;
-        }
 
         /**
          * Create a builder which will construct a {@link Slice} for the given Uri.
@@ -414,21 +393,12 @@ public final class Slice implements Parcelable {
         }
 
         /**
-         * @deprecated TO BE REMOVED
-         * @removed
-         */
-        public Builder setSpec(SliceSpec spec) {
-            mSpec = spec;
-            return this;
-        }
-
-        /**
          * Add a sub-slice to the slice being constructed
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Builder addSubSlice(@NonNull Slice slice, @Nullable @SliceSubtype String subType) {
-            Preconditions.checkNotNull(slice);
+            Objects.requireNonNull(slice);
             mItems.add(new SliceItem(slice, SliceItem.FORMAT_SLICE, subType,
                     slice.getHints().toArray(new String[slice.getHints().size()])));
             return this;
@@ -437,12 +407,12 @@ public final class Slice implements Parcelable {
         /**
          * Add an action to the slice being constructed
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Slice.Builder addAction(@NonNull PendingIntent action, @NonNull Slice s,
                 @Nullable @SliceSubtype String subType) {
-            Preconditions.checkNotNull(action);
-            Preconditions.checkNotNull(s);
+            Objects.requireNonNull(action);
+            Objects.requireNonNull(s);
             List<String> hints = s.getHints();
             s.mSpec = null;
             mItems.add(new SliceItem(action, s, SliceItem.FORMAT_ACTION, subType, hints.toArray(
@@ -453,7 +423,7 @@ public final class Slice implements Parcelable {
         /**
          * Add text to the slice being constructed
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Builder addText(CharSequence text, @Nullable @SliceSubtype String subType,
                 @SliceHint List<String> hints) {
@@ -464,11 +434,11 @@ public final class Slice implements Parcelable {
         /**
          * Add an image to the slice being constructed
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Builder addIcon(Icon icon, @Nullable @SliceSubtype String subType,
                 @SliceHint List<String> hints) {
-            Preconditions.checkNotNull(icon);
+            Objects.requireNonNull(icon);
             mItems.add(new SliceItem(icon, SliceItem.FORMAT_IMAGE, subType, hints));
             return this;
         }
@@ -476,12 +446,12 @@ public final class Slice implements Parcelable {
         /**
          * Add remote input to the slice being constructed
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Slice.Builder addRemoteInput(RemoteInput remoteInput,
                 @Nullable @SliceSubtype String subType,
                 @SliceHint List<String> hints) {
-            Preconditions.checkNotNull(remoteInput);
+            Objects.requireNonNull(remoteInput);
             mItems.add(new SliceItem(remoteInput, SliceItem.FORMAT_REMOTE_INPUT,
                     subType, hints));
             return this;
@@ -490,7 +460,7 @@ public final class Slice implements Parcelable {
         /**
          * Add an integer to the slice being constructed
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Builder addInt(int value, @Nullable @SliceSubtype String subType,
                 @SliceHint List<String> hints) {
@@ -499,19 +469,9 @@ public final class Slice implements Parcelable {
         }
 
         /**
-         * @deprecated TO BE REMOVED.
-         * @removed
-         */
-        @Deprecated
-        public Slice.Builder addTimestamp(long time, @Nullable @SliceSubtype String subType,
-                @SliceHint List<String> hints) {
-            return addLong(time, subType, hints);
-        }
-
-        /**
          * Add a long to the slice being constructed
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Slice.Builder addLong(long value, @Nullable @SliceSubtype String subType,
                 @SliceHint List<String> hints) {
@@ -525,11 +485,11 @@ public final class Slice implements Parcelable {
          * <p>Expected to be used for support library extension, should not be used for general
          * development
          * @param subType Optional template-specific type information
-         * @see {@link SliceItem#getSubType()}
+         * @see SliceItem#getSubType()
          */
         public Slice.Builder addBundle(Bundle bundle, @Nullable @SliceSubtype String subType,
                 @SliceHint List<String> hints) {
-            Preconditions.checkNotNull(bundle);
+            Objects.requireNonNull(bundle);
             mItems.add(new SliceItem(bundle, SliceItem.FORMAT_BUNDLE, subType,
                     hints));
             return this;
@@ -543,7 +503,7 @@ public final class Slice implements Parcelable {
         }
     }
 
-    public static final Creator<Slice> CREATOR = new Creator<Slice>() {
+    public static final @android.annotation.NonNull Creator<Slice> CREATOR = new Creator<Slice>() {
         @Override
         public Slice createFromParcel(Parcel in) {
             return new Slice(in);

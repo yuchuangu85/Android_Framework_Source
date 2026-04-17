@@ -16,6 +16,8 @@
 
 package android.view.inputmethod;
 
+import android.annotation.DurationMillisLong;
+import android.annotation.FlaggedApi;
 import android.annotation.MainThread;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -23,7 +25,19 @@ import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.inputmethodservice.InputMethodService;
 import android.os.IBinder;
+import android.os.RemoteException;
 import android.os.ResultReceiver;
+import android.util.Log;
+import android.view.InputChannel;
+import android.view.MotionEvent;
+
+import com.android.internal.inputmethod.IConnectionlessHandwritingCallback;
+import com.android.internal.inputmethod.IInlineSuggestionsRequestCallback;
+import com.android.internal.inputmethod.IInputMethod;
+import com.android.internal.inputmethod.InlineSuggestionsRequestInfo;
+import com.android.internal.inputmethod.InputMethodNavButtonFlags;
+
+import java.util.List;
 
 /**
  * The InputMethod interface represents an input method which can generate key
@@ -56,6 +70,8 @@ import android.os.ResultReceiver;
  * which is what clients use to communicate with the input method.
  */
 public interface InputMethod {
+    /** @hide **/
+    public static final String TAG = "InputMethod";
     /**
      * This is the interface name that a service implementing an input
      * method should say that it supports -- that is, this is the action it
@@ -79,17 +95,47 @@ public interface InputMethod {
     public interface SessionCallback {
         public void sessionCreated(InputMethodSession session);
     }
-    
+
+    /**
+     * Called first thing after an input method is created, this supplies a
+     * unique token for the session it has with the system service as well as
+     * IPC endpoint to do some other privileged operations.
+     *
+     * @param params Contains parameters to initialize the {@link InputMethodService}.
+     * @hide
+     */
+    @MainThread
+    default void initializeInternal(@NonNull IInputMethod.InitParams params) {
+        attachToken(params.token);
+    }
+
+    /**
+     * Called to notify the IME that Autofill Frameworks requested an inline suggestions request.
+     *
+     * @param requestInfo information needed to create an {@link InlineSuggestionsRequest}.
+     * @param cb {@link IInlineSuggestionsRequestCallback} used to pass back the request object.
+     *
+     * @hide
+     */
+    default void onCreateInlineSuggestionsRequest(InlineSuggestionsRequestInfo requestInfo,
+            IInlineSuggestionsRequestCallback cb) {
+        try {
+            cb.onInlineSuggestionsUnsupported();
+        } catch (RemoteException e) {
+            Log.w(TAG, "Failed to call onInlineSuggestionsUnsupported.", e);
+        }
+    }
+
     /**
      * Called first thing after an input method is created, this supplies a
      * unique token for the session it has with the system service.  It is
      * needed to identify itself with the service to validate its operations.
      * This token <strong>must not</strong> be passed to applications, since
      * it grants special priviledges that should not be given to applications.
-     * 
-     * <p>Note: to protect yourself from malicious clients, you should only
-     * accept the first token given to you.  Any after that may come from the
-     * client.
+     *
+     * <p>The system guarantees that this method is called back between
+     * {@link InputMethodService#onCreate()} and {@link InputMethodService#onDestroy()}
+     * at most once.
      */
     @MainThread
     public void attachToken(IBinder token);
@@ -128,13 +174,13 @@ public interface InputMethod {
      * @param inputConnection Optional specific input connection for
      * communicating with the text box; if null, you should use the generic
      * bound input connection.
-     * @param info Information about the text box (typically, an EditText)
+     * @param editorInfo Information about the text box (typically, an EditText)
      *        that requests input.
      * 
      * @see EditorInfo
      */
     @MainThread
-    public void startInput(InputConnection inputConnection, EditorInfo info);
+    public void startInput(InputConnection inputConnection, EditorInfo editorInfo);
 
     /**
      * This method is called when the state of this input method needs to be
@@ -147,51 +193,50 @@ public interface InputMethod {
      * @param inputConnection Optional specific input connection for
      * communicating with the text box; if null, you should use the generic
      * bound input connection.
-     * @param attribute The attribute of the text box (typically, a EditText)
+     * @param editorInfo The attribute of the text box (typically, a EditText)
      *        that requests input.
      * 
      * @see EditorInfo
      */
     @MainThread
-    public void restartInput(InputConnection inputConnection, EditorInfo attribute);
+    public void restartInput(InputConnection inputConnection, EditorInfo editorInfo);
 
     /**
-     * This method is called when {@code {@link #startInput(InputConnection, EditorInfo)} or
-     * {@code {@link #restartInput(InputConnection, EditorInfo)} needs to be dispatched.
+     * This method is called when {@link #startInput(InputConnection, EditorInfo)} or
+     * {@link #restartInput(InputConnection, EditorInfo)} needs to be dispatched.
      *
-     * <p>Note: This method is hidden because the {@code startInputToken} that this method is
-     * dealing with is one of internal details, which should not be exposed to the IME developers.
-     * If you override this method, you are responsible for not breaking existing IMEs that expect
+     * <p>Note: This method is hidden because {@link IInputMethod.StartInputParams} is an internal
+     * details, which should not be exposed to the IME developers. If you override this method, you
+     * are responsible for not breaking existing IMEs that expect
      * {@link #startInput(InputConnection, EditorInfo)} to be still called back.</p>
      *
      * @param inputConnection optional specific input connection for communicating with the text
      *                        box; if {@code null}, you should use the generic bound input
      *                        connection
-     * @param editorInfo information about the text box (typically, an EditText) that requests input
-     * @param restarting {@code false} if this corresponds to
-     *                   {@link #startInput(InputConnection, EditorInfo)}. Otherwise this
-     *                   corresponds to {@link #restartInput(InputConnection, EditorInfo)}.
-     * @param startInputToken a token that identifies a logical session that starts with this method
-     *                        call. Some internal IPCs such as {@link
-     *                        InputMethodManager#setImeWindowStatus(IBinder, IBinder, int, int)}
-     *                        require this token to work, and you have to keep the token alive until
-     *                        the next {@link #startInput(InputConnection, EditorInfo, IBinder)} as
-     *                        long as your implementation of {@link InputMethod} relies on such
-     *                        IPCs
+     * @param params Raw object of {@link IInputMethod.StartInputParams}.
      * @see #startInput(InputConnection, EditorInfo)
      * @see #restartInput(InputConnection, EditorInfo)
      * @see EditorInfo
      * @hide
      */
     @MainThread
-    default void dispatchStartInputWithToken(@Nullable InputConnection inputConnection,
-            @NonNull EditorInfo editorInfo, boolean restarting,
-            @NonNull IBinder startInputToken) {
-        if (restarting) {
-            restartInput(inputConnection, editorInfo);
+    default void dispatchStartInput(@Nullable InputConnection inputConnection,
+            @NonNull IInputMethod.StartInputParams params) {
+        if (params.restarting) {
+            restartInput(inputConnection, params.editorInfo);
         } else {
-            startInput(inputConnection, editorInfo);
+            startInput(inputConnection, params.editorInfo);
         }
+    }
+
+    /**
+     * Notifies that {@link InputMethodNavButtonFlags} have been updated.
+     *
+     * @param navButtonFlags The new {@link InputMethodNavButtonFlags}.
+     * @hide
+     */
+    @MainThread
+    default void onNavButtonFlagsChanged(@InputMethodNavButtonFlags int navButtonFlags) {
     }
 
     /**
@@ -225,27 +270,46 @@ public interface InputMethod {
      */
     @MainThread
     public void revokeSession(InputMethodSession session);
-    
+
     /**
      * Flag for {@link #showSoftInput}: this show has been explicitly
      * requested by the user.  If not set, the system has decided it may be
      * a good idea to show the input method based on a navigation operation
      * in the UI.
+     *
+     * @deprecated {@link InputMethodManager#SHOW_IMPLICIT} is deprecated therefore this flag
+     * becomes the default. There is no need to pass it anymore.
      */
+    @FlaggedApi(Flags.FLAG_DEPRECATE_INPUT_METHOD_SHOW_HIDE_FLAGS)
+    @Deprecated
     public static final int SHOW_EXPLICIT = 0x00001;
-    
+
     /**
      * Flag for {@link #showSoftInput}: this show has been forced to
      * happen by the user.  If set, the input method should remain visible
      * until deliberated dismissed by the user in its UI.
+     *
+     * @deprecated Starting in {@link Build.VERSION_CODES#BAKLAVA Android B},
+     * {@link InputMethodManager#SHOW_IMPLICIT} is deprecated and has no effect, therefore all
+     * requests will have this flag set. IMEs should no longer react to this flag.
      */
+    @Deprecated
     public static final int SHOW_FORCED = 0x00002;
-    
+
     /**
      * Request that any soft input part of the input method be shown to the user.
-     * 
-     * @param flags Provides additional information about the show request.
-     * Currently may be 0 or have the bit {@link #SHOW_EXPLICIT} set.
+     *
+     * @param statsToken the token tracking the current IME request.
+     * @hide
+     */
+    @MainThread
+    default void showSoftInputWithToken(@NonNull ImeTracker.Token statsToken) {
+        showSoftInput(InputMethod.SHOW_EXPLICIT /* flags */, null /* resultReceiver */);
+    }
+
+    /**
+     * Request that any soft input part of the input method be shown to the user.
+     *
      * @param resultReceiver The client requesting the show may wish to
      * be told the impact of their request, which should be supplied here.
      * The result code should be
@@ -256,16 +320,29 @@ public interface InputMethod {
      */
     @MainThread
     public void showSoftInput(int flags, ResultReceiver resultReceiver);
-    
+
     /**
      * Request that any soft input part of the input method be hidden from the user.
-     * @param flags Provides additional information about the show request.
+     *
+     * @param statsToken the token tracking the current IME request.
+     * @hide
+     */
+    @MainThread
+    default void hideSoftInputWithToken(@NonNull ImeTracker.Token statsToken) {
+        hideSoftInput(0 /* flags */, null /* resultReceiver */);
+    }
+
+    /**
+     * Request that any soft input part of the input method be hidden from the user.
+     *
+     * @param flags Provides additional information about the hide request.
      * Currently always 0.
      * @param resultReceiver The client requesting the show may wish to
      * be told the impact of their request, which should be supplied here.
      * The result code should be
      * {@link InputMethodManager#RESULT_UNCHANGED_SHOWN InputMethodManager.RESULT_UNCHANGED_SHOWN},
-     * {@link InputMethodManager#RESULT_UNCHANGED_HIDDEN InputMethodManager.RESULT_UNCHANGED_HIDDEN},
+     * {@link InputMethodManager#RESULT_UNCHANGED_HIDDEN
+     *        InputMethodManager.RESULT_UNCHANGED_HIDDEN},
      * {@link InputMethodManager#RESULT_SHOWN InputMethodManager.RESULT_SHOWN}, or
      * {@link InputMethodManager#RESULT_HIDDEN InputMethodManager.RESULT_HIDDEN}.
      */
@@ -278,4 +355,94 @@ public interface InputMethod {
      */
     @MainThread
     public void changeInputMethodSubtype(InputMethodSubtype subtype);
+
+    /**
+     * Checks if IME is ready to start stylus handwriting session.
+     * If yes, {@link #startStylusHandwriting(int, InputChannel, List)} is called.
+     *
+     * @param requestId identifier for the session start request
+     * @param connectionlessCallback the callback to receive the session result if starting a
+     *     connectionless handwriting session, or null if starting a regular session
+     * @param cursorAnchorInfo optional positional information about the view receiving stylus
+     *     events for a connectionless handwriting session
+     * @param isConnectionlessForDelegation whether the connectionless handwriting session is for
+     *     delegation. If true, the recognised text should be saved and can later be committed by
+     *     {@link #commitHandwritingDelegationTextIfAvailable}.
+     * @hide
+     */
+    default void canStartStylusHandwriting(int requestId,
+            @Nullable IConnectionlessHandwritingCallback connectionlessCallback,
+            @Nullable CursorAnchorInfo cursorAnchorInfo, boolean isConnectionlessForDelegation) {
+        // intentionally empty
+    }
+
+    /**
+     * This method is called when the user tapped or clicked an {@link android.widget.Editor}.
+     * @param toolType {@link android.view.MotionEvent#getToolType(int)} used for clicking editor.
+     * @hide
+     */
+    default void updateEditorToolType(int toolType) {
+        // intentionally empty
+    }
+
+    /**
+     * Start stylus handwriting session.
+     * @hide
+     */
+    default void startStylusHandwriting(
+            int requestId, @NonNull InputChannel channel, @Nullable List<MotionEvent> events) {
+        // intentionally empty
+    }
+
+    /**
+     * Commits recognised text that was previously saved from a connectionless handwriting session
+     * for delegation.
+     *
+     * @hide
+     */
+    default void commitHandwritingDelegationTextIfAvailable() {
+        // intentionally empty
+    }
+
+    /**
+     * Discards recognised text that was previously saved from a connectionless handwriting session
+     * for delegation.
+     *
+     * @hide
+     */
+    default void discardHandwritingDelegationText() {
+        // intentionally empty
+    }
+
+    /**
+     * Initialize Ink window early-on.
+     * @hide
+     */
+    default void initInkWindow() {
+        // intentionally empty
+    }
+
+    /**
+     * Finish stylus handwriting session.
+     * @hide
+     */
+    default void finishStylusHandwriting() {
+        // intentionally empty
+    }
+
+    /**
+     * Remove stylus handwriting window.
+     * @hide
+     */
+    default void removeStylusHandwritingWindow() {
+        // intentionally empty
+    }
+
+    /**
+     * Set a stylus idle-timeout after which handwriting {@code InkWindow} will be removed.
+     * @hide
+     */
+    default void setStylusWindowIdleTimeoutForTest(@DurationMillisLong long timeout) {
+        // intentionally empty
+    }
 }

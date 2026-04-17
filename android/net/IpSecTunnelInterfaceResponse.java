@@ -65,6 +65,7 @@ public final class IpSecTunnelInterfaceResponse implements Parcelable {
         interfaceName = in.readString();
     }
 
+    @android.annotation.NonNull
     public static final Parcelable.Creator<IpSecTunnelInterfaceResponse> CREATOR =
             new Parcelable.Creator<IpSecTunnelInterfaceResponse>() {
                 public IpSecTunnelInterfaceResponse createFromParcel(Parcel in) {

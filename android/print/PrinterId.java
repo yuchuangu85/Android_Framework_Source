@@ -17,6 +17,8 @@
 package android.print;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -46,7 +48,7 @@ public final class PrinterId implements Parcelable {
     }
 
     private PrinterId(@NonNull Parcel parcel) {
-        mServiceName = Preconditions.checkNotNull((ComponentName) parcel.readParcelable(null));
+        mServiceName = Preconditions.checkNotNull((ComponentName) parcel.readParcelable(null, android.content.ComponentName.class));
         mLocalId = Preconditions.checkNotNull(parcel.readString());
     }
 
@@ -57,6 +59,7 @@ public final class PrinterId implements Parcelable {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public @NonNull ComponentName getServiceName() {
         return mServiceName;
     }
@@ -83,7 +86,7 @@ public final class PrinterId implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object object) {
+    public boolean equals(@Nullable Object object) {
         if (this == object) {
             return true;
         }
@@ -122,7 +125,7 @@ public final class PrinterId implements Parcelable {
         return builder.toString();
     }
 
-    public static final Parcelable.Creator<PrinterId> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<PrinterId> CREATOR =
             new Creator<PrinterId>() {
         @Override
         public PrinterId createFromParcel(Parcel parcel) {

@@ -18,6 +18,8 @@ package android.media;
 
 import android.annotation.IntDef;
 import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -85,16 +87,25 @@ public final class PlaybackParams implements Parcelable {
     public static final int AUDIO_STRETCH_MODE_VOICE = 1;
 
     // flags to indicate which params are actually set
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int SET_SPEED               = 1 << 0;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int SET_PITCH               = 1 << 1;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int SET_AUDIO_FALLBACK_MODE = 1 << 2;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static final int SET_AUDIO_STRETCH_MODE  = 1 << 3;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private int mSet = 0;
 
     // params
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mAudioFallbackMode = AUDIO_FALLBACK_MODE_DEFAULT;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int mAudioStretchMode = AUDIO_STRETCH_MODE_DEFAULT;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private float mPitch = 1.0f;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private float mSpeed = 1.0f;
 
     public PlaybackParams() {
@@ -175,13 +186,13 @@ public final class PlaybackParams implements Parcelable {
 
     /**
      * Sets the pitch factor.
-     * @param pitch
+     * @param pitch a strictly positive value
      * @return this <code>PlaybackParams</code> instance.
      * @throws IllegalArgumentException if the pitch is negative.
      */
     public PlaybackParams setPitch(float pitch) {
-        if (pitch < 0.f) {
-            throw new IllegalArgumentException("pitch must not be negative");
+        if ((pitch <= 0.f) || Float.isNaN(pitch) || Float.isInfinite(pitch)) {
+            throw new IllegalArgumentException("invalid pitch value " + Float.toString(pitch));
         }
         mPitch = pitch;
         mSet |= SET_PITCH;
@@ -202,10 +213,15 @@ public final class PlaybackParams implements Parcelable {
 
     /**
      * Sets the speed factor.
-     * @param speed
+     * @param speed a non-negative value
      * @return this <code>PlaybackParams</code> instance.
      */
     public PlaybackParams setSpeed(float speed) {
+        if ((speed < 0.f) || Float.isNaN(speed) || Float.isInfinite(speed)) {
+            // not throwing IAE due to API behavior change, but keeping the speed value unchanged
+            android.util.Log.e("PlaybackParams", "invalid speed value " + Float.toString(speed));
+            return this;
+        }
         mSpeed = speed;
         mSet |= SET_SPEED;
         return this;
@@ -223,7 +239,7 @@ public final class PlaybackParams implements Parcelable {
         return mSpeed;
     }
 
-    public static final Parcelable.Creator<PlaybackParams> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<PlaybackParams> CREATOR =
             new Parcelable.Creator<PlaybackParams>() {
                 @Override
                 public PlaybackParams createFromParcel(Parcel in) {

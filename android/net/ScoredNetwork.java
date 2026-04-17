@@ -16,6 +16,7 @@
 
 package android.net;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.os.Bundle;
@@ -28,8 +29,10 @@ import java.util.Set;
 /**
  * A network identifier along with a score for the quality of that network.
  *
+ * @deprecated as part of the {@link NetworkScoreManager} deprecation.
  * @hide
  */
+@Deprecated
 @SystemApi
 public class ScoredNetwork implements Parcelable {
 
@@ -182,7 +185,7 @@ public class ScoredNetwork implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
 
@@ -220,6 +223,7 @@ public class ScoredNetwork implements Parcelable {
         return Objects.hash(networkKey, rssiCurve, meteredHint, attributes);
     }
 
+    @NonNull
     @Override
     public String toString() {
         StringBuilder out = new StringBuilder(
@@ -295,14 +299,14 @@ public class ScoredNetwork implements Parcelable {
     public int calculateBadge(int rssi) {
         if (attributes != null && attributes.containsKey(ATTRIBUTES_KEY_BADGING_CURVE)) {
             RssiCurve badgingCurve =
-                    attributes.getParcelable(ATTRIBUTES_KEY_BADGING_CURVE);
+                    attributes.getParcelable(ATTRIBUTES_KEY_BADGING_CURVE, android.net.RssiCurve.class);
             return badgingCurve.lookupScore(rssi);
         }
 
         return NetworkBadging.BADGING_NONE;
     }
 
-    public static final Parcelable.Creator<ScoredNetwork> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<ScoredNetwork> CREATOR =
             new Parcelable.Creator<ScoredNetwork>() {
                 @Override
                 public ScoredNetwork createFromParcel(Parcel in) {

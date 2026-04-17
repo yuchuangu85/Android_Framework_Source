@@ -33,9 +33,10 @@ import com.android.internal.annotations.VisibleForTesting;
 /**
  * A print stream which logs output line by line.
  *
- * {@hide}
+ * @hide
  */
 @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public abstract class LoggingPrintStream extends PrintStream {
 
     private final StringBuilder builder = new StringBuilder();
@@ -85,7 +86,7 @@ public abstract class LoggingPrintStream extends PrintStream {
      * @param completely true if the ending chars should be treated as a line
      *  even though they don't end in a line break
      */
-    private void flush(boolean completely) {
+    protected void flush(boolean completely) {
         int length = builder.length();
 
         int start = 0;

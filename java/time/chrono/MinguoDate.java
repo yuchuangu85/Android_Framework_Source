@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -84,13 +84,19 @@ import java.time.temporal.UnsupportedTemporalTypeException;
 import java.time.temporal.ValueRange;
 import java.util.Objects;
 
-// Android-changed: removed ValueBased paragraph.
 /**
  * A date in the Minguo calendar system.
  * <p>
  * This date operates using the {@linkplain MinguoChronology Minguo calendar}.
  * This calendar system is primarily used in the Republic of China, often known as Taiwan.
  * Dates are aligned such that {@code 0001-01-01 (Minguo)} is {@code 1912-01-01 (ISO)}.
+ * <p>
+ * This is a <a href="{@docRoot}/java.base/java/lang/doc-files/ValueBased.html">value-based</a>
+ * class; programmers should treat instances that are
+ * {@linkplain #equals(Object) equal} as interchangeable and should not
+ * use instances for synchronization, or unpredictable behavior may
+ * occur. For example, in a future release, synchronization may fail.
+ * The {@code equals} method should be used for comparisons.
  *
  * @implSpec
  * This class is immutable and thread-safe.
@@ -104,6 +110,7 @@ public final class MinguoDate
     /**
      * Serialization version.
      */
+    @java.io.Serial
     private static final long serialVersionUID = 1300372329181994526L;
 
     /**
@@ -303,30 +310,27 @@ public final class MinguoDate
     //-----------------------------------------------------------------------
     @Override
     public MinguoDate with(TemporalField field, long newValue) {
-        if (field instanceof ChronoField) {
-            ChronoField f = (ChronoField) field;
-            if (getLong(f) == newValue) {
+        if (field instanceof ChronoField chronoField) {
+            if (getLong(chronoField) == newValue) {
                 return this;
             }
-            switch (f) {
-                case PROLEPTIC_MONTH:
-                    getChronology().range(f).checkValidValue(newValue, f);
-                    return plusMonths(newValue - getProlepticMonth());
-                case YEAR_OF_ERA:
-                case YEAR:
-                case ERA: {
-                    int nvalue = getChronology().range(f).checkValidIntValue(newValue, f);
-                    switch (f) {
-                        case YEAR_OF_ERA:
-                            return with(isoDate.withYear(getProlepticYear() >= 1 ? nvalue + YEARS_DIFFERENCE : (1 - nvalue)  + YEARS_DIFFERENCE));
-                        case YEAR:
-                            return with(isoDate.withYear(nvalue + YEARS_DIFFERENCE));
-                        case ERA:
-                            return with(isoDate.withYear((1 - getProlepticYear()) + YEARS_DIFFERENCE));
-                    }
+            return switch (chronoField) {
+                case PROLEPTIC_MONTH -> {
+                    getChronology().range(chronoField).checkValidValue(newValue, chronoField);
+                    yield plusMonths(newValue - getProlepticMonth());
                 }
-            }
-            return with(isoDate.with(field, newValue));
+                case YEAR_OF_ERA -> {
+                    int nvalue = getChronology().range(chronoField).checkValidIntValue(newValue, chronoField);
+                    yield with(isoDate.withYear(getProlepticYear() >= 1 ? nvalue + YEARS_DIFFERENCE : (1 - nvalue) + YEARS_DIFFERENCE));
+                }
+                case YEAR -> {
+                    int nvalue = getChronology().range(chronoField).checkValidIntValue(newValue, chronoField);
+                    yield with(isoDate.withYear(nvalue + YEARS_DIFFERENCE));
+                }
+                case ERA -> with(isoDate.withYear((1 - getProlepticYear()) + YEARS_DIFFERENCE));
+
+                default -> with(isoDate.with(field, newValue));
+            };
         }
         return super.with(field, newValue);
     }
@@ -388,8 +392,8 @@ public final class MinguoDate
     }
 
     @Override
-    public MinguoDate minus(long amountToAdd, TemporalUnit unit) {
-        return super.minus(amountToAdd, unit);
+    public MinguoDate minus(long amountToSubtract, TemporalUnit unit) {
+        return super.minus(amountToSubtract, unit);
     }
 
     @Override
@@ -451,11 +455,8 @@ public final class MinguoDate
         if (this == obj) {
             return true;
         }
-        if (obj instanceof MinguoDate) {
-            MinguoDate otherDate = (MinguoDate) obj;
-            return this.isoDate.equals(otherDate.isoDate);
-        }
-        return false;
+        return (obj instanceof MinguoDate otherDate)
+                && this.isoDate.equals(otherDate.isoDate);
     }
 
     /**
@@ -475,13 +476,14 @@ public final class MinguoDate
      * @param s the stream to read
      * @throws InvalidObjectException always
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s) throws InvalidObjectException {
         throw new InvalidObjectException("Deserialization via serialization delegate");
     }
 
     /**
      * Writes the object using a
-     * <a href="../../../serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
+     * <a href="{@docRoot}/serialized-form.html#java.time.chrono.Ser">dedicated serialized form</a>.
      * @serialData
      * <pre>
      *  out.writeByte(8);                 // identifies a MinguoDate
@@ -492,6 +494,7 @@ public final class MinguoDate
      *
      * @return the instance of {@code Ser}, not null
      */
+    @java.io.Serial
     private Object writeReplace() {
         return new Ser(Ser.MINGUO_DATE_TYPE, this);
     }

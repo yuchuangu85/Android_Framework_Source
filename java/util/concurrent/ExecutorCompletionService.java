@@ -35,6 +35,8 @@
 
 package java.util.concurrent;
 
+import java.util.Objects;
+
 /**
  * A {@link CompletionService} that uses a supplied {@link Executor}
  * to execute tasks.  This class arranges that submitted tasks are,
@@ -56,13 +58,11 @@ package java.util.concurrent;
  * void solve(Executor e,
  *            Collection<Callable<Result>> solvers)
  *     throws InterruptedException, ExecutionException {
- *   CompletionService<Result> ecs
- *       = new ExecutorCompletionService<Result>(e);
- *   for (Callable<Result> s : solvers)
- *     ecs.submit(s);
- *   int n = solvers.size();
- *   for (int i = 0; i < n; ++i) {
- *     Result r = ecs.take().get();
+ *   CompletionService<Result> cs
+ *       = new ExecutorCompletionService<>(e);
+ *   solvers.forEach(cs::submit);
+ *   for (int i = solvers.size(); i > 0; i--) {
+ *     Result r = cs.take().get();
  *     if (r != null)
  *       use(r);
  *   }
@@ -76,32 +76,33 @@ package java.util.concurrent;
  * void solve(Executor e,
  *            Collection<Callable<Result>> solvers)
  *     throws InterruptedException {
- *   CompletionService<Result> ecs
- *       = new ExecutorCompletionService<Result>(e);
+ *   CompletionService<Result> cs
+ *       = new ExecutorCompletionService<>(e);
  *   int n = solvers.size();
  *   List<Future<Result>> futures = new ArrayList<>(n);
  *   Result result = null;
  *   try {
- *     for (Callable<Result> s : solvers)
- *       futures.add(ecs.submit(s));
- *     for (int i = 0; i < n; ++i) {
+ *     solvers.forEach(solver -> futures.add(cs.submit(solver)));
+ *     for (int i = n; i > 0; i--) {
  *       try {
- *         Result r = ecs.take().get();
+ *         Result r = cs.take().get();
  *         if (r != null) {
  *           result = r;
  *           break;
  *         }
  *       } catch (ExecutionException ignore) {}
  *     }
- *   }
- *   finally {
- *     for (Future<Result> f : futures)
- *       f.cancel(true);
+ *   } finally {
+ *     futures.forEach(future -> future.cancel(true));
  *   }
  *
  *   if (result != null)
  *     use(result);
  * }}</pre>
+ *
+ * @param <V> the type of values the tasks of this service produce and consume
+ *
+ * @since 1.5
  */
 public class ExecutorCompletionService<V> implements CompletionService<V> {
     private final Executor executor;
@@ -146,8 +147,7 @@ public class ExecutorCompletionService<V> implements CompletionService<V> {
      * @throws NullPointerException if executor is {@code null}
      */
     public ExecutorCompletionService(Executor executor) {
-        if (executor == null)
-            throw new NullPointerException();
+        Objects.requireNonNull(executor, "executor");
         this.executor = executor;
         this.aes = (executor instanceof AbstractExecutorService) ?
             (AbstractExecutorService) executor : null;
@@ -169,23 +169,31 @@ public class ExecutorCompletionService<V> implements CompletionService<V> {
      */
     public ExecutorCompletionService(Executor executor,
                                      BlockingQueue<Future<V>> completionQueue) {
-        if (executor == null || completionQueue == null)
-            throw new NullPointerException();
+        Objects.requireNonNull(executor, "executor");
+        Objects.requireNonNull(completionQueue, "completionQueue");
         this.executor = executor;
         this.aes = (executor instanceof AbstractExecutorService) ?
             (AbstractExecutorService) executor : null;
         this.completionQueue = completionQueue;
     }
 
+    /**
+     * @throws RejectedExecutionException {@inheritDoc}
+     * @throws NullPointerException       {@inheritDoc}
+     */
     public Future<V> submit(Callable<V> task) {
-        if (task == null) throw new NullPointerException();
+        Objects.requireNonNull(task, "task");
         RunnableFuture<V> f = newTaskFor(task);
         executor.execute(new QueueingFuture<V>(f, completionQueue));
         return f;
     }
 
+    /**
+     * @throws RejectedExecutionException {@inheritDoc}
+     * @throws NullPointerException       {@inheritDoc}
+     */
     public Future<V> submit(Runnable task, V result) {
-        if (task == null) throw new NullPointerException();
+        Objects.requireNonNull(task, "task");
         RunnableFuture<V> f = newTaskFor(task, result);
         executor.execute(new QueueingFuture<V>(f, completionQueue));
         return f;

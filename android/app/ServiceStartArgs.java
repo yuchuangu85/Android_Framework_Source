@@ -49,7 +49,7 @@ public class ServiceStartArgs implements Parcelable {
     public void writeToParcel(Parcel out, int flags) {
         out.writeInt(taskRemoved ? 1 : 0);
         out.writeInt(startId);
-        out.writeInt(flags);
+        out.writeInt(this.flags);
         if (args != null) {
             out.writeInt(1);
             args.writeToParcel(out, 0);
@@ -58,7 +58,7 @@ public class ServiceStartArgs implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<ServiceStartArgs> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<ServiceStartArgs> CREATOR
             = new Parcelable.Creator<ServiceStartArgs>() {
         public ServiceStartArgs createFromParcel(Parcel in) {
             return new ServiceStartArgs(in);

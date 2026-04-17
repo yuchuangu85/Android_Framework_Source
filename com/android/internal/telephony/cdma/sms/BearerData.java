@@ -16,24 +16,31 @@
 
 package com.android.internal.telephony.cdma.sms;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.Resources;
+import android.os.Build;
 import android.telephony.SmsCbCmasInfo;
 import android.telephony.cdma.CdmaSmsCbProgramData;
 import android.telephony.cdma.CdmaSmsCbProgramResults;
-import android.text.format.Time;
-import android.telephony.Rlog;
+import android.text.TextUtils;
 
 import com.android.internal.telephony.GsmAlphabet;
 import com.android.internal.telephony.GsmAlphabet.TextEncodingDetails;
+import com.android.internal.telephony.Sms7BitEncodingTranslator;
 import com.android.internal.telephony.SmsConstants;
 import com.android.internal.telephony.SmsHeader;
 import com.android.internal.telephony.SmsMessageBase;
 import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.util.BitwiseInputStream;
 import com.android.internal.util.BitwiseOutputStream;
+import com.android.telephony.Rlog;
 
+import java.io.ByteArrayOutputStream;
+import java.time.DateTimeException;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.TimeZone;
 
 /**
  * An object to encode and decode CDMA SMS bearer data.
@@ -94,6 +101,7 @@ public final class BearerData {
      * (Special rules apply for WAP-messages.)
      * (See 3GPP2 C.S0015-B, v2, 4.5.1)
      */
+    @UnsupportedAppUsage
     public int messageId;
 
     /**
@@ -105,7 +113,9 @@ public final class BearerData {
     public static final int PRIORITY_URGENT        = 0x2;
     public static final int PRIORITY_EMERGENCY     = 0x3;
 
+    @UnsupportedAppUsage
     public boolean priorityIndicatorSet = false;
+    @UnsupportedAppUsage
     public int priority = PRIORITY_NORMAL;
 
     /**
@@ -143,6 +153,7 @@ public final class BearerData {
     public static final int DISPLAY_MODE_USER           = 0x2;
 
     public boolean displayModeSet = false;
+    @UnsupportedAppUsage
     public int displayMode = DISPLAY_MODE_DEFAULT;
 
     /**
@@ -206,6 +217,7 @@ public final class BearerData {
      * presence of a UDH in the structured data, any existing setting
      * will be overwritten.
      */
+    @UnsupportedAppUsage
     public boolean hasUserDataHeader;
 
     /**
@@ -213,6 +225,7 @@ public final class BearerData {
      * (e.g. padding bits, user data, user data header, etc)
      * (See 3GPP2 C.S.0015-B, v2, 4.5.2)
      */
+    @UnsupportedAppUsage
     public UserData userData;
 
     /**
@@ -225,13 +238,31 @@ public final class BearerData {
     public boolean userResponseCodeSet = false;
     public int userResponseCode;
 
+    @UnsupportedAppUsage
+    public BearerData() {
+    }
+
     /**
      * 6-byte-field, see 3GPP2 C.S0015-B, v2, 4.5.4
      */
-    public static class TimeStamp extends Time {
+    public static class TimeStamp {
 
+        public int second;
+        public int minute;
+        public int hour;
+        public int monthDay;
+
+        /** Month in the range 1(Jan) - 12(Dec). */
+        public int monthOrdinal;
+
+        /** Full year in the range 1996 - 2095. */
+        public int year;
+
+        private ZoneId mZoneId;
+
+        @UnsupportedAppUsage
         public TimeStamp() {
-            super(TimeZone.getDefault().getID());   // 3GPP2 timestamps use the local timezone
+            mZoneId = ZoneId.systemDefault();   // 3GPP2 timestamps use the local timezone
         }
 
         public static TimeStamp fromByteArray(byte[] data) {
@@ -242,7 +273,7 @@ public final class BearerData {
             ts.year = year >= 96 ? year + 1900 : year + 2000;
             int month = IccUtils.cdmaBcdByteToInt(data[1]);
             if (month < 1 || month > 12) return null;
-            ts.month = month - 1;
+            ts.monthOrdinal = month;
             int day = IccUtils.cdmaBcdByteToInt(data[2]);
             if (day < 1 || day > 31) return null;
             ts.monthDay = day;
@@ -258,12 +289,53 @@ public final class BearerData {
             return ts;
         }
 
+        public static TimeStamp fromMillis(long timeInMillis) {
+            TimeStamp ts = new TimeStamp();
+            LocalDateTime localDateTime =
+                    Instant.ofEpochMilli(timeInMillis).atZone(ts.mZoneId).toLocalDateTime();
+            int year = localDateTime.getYear();
+            if (year < 1996 || year > 2095) return null;
+            ts.year = year;
+            ts.monthOrdinal = localDateTime.getMonthValue();
+            ts.monthDay = localDateTime.getDayOfMonth();
+            ts.hour = localDateTime.getHour();
+            ts.minute = localDateTime.getMinute();
+            ts.second = localDateTime.getSecond();
+            return ts;
+        }
+
+        public byte[] toByteArray() {
+            int year = this.year % 100; // 00 - 99
+            ByteArrayOutputStream outStream = new ByteArrayOutputStream(6);
+            outStream.write((((year / 10) & 0x0F) << 4) | ((year % 10) & 0x0F));
+            outStream.write((((monthOrdinal / 10) << 4) & 0xF0) | ((monthOrdinal % 10) & 0x0F));
+            outStream.write((((monthDay / 10) << 4) & 0xF0) | ((monthDay % 10) & 0x0F));
+            outStream.write((((hour / 10) << 4) & 0xF0) | ((hour % 10) & 0x0F));
+            outStream.write((((minute / 10) << 4) & 0xF0) | ((minute % 10) & 0x0F));
+            outStream.write((((second / 10) << 4) & 0xF0) | ((second % 10) & 0x0F));
+            return outStream.toByteArray();
+        }
+
+        public long toMillis() {
+            try {
+                LocalDateTime localDateTime =
+                        LocalDateTime.of(year, monthOrdinal, monthDay, hour, minute, second);
+                Instant instant =
+                        localDateTime.toInstant(mZoneId.getRules().getOffset(localDateTime));
+                return instant.toEpochMilli();
+            } catch (DateTimeException ex) {
+                Rlog.e(LOG_TAG, "Invalid timestamp", ex);
+            }
+            return 0;
+        }
+
+
         @Override
         public String toString() {
             StringBuilder builder = new StringBuilder();
             builder.append("TimeStamp ");
             builder.append("{ year=" + year);
-            builder.append(", month=" + month);
+            builder.append(", month=" + monthOrdinal);
             builder.append(", day=" + monthDay);
             builder.append(", hour=" + hour);
             builder.append(", minute=" + minute);
@@ -273,6 +345,7 @@ public final class BearerData {
         }
     }
 
+    @UnsupportedAppUsage
     public TimeStamp msgCenterTimeStamp;
     public TimeStamp validityPeriodAbsolute;
     public TimeStamp deferredDeliveryTimeAbsolute;
@@ -361,6 +434,7 @@ public final class BearerData {
 
 
     private static class CodingException extends Exception {
+        @UnsupportedAppUsage
         public CodingException(String s) {
             super(s);
         }
@@ -454,6 +528,7 @@ public final class BearerData {
         outStream.skip(3);
     }
 
+    @UnsupportedAppUsage
     private static int countAsciiSeptets(CharSequence msg, boolean force) {
         int msgLen = msg.length();
         if (force) return msgLen;
@@ -475,8 +550,17 @@ public final class BearerData {
      */
     public static TextEncodingDetails calcTextEncodingDetails(CharSequence msg,
             boolean force7BitEncoding, boolean isEntireMsg) {
+        CharSequence newMsg = null;
+        Resources r = Resources.getSystem();
+        if (r.getBoolean(com.android.internal.R.bool.config_sms_force_7bit_encoding)) {
+            newMsg = Sms7BitEncodingTranslator.translate(msg, true /* isCdmaFormat */);
+        }
+        if (TextUtils.isEmpty(newMsg)) {
+            newMsg = msg;
+        }
+
         TextEncodingDetails ted;
-        int septets = countAsciiSeptets(msg, force7BitEncoding);
+        int septets = countAsciiSeptets(newMsg, force7BitEncoding);
         if (septets != -1 && septets <= SmsConstants.MAX_USER_DATA_SEPTETS) {
             ted = new TextEncodingDetails();
             ted.msgCount = 1;
@@ -496,6 +580,7 @@ public final class BearerData {
         return ted;
     }
 
+    @UnsupportedAppUsage
     private static byte[] encode7bitAscii(String msg, boolean force)
         throws CodingException
     {
@@ -596,6 +681,45 @@ public final class BearerData {
         System.arraycopy(payload, 0, uData.payload, udhBytes, payload.length);
     }
 
+    private static void encode7bitAsciiEms(UserData uData, byte[] udhData, boolean force)
+            throws CodingException
+    {
+        try {
+            Rlog.d(LOG_TAG, "encode7bitAsciiEms");
+            int udhBytes = udhData.length + 1;  // Add length octet.
+            int udhSeptets = ((udhBytes * 8) + 6) / 7;
+            int paddingBits = (udhSeptets * 7) - (udhBytes * 8);
+            String msg = uData.payloadStr;
+            byte[] payload ;
+            int msgLen = msg.length();
+            BitwiseOutputStream outStream = new BitwiseOutputStream(msgLen +
+                    (paddingBits > 0 ? 1 : 0));
+            outStream.write(paddingBits, 0);
+            for (int i = 0; i < msgLen; i++) {
+                int charCode = UserData.charToAscii.get(msg.charAt(i), -1);
+                if (charCode == -1) {
+                    if (force) {
+                        outStream.write(7, UserData.UNENCODABLE_7_BIT_CHAR);
+                    } else {
+                        throw new CodingException("cannot ASCII encode (" + msg.charAt(i) + ")");
+                    }
+                } else {
+                    outStream.write(7, charCode);
+                }
+            }
+            payload = outStream.toByteArray();
+            uData.msgEncoding = UserData.ENCODING_7BIT_ASCII;
+            uData.msgEncodingSet = true;
+            uData.numFields = udhSeptets + uData.payloadStr.length();
+            uData.payload = new byte[udhBytes + payload.length];
+            uData.payload[0] = (byte)udhData.length;
+            System.arraycopy(udhData, 0, uData.payload, 1, udhData.length);
+            System.arraycopy(payload, 0, uData.payload, udhBytes, payload.length);
+        } catch (BitwiseOutputStream.AccessException ex) {
+            throw new CodingException("7bit ASCII encode failed: " + ex);
+        }
+    }
+
     private static void encodeEmsUserDataPayload(UserData uData)
         throws CodingException
     {
@@ -605,6 +729,8 @@ public final class BearerData {
                 encode7bitEms(uData, headerData, true);
             } else if (uData.msgEncoding == UserData.ENCODING_UNICODE_16) {
                 encode16bitEms(uData, headerData);
+            } else if (uData.msgEncoding == UserData.ENCODING_7BIT_ASCII) {
+                encode7bitAsciiEms(uData, headerData, true);
             } else {
                 throw new CodingException("unsupported EMS user data encoding (" +
                                           uData.msgEncoding + ")");
@@ -701,13 +827,13 @@ public final class BearerData {
                                       " > " + SmsConstants.MAX_USER_DATA_BYTES + " bytes)");
         }
 
-        /*
-         * TODO(cleanup): figure out what the right answer is WRT paddingBits field
-         *
-         *   userData.paddingBits = (userData.payload.length * 8) - (userData.numFields * 7);
-         *   userData.paddingBits = 0; // XXX this seems better, but why?
-         *
-         */
+        if (bData.userData.msgEncoding == UserData.ENCODING_7BIT_ASCII) {
+            bData.userData.paddingBits =
+                    (bData.userData.payload.length * 8) - (bData.userData.numFields * 7);
+        } else {
+            bData.userData.paddingBits = 0;
+        }
+
         int dataBits = (bData.userData.payload.length * 8) - bData.userData.paddingBits;
         int paramBits = dataBits + 13;
         if ((bData.userData.msgEncoding == UserData.ENCODING_IS91_EXTENDED_PROTOCOL) ||
@@ -878,6 +1004,12 @@ public final class BearerData {
         }
     }
 
+    private static void encodeMsgCenterTimeStamp(BearerData bData, BitwiseOutputStream outStream)
+            throws BitwiseOutputStream.AccessException {
+        outStream.write(8, 6);
+        outStream.writeByteArray(8 * 6, bData.msgCenterTimeStamp.toByteArray());
+    };
+
     /**
      * Create serialized representation for BearerData object.
      * (See 3GPP2 C.R1001-F, v1.0, section 4.5 for layout details)
@@ -886,6 +1018,7 @@ public final class BearerData {
      *
      * @return byte array of raw encoded SMS bearer data.
      */
+    @UnsupportedAppUsage
     public static byte[] encode(BearerData bData) {
         bData.hasUserDataHeader = ((bData.userData != null) &&
                 (bData.userData.userDataHeader != null));
@@ -941,6 +1074,10 @@ public final class BearerData {
                 outStream.write(8, SUBPARAM_SERVICE_CATEGORY_PROGRAM_RESULTS);
                 encodeScpResults(bData, outStream);
             }
+            if (bData.msgCenterTimeStamp != null) {
+                outStream.write(8, SUBPARAM_MESSAGE_CENTER_TIME_STAMP);
+                encodeMsgCenterTimeStamp(bData, outStream);
+            }
             return outStream.toByteArray();
         } catch (BitwiseOutputStream.AccessException ex) {
             Rlog.e(LOG_TAG, "BearerData encode failed: " + ex);
@@ -964,7 +1101,7 @@ public final class BearerData {
             bData.hasUserDataHeader = (inStream.read(1) == 1);
             inStream.skip(3);
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "MESSAGE_IDENTIFIER decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1056,15 +1193,18 @@ public final class BearerData {
         throws CodingException
     {
         try {
-            offset *= 8;
+            int offsetBits = offset * 8;
+            int offsetSeptets = (offsetBits + 6) / 7;
+            numFields -= offsetSeptets;
+
             StringBuffer strBuf = new StringBuffer(numFields);
             BitwiseInputStream inStream = new BitwiseInputStream(data);
-            int wantedBits = (offset * 8) + (numFields * 7);
+            int wantedBits = (offsetSeptets * 7) + (numFields * 7);
             if (inStream.available() < wantedBits) {
                 throw new CodingException("insufficient data (wanted " + wantedBits +
                                           " bits, but only have " + inStream.available() + ")");
             }
-            inStream.skip(offset);
+            inStream.skip(offsetSeptets * 7);
             for (int i = 0; i < numFields; i++) {
                 int charCode = inStream.read(7);
                 if ((charCode >= UserData.ASCII_MAP_BASE_INDEX) &&
@@ -1134,6 +1274,7 @@ public final class BearerData {
         }
     }
 
+    @UnsupportedAppUsage
     private static void decodeUserDataPayload(UserData userData, boolean hasUserDataHeader)
         throws CodingException
     {
@@ -1329,7 +1470,7 @@ public final class BearerData {
             bData.reportReq      = (inStream.read(1) == 1);
             inStream.skip(4);
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "REPLY_OPTION decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1348,7 +1489,7 @@ public final class BearerData {
             decodeSuccess = true;
             bData.numberOfMessages = IccUtils.cdmaBcdByteToInt((byte)inStream.read(8));
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "NUMBER_OF_MESSAGES decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1367,7 +1508,7 @@ public final class BearerData {
             decodeSuccess = true;
             bData.depositIndex = (inStream.read(8) << 8) | inStream.read(8);
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "MESSAGE_DEPOSIT_INDEX decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1454,7 +1595,7 @@ public final class BearerData {
             bData.errorClass = inStream.read(2);
             bData.messageStatus = inStream.read(6);
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "MESSAGE_STATUS decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1474,7 +1615,7 @@ public final class BearerData {
             decodeSuccess = true;
             bData.msgCenterTimeStamp = TimeStamp.fromByteArray(inStream.readByteArray(6 * 8));
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "MESSAGE_CENTER_TIME_STAMP decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1493,7 +1634,7 @@ public final class BearerData {
             decodeSuccess = true;
             bData.validityPeriodAbsolute = TimeStamp.fromByteArray(inStream.readByteArray(6 * 8));
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "VALIDITY_PERIOD_ABSOLUTE decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1513,7 +1654,7 @@ public final class BearerData {
             bData.deferredDeliveryTimeAbsolute = TimeStamp.fromByteArray(
                     inStream.readByteArray(6 * 8));
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "DEFERRED_DELIVERY_TIME_ABSOLUTE decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1532,7 +1673,7 @@ public final class BearerData {
             decodeSuccess = true;
             bData.deferredDeliveryTimeRelative = inStream.read(8);
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "VALIDITY_PERIOD_RELATIVE decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1552,7 +1693,7 @@ public final class BearerData {
             decodeSuccess = true;
             bData.validityPeriodRelative = inStream.read(8);
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "DEFERRED_DELIVERY_TIME_RELATIVE decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1573,7 +1714,7 @@ public final class BearerData {
             bData.privacy = inStream.read(2);
             inStream.skip(6);
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "PRIVACY_INDICATOR decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1593,7 +1734,7 @@ public final class BearerData {
             decodeSuccess = true;
             bData.language = inStream.read(8);
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "LANGUAGE_INDICATOR decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1614,7 +1755,7 @@ public final class BearerData {
             bData.displayMode = inStream.read(2);
             inStream.skip(6);
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "DISPLAY_MODE decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1635,7 +1776,7 @@ public final class BearerData {
             bData.priority = inStream.read(2);
             inStream.skip(6);
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "PRIORITY_INDICATOR decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1656,7 +1797,7 @@ public final class BearerData {
             bData.alert = inStream.read(2);
             inStream.skip(6);
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "ALERT_ON_MESSAGE_DELIVERY decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1676,7 +1817,7 @@ public final class BearerData {
             decodeSuccess = true;
             bData.userResponseCode = inStream.read(8);
         }
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "USER_RESPONSE_CODE decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ")");
@@ -1738,7 +1879,7 @@ public final class BearerData {
             decodeSuccess = true;
         }
 
-        if ((! decodeSuccess) || (paramBits > 0)) {
+        if ((!decodeSuccess) || (paramBits > 0)) {
             Rlog.d(LOG_TAG, "SERVICE_CATEGORY_PROGRAM_DATA decode " +
                       (decodeSuccess ? "succeeded" : "failed") +
                       " (extra bits = " + paramBits + ')');
@@ -1779,6 +1920,7 @@ public final class BearerData {
      * @return the number of bits to read from the stream
      * @throws CodingException if the specified encoding is not supported
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static int getBitsForNumFields(int msgEncoding, int numFields)
             throws CodingException {
         switch (msgEncoding) {

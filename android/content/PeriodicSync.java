@@ -16,10 +16,11 @@
 
 package android.content;
 
-import android.os.Parcelable;
+import android.accounts.Account;
+import android.annotation.Nullable;
 import android.os.Bundle;
 import android.os.Parcel;
-import android.accounts.Account;
+import android.os.Parcelable;
 
 import java.util.Objects;
 
@@ -37,7 +38,7 @@ public class PeriodicSync implements Parcelable {
     public final long period;
     /**
      * How much flexibility can be taken in scheduling the sync, in seconds.
-     * {@hide}
+     * @hide
      */
     public final long flexTime;
 
@@ -59,7 +60,7 @@ public class PeriodicSync implements Parcelable {
 
     /**
      * Create a copy of a periodic sync.
-     * {@hide}
+     * @hide
      */
     public PeriodicSync(PeriodicSync other) {
         this.account = other.account;
@@ -71,7 +72,7 @@ public class PeriodicSync implements Parcelable {
 
     /**
      * A PeriodicSync for a sync with a specified provider.
-     * {@hide}
+     * @hide
      */
     public PeriodicSync(Account account, String authority, Bundle extras,
             long period, long flexTime) {
@@ -83,7 +84,7 @@ public class PeriodicSync implements Parcelable {
     }
 
     private PeriodicSync(Parcel in) {
-        this.account = in.readParcelable(null);
+        this.account = in.readParcelable(null, android.accounts.Account.class);
         this.authority = in.readString();
         this.extras = in.readBundle();
         this.period = in.readLong();
@@ -104,7 +105,7 @@ public class PeriodicSync implements Parcelable {
         dest.writeLong(flexTime);
     }
 
-    public static final Creator<PeriodicSync> CREATOR = new Creator<PeriodicSync>() {
+    public static final @android.annotation.NonNull Creator<PeriodicSync> CREATOR = new Creator<PeriodicSync>() {
         @Override
         public PeriodicSync createFromParcel(Parcel source) {
             return new PeriodicSync(source);
@@ -117,7 +118,7 @@ public class PeriodicSync implements Parcelable {
     };
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (o == this) {
             return true;
         }
@@ -133,7 +134,7 @@ public class PeriodicSync implements Parcelable {
 
     /**
      * Periodic sync extra comparison function.
-     * {@hide}
+     * @hide
      */
     public static boolean syncExtrasEquals(Bundle b1, Bundle b2) {
         if (b1.size() != b2.size()) {

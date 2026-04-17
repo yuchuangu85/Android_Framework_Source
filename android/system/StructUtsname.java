@@ -29,13 +29,19 @@ public final class StructUtsname {
     /** The machine's unqualified name on some implementation-defined network. */
     public final String nodename;
 
-    /** The OS release, such as "2.6.35-27-generic". */
+    /**
+     * The OS release, such as "2.6.35-27-generic" or
+     * "6.16.0-rc4-mainline-gefd77156c8e3-4k".
+     */
     public final String release;
 
-    /** The OS version, such as "#48-Ubuntu SMP Tue Feb 22 20:25:29 UTC 2011". */
+    /**
+     * The OS version, such as "#48-Ubuntu SMP Tue Feb 22 20:25:29 UTC 2011"
+     * or "#1 SMP PREEMPT 2025-07-09T19:15:06Z".
+     */
     public final String version;
 
-    /** The machine architecture, such as "armv7l" or "x86_64". */
+    /** The machine architecture, such as "aarch64", "riscv64" or "x86_64". */
     public final String machine;
 
     /**

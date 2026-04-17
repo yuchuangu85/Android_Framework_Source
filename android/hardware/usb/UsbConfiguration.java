@@ -165,14 +165,15 @@ public class UsbConfiguration implements Parcelable {
         return builder.toString();
     }
 
-    public static final Parcelable.Creator<UsbConfiguration> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<UsbConfiguration> CREATOR =
         new Parcelable.Creator<UsbConfiguration>() {
         public UsbConfiguration createFromParcel(Parcel in) {
             int id = in.readInt();
             String name = in.readString();
             int attributes = in.readInt();
             int maxPower = in.readInt();
-            Parcelable[] interfaces = in.readParcelableArray(UsbInterface.class.getClassLoader());
+            Parcelable[] interfaces = in.readParcelableArray(
+                    UsbInterface.class.getClassLoader(), UsbInterface.class);
             UsbConfiguration configuration = new UsbConfiguration(id, name, attributes, maxPower);
             configuration.setInterfaces(interfaces);
             return configuration;

@@ -16,9 +16,14 @@
 
 package android.bluetooth;
 
-/**
- * This abstract class is used to implement {@link BluetoothGattServer} callbacks.
- */
+import android.annotation.FlaggedApi;
+import android.annotation.Hide;
+import android.annotation.NonNull;
+import android.annotation.SystemApi;
+
+import com.android.bluetooth.flags.Flags;
+
+/** This abstract class is used to implement {@link BluetoothGattServer} callbacks. */
 public abstract class BluetoothGattServerCallback {
 
     /**
@@ -27,42 +32,39 @@ public abstract class BluetoothGattServerCallback {
      * @param device Remote device that has been connected or disconnected.
      * @param status Status of the connect or disconnect operation.
      * @param newState Returns the new connection state. Can be one of {@link
-     * BluetoothProfile#STATE_DISCONNECTED} or {@link BluetoothProfile#STATE_CONNECTED}
+     *     BluetoothProfile#STATE_DISCONNECTED} or {@link BluetoothProfile#STATE_CONNECTED}
      */
-    public void onConnectionStateChange(BluetoothDevice device, int status,
-            int newState) {
-    }
+    public void onConnectionStateChange(BluetoothDevice device, int status, int newState) {}
 
     /**
      * Indicates whether a local service has been added successfully.
      *
      * @param status Returns {@link BluetoothGatt#GATT_SUCCESS} if the service was added
-     * successfully.
+     *     successfully.
      * @param service The service that has been added
      */
-    public void onServiceAdded(int status, BluetoothGattService service) {
-    }
+    public void onServiceAdded(int status, BluetoothGattService service) {}
 
     /**
      * A remote client has requested to read a local characteristic.
      *
-     * <p>An application must call {@link BluetoothGattServer#sendResponse}
-     * to complete the request.
+     * <p>An application must call {@link BluetoothGattServer#sendResponse} to complete the request.
      *
      * @param device The remote device that has requested the read operation
      * @param requestId The Id of the request
      * @param offset Offset into the value of the characteristic
      * @param characteristic Characteristic to be read
      */
-    public void onCharacteristicReadRequest(BluetoothDevice device, int requestId,
-            int offset, BluetoothGattCharacteristic characteristic) {
-    }
+    public void onCharacteristicReadRequest(
+            BluetoothDevice device,
+            int requestId,
+            int offset,
+            BluetoothGattCharacteristic characteristic) {}
 
     /**
      * A remote client has requested to write to a local characteristic.
      *
-     * <p>An application must call {@link BluetoothGattServer#sendResponse}
-     * to complete the request.
+     * <p>An application must call {@link BluetoothGattServer#sendResponse} to complete the request.
      *
      * @param device The remote device that has requested the write operation
      * @param requestId The Id of the request
@@ -72,32 +74,35 @@ public abstract class BluetoothGattServerCallback {
      * @param offset The offset given for the value
      * @param value The value the client wants to assign to the characteristic
      */
-    public void onCharacteristicWriteRequest(BluetoothDevice device, int requestId,
+    public void onCharacteristicWriteRequest(
+            BluetoothDevice device,
+            int requestId,
             BluetoothGattCharacteristic characteristic,
-            boolean preparedWrite, boolean responseNeeded,
-            int offset, byte[] value) {
-    }
+            boolean preparedWrite,
+            boolean responseNeeded,
+            int offset,
+            byte[] value) {}
 
     /**
      * A remote client has requested to read a local descriptor.
      *
-     * <p>An application must call {@link BluetoothGattServer#sendResponse}
-     * to complete the request.
+     * <p>An application must call {@link BluetoothGattServer#sendResponse} to complete the request.
      *
      * @param device The remote device that has requested the read operation
      * @param requestId The Id of the request
      * @param offset Offset into the value of the characteristic
      * @param descriptor Descriptor to be read
      */
-    public void onDescriptorReadRequest(BluetoothDevice device, int requestId,
-            int offset, BluetoothGattDescriptor descriptor) {
-    }
+    public void onDescriptorReadRequest(
+            BluetoothDevice device,
+            int requestId,
+            int offset,
+            BluetoothGattDescriptor descriptor) {}
 
     /**
      * A remote client has requested to write to a local descriptor.
      *
-     * <p>An application must call {@link BluetoothGattServer#sendResponse}
-     * to complete the request.
+     * <p>An application must call {@link BluetoothGattServer#sendResponse} to complete the request.
      *
      * @param device The remote device that has requested the write operation
      * @param requestId The Id of the request
@@ -107,96 +112,163 @@ public abstract class BluetoothGattServerCallback {
      * @param offset The offset given for the value
      * @param value The value the client wants to assign to the descriptor
      */
-    public void onDescriptorWriteRequest(BluetoothDevice device, int requestId,
+    public void onDescriptorWriteRequest(
+            BluetoothDevice device,
+            int requestId,
             BluetoothGattDescriptor descriptor,
-            boolean preparedWrite, boolean responseNeeded,
-            int offset, byte[] value) {
-    }
+            boolean preparedWrite,
+            boolean responseNeeded,
+            int offset,
+            byte[] value) {}
 
     /**
      * Execute all pending write operations for this device.
      *
-     * <p>An application must call {@link BluetoothGattServer#sendResponse}
-     * to complete the request.
+     * <p>An application must call {@link BluetoothGattServer#sendResponse} to complete the request.
      *
      * @param device The remote device that has requested the write operations
      * @param requestId The Id of the request
      * @param execute Whether the pending writes should be executed (true) or cancelled (false)
      */
-    public void onExecuteWrite(BluetoothDevice device, int requestId, boolean execute) {
-    }
+    public void onExecuteWrite(BluetoothDevice device, int requestId, boolean execute) {}
 
     /**
-     * Callback invoked when a notification or indication has been sent to
-     * a remote device.
+     * Callback invoked when a notification or indication has been sent to a remote device.
      *
-     * <p>When multiple notifications are to be sent, an application must
-     * wait for this callback to be received before sending additional
-     * notifications.
+     * <p>When multiple notifications are to be sent, an application must wait for this callback to
+     * be received before sending additional notifications.
      *
      * @param device The remote device the notification has been sent to
      * @param status {@link BluetoothGatt#GATT_SUCCESS} if the operation was successful
      */
-    public void onNotificationSent(BluetoothDevice device, int status) {
-    }
+    public void onNotificationSent(BluetoothDevice device, int status) {}
 
     /**
      * Callback indicating the MTU for a given device connection has changed.
      *
-     * <p>This callback will be invoked if a remote client has requested to change
-     * the MTU for a given connection.
+     * <p>This callback will be invoked if a remote client has requested to change the MTU for a
+     * given connection.
      *
      * @param device The remote device that requested the MTU change
      * @param mtu The new MTU size
      */
-    public void onMtuChanged(BluetoothDevice device, int mtu) {
-    }
+    public void onMtuChanged(BluetoothDevice device, int mtu) {}
 
     /**
      * Callback triggered as result of {@link BluetoothGattServer#setPreferredPhy}, or as a result
      * of remote device changing the PHY.
      *
-     * @param device The remote device
-     * @param txPhy the transmitter PHY in use. One of {@link BluetoothDevice#PHY_LE_1M}, {@link
-     * BluetoothDevice#PHY_LE_2M}, and {@link BluetoothDevice#PHY_LE_CODED}
-     * @param rxPhy the receiver PHY in use. One of {@link BluetoothDevice#PHY_LE_1M}, {@link
-     * BluetoothDevice#PHY_LE_2M}, and {@link BluetoothDevice#PHY_LE_CODED}
+     * @param device The remote device.
+     * @param txPhy the transmitter PHY in use.
+     * @param rxPhy the receiver PHY in use.
      * @param status Status of the PHY update operation. {@link BluetoothGatt#GATT_SUCCESS} if the
-     * operation succeeds.
+     *     operation succeeds.
      */
-    public void onPhyUpdate(BluetoothDevice device, int txPhy, int rxPhy, int status) {
-    }
+    public void onPhyUpdate(
+            BluetoothDevice device,
+            @BluetoothDevice.PhyType int txPhy,
+            @BluetoothDevice.PhyType int rxPhy,
+            int status) {}
 
     /**
      * Callback triggered as result of {@link BluetoothGattServer#readPhy}
      *
-     * @param device The remote device that requested the PHY read
-     * @param txPhy the transmitter PHY in use. One of {@link BluetoothDevice#PHY_LE_1M}, {@link
-     * BluetoothDevice#PHY_LE_2M}, and {@link BluetoothDevice#PHY_LE_CODED}
-     * @param rxPhy the receiver PHY in use. One of {@link BluetoothDevice#PHY_LE_1M}, {@link
-     * BluetoothDevice#PHY_LE_2M}, and {@link BluetoothDevice#PHY_LE_CODED}
+     * @param device The remote device that requested the PHY read.
+     * @param txPhy the transmitter PHY in use.
+     * @param rxPhy the receiver PHY in use.
      * @param status Status of the PHY read operation. {@link BluetoothGatt#GATT_SUCCESS} if the
-     * operation succeeds.
+     *     operation succeeds.
      */
-    public void onPhyRead(BluetoothDevice device, int txPhy, int rxPhy, int status) {
-    }
+    public void onPhyRead(
+            BluetoothDevice device,
+            @BluetoothDevice.PhyType int txPhy,
+            @BluetoothDevice.PhyType int rxPhy,
+            int status) {}
 
     /**
      * Callback indicating the connection parameters were updated.
      *
      * @param device The remote device involved
      * @param interval Connection interval used on this connection, 1.25ms unit. Valid range is from
-     * 6 (7.5ms) to 3200 (4000ms).
-     * @param latency Slave latency for the connection in number of connection events. Valid range
-     * is from 0 to 499
+     *     6 (7.5ms) to 3200 (4000ms).
+     * @param latency Worker latency for the connection in number of connection events. Valid range
+     *     is from 0 to 499
      * @param timeout Supervision timeout for this connection, in 10ms unit. Valid range is from 10
-     * (0.1s) to 3200 (32s)
+     *     (0.1s) to 3200 (32s)
      * @param status {@link BluetoothGatt#GATT_SUCCESS} if the connection has been updated
-     * successfully
-     * @hide
+     *     successfully
      */
-    public void onConnectionUpdated(BluetoothDevice device, int interval, int latency, int timeout,
-            int status) {
-    }
+    @Hide
+    public void onConnectionUpdated(
+            BluetoothDevice device, int interval, int latency, int timeout, int status) {}
 
+    /**
+     * Callback indicating LE connection's subrate parameters have changed.
+     *
+     * @param device The remote device involved
+     * @param subrateMode for this LE connection.
+     * @param status {@link BluetoothGatt#GATT_SUCCESS} if the connection subrating has been updated
+     *     successfully
+     */
+    public void onSubrateChange(
+            @NonNull BluetoothDevice device,
+            @BluetoothGatt.OnSubrateChangeModeValues int subrateMode,
+            @BluetoothGatt.OnSubrateChangeStatusValues int status) {}
+
+    /**
+     * Callback reporting the result of a GATT characteristic offload request.
+     *
+     * <p>This callback is invoked in response to a call to {@link
+     * BluetoothGattServer#offloadCharacteristics}.
+     *
+     * <p>If the operation was successful, the {@code status} will be {@link
+     * GattOffloadSession#STATUS_SUCCESS}. The characteristics contained within the {@code session}
+     * are now being managed by the offload hardware or application. The returned {@link
+     * GattOffloadSession} object can be used to later terminate the offload session via {@link
+     * GattOffloadSession#close}.
+     *
+     * @param device The {@link BluetoothDevice} that is involved.
+     * @param session A {@link GattOffloadSession} object representing the offloaded
+     *     characteristics. This object should only be used if the {@code status} is {@link
+     *     GattOffloadSession#STATUS_SUCCESS}.
+     * @param status The result of the offload operation, such as {@link
+     *     GattOffloadSession#STATUS_SUCCESS}.
+     */
+    @Hide
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_GATT_OFFLOAD_API)
+    public void onCharacteristicsOffloaded(
+            @NonNull BluetoothDevice device,
+            @NonNull GattOffloadSession session,
+            @GattOffloadSession.Status int status) {}
+
+    /**
+     * Callback indicating offloaded GATT characteristic session has been removed.
+     *
+     * <p>This callback signifies that GATT characteristics, which were previously delegated to the
+     * offload app, are no longer being offloaded. This may occur due to several conditions,
+     * including:
+     *
+     * <ul>
+     *   <li><b>Application Request:</b> The host application or endpoint explicitly requested to
+     *       unoffload the session.
+     *   <li><b>BluetoothGatt Disconnection:</b> The BluetoothGatt disconnected, leading to the
+     *       automatic termination of all active sessions. Note: If the ACL is disconnected by the
+     *       remote device, this callback may not be triggered, but the offload session belonging to
+     *       the BluetoothGatt connection is no longer available.
+     * </ul>
+     *
+     * @param device The {@link BluetoothDevice} that is involved.
+     * @param sessionId The unique identifier for the terminated offload session. This ID was
+     *     originally obtained from {@link GattOffloadSession} after a successful call to {@link
+     *     BluetoothGattServer#offloadCharacteristics}.
+     * @param status An integer status code indicating why the offload session was terminated.
+     */
+    @Hide
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_GATT_OFFLOAD_API)
+    public void onCharacteristicsUnoffloaded(
+            @NonNull BluetoothDevice device,
+            int sessionId,
+            @GattOffloadSession.Status int status) {}
 }

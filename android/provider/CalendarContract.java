@@ -16,12 +16,16 @@
 
 package android.provider;
 
-
+import android.annotation.NonNull;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.annotation.TestApi;
 import android.app.Activity;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
+import android.app.admin.DevicePolicyManager;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.ComponentName;
 import android.content.ContentProviderClient;
 import android.content.ContentResolver;
 import android.content.ContentUris;
@@ -34,10 +38,16 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.database.DatabaseUtils;
 import android.net.Uri;
+import android.os.Build;
 import android.os.RemoteException;
+import android.os.StrictMode;
 import android.text.format.DateUtils;
-import android.text.format.Time;
+import android.text.format.TimeMigrationUtils;
 import android.util.Log;
+
+import com.android.internal.util.Preconditions;
+
+import java.util.Set;
 
 /**
  * <p>
@@ -127,6 +137,13 @@ public final class CalendarContract {
         "android.provider.calendar.action.HANDLE_CUSTOM_EVENT";
 
     /**
+     * Action used to help apps show calendar events in the managed profile.
+     */
+    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
+    public static final String ACTION_VIEW_MANAGED_PROFILE_CALENDAR_EVENT =
+            "android.provider.calendar.action.VIEW_MANAGED_PROFILE_CALENDAR_EVENT";
+
+    /**
      * Intent Extras key: {@link EventsColumns#CUSTOM_APP_URI} for the event in
      * the {@link #ACTION_HANDLE_CUSTOM_EVENT} intent
      */
@@ -151,6 +168,11 @@ public final class CalendarContract {
     public static final String EXTRA_EVENT_ALL_DAY = "allDay";
 
     /**
+     * Intent Extras key: An extra of type {@code long} holding the id of an event.
+     */
+    public static final String EXTRA_EVENT_ID = "id";
+
+    /**
      * This authority is used for writing to or querying from the calendar
      * provider. Note: This is set at first run and cannot be changed without
      * breaking apps that access the provider.
@@ -161,6 +183,26 @@ public final class CalendarContract {
      * The content:// style URL for the top-level calendar authority
      */
     public static final Uri CONTENT_URI = Uri.parse("content://" + AUTHORITY);
+
+    /**
+     * The content:// style URL for the top-level cross-profile calendar uris.
+     * {@link android.database.ContentObserver} for this URL in the primary profile will be
+     * notified when there is a change in the managed profile calendar provider.
+     *
+     * <p>Throw UnsupportedOperationException if another profile doesn't exist or is disabled, or
+     * if the calling package is not allowlisted to access cross-profile calendar, or if the
+     * feature has been disabled by the user in Settings.
+     *
+     * @see Events#ENTERPRISE_CONTENT_URI
+     * @see Calendars#ENTERPRISE_CONTENT_URI
+     * @see Instances#ENTERPRISE_CONTENT_URI
+     * @see Instances#ENTERPRISE_CONTENT_BY_DAY_URI
+     * @see Instances#ENTERPRISE_CONTENT_SEARCH_URI
+     * @see Instances#ENTERPRISE_CONTENT_SEARCH_BY_DAY_URI
+     * @hide
+     */
+    public static final Uri ENTERPRISE_CONTENT_URI = Uri.parse(
+            "content://" + AUTHORITY + "/enterprise");
 
     /**
      * An optional insert, update or delete URI parameter that allows the caller
@@ -191,6 +233,43 @@ public final class CalendarContract {
      * This utility class cannot be instantiated
      */
     private CalendarContract() {}
+
+    /**
+     * Starts an activity to view calendar events in the managed profile.
+     *
+     * When this API is called, the system will attempt to start an activity
+     * in the managed profile with an intent targeting the same caller package.
+     * The intent will have its action set to
+     * {@link CalendarContract#ACTION_VIEW_MANAGED_PROFILE_CALENDAR_EVENT} and contain extras
+     * corresponding to the API's arguments. A calendar app intending to support
+     * cross-profile events viewing should handle this intent, parse the arguments
+     * and show the appropriate UI.
+     *
+     * @param context the context.
+     * @param eventId the id of the event to be viewed. Will be put into {@link #EXTRA_EVENT_ID}
+     *                field of the intent.
+     * @param startMs the start time of the event in milliseconds since epoch.
+     *                Will be put into {@link #EXTRA_EVENT_BEGIN_TIME} field of the intent.
+     * @param endMs the end time of the event in milliseconds since epoch.
+     *              Will be put into {@link #EXTRA_EVENT_END_TIME} field of the intent.
+     * @param allDay if the event is an all-day event. Will be put into
+     *               {@link #EXTRA_EVENT_ALL_DAY} field of the intent.
+     * @param flags flags to be set on the intent via {@link Intent#setFlags}
+     * @return {@code true} if the activity is started successfully. {@code false} otherwise.
+     *
+     * @see #EXTRA_EVENT_ID
+     * @see #EXTRA_EVENT_BEGIN_TIME
+     * @see #EXTRA_EVENT_END_TIME
+     * @see #EXTRA_EVENT_ALL_DAY
+     */
+    public static boolean startViewCalendarEventInManagedProfile(@NonNull Context context,
+            long eventId, long startMs, long endMs, boolean allDay, int flags) {
+        Preconditions.checkNotNull(context, "Context is null");
+        final DevicePolicyManager dpm = (DevicePolicyManager) context.getSystemService(
+                Context.DEVICE_POLICY_SERVICE);
+        return dpm.startViewCalendarEventInManagedProfile(eventId, startMs,
+                endMs, allDay, flags);
+    }
 
     /**
      * Generic columns for use by sync adapters. The specific functions of these
@@ -693,6 +772,39 @@ public final class CalendarContract {
         public static final Uri CONTENT_URI = Uri.parse("content://" + AUTHORITY + "/calendars");
 
         /**
+         * The content:// style URL for querying Calendars table in the managed profile. Appending
+         * a calendar id using {@link ContentUris#withAppendedId(Uri, long)} specifies
+         * a single calendar.
+         *
+         * <p>The following columns are allowed to be queried via this uri:
+         * <ul>
+         * <li>{@link #_ID}</li>
+         * <li>{@link #CALENDAR_COLOR}</li>
+         * <li>{@link #VISIBLE}</li>
+         * <li>{@link #CALENDAR_LOCATION}</li>
+         * <li>{@link #CALENDAR_TIME_ZONE}</li>
+         * <li>{@link #IS_PRIMARY}</li>
+         * </ul>
+         *
+         * <p>{@link IllegalArgumentException} is thrown if there exists columns in the
+         * projection of the query to this uri that are not contained in the above list.
+         *
+         * <p>This uri returns an empty cursor if the calling user is not a parent profile
+         * of a managed profile, or the managed profile is disabled, or cross-profile calendar is
+         * disabled in Settings, or this uri is queried from a package that is not allowed by
+         * the profile owner of the managed profile via
+         * {@link DevicePolicyManager#setCrossProfileCalendarPackages(ComponentName, Set)}.
+         *
+         * <p>Apps can register a {@link android.database.ContentObserver} for this URI to listen
+         * to changes.
+         *
+         * @see DevicePolicyManager#getCrossProfileCalendarPackages(ComponentName)
+         */
+        @NonNull
+        public static final Uri ENTERPRISE_CONTENT_URI =
+                Uri.parse("content://" + AUTHORITY + "/enterprise/calendars");
+
+        /**
          * The default sort order for this table
          */
         public static final String DEFAULT_SORT_ORDER = CALENDAR_DISPLAY_NAME;
@@ -717,6 +829,7 @@ public final class CalendarContract {
          *
          * @hide
          */
+        @TestApi
         public static final String[] SYNC_WRITABLE_COLUMNS = new String[] {
             ACCOUNT_NAME,
             ACCOUNT_TYPE,
@@ -1568,7 +1681,7 @@ public final class CalendarContract {
      * <h3>Writing to Events</h3> There are further restrictions on all Updates
      * and Inserts in the Events table:
      * <ul>
-     * <li>If allDay is set to 1 eventTimezone must be {@link Time#TIMEZONE_UTC}
+     * <li>If allDay is set to 1 eventTimezone must be "UTC"
      * and the time must correspond to a midnight boundary.</li>
      * <li>Exceptions are not allowed to recur. If rrule or rdate is not empty,
      * original_id and original_sync_id must be empty.</li>
@@ -1640,6 +1753,56 @@ public final class CalendarContract {
                 Uri.parse("content://" + AUTHORITY + "/events");
 
         /**
+         * The content:// style URL for querying Events table in the managed profile. Appending an
+         * event id using {@link ContentUris#withAppendedId(Uri, long)} specifies a single event.
+         *
+         * <p>The following columns are allowed to be queried via this uri:
+         * <ul>
+         * <li>{@link #_ID}</li>
+         * <li>{@link #CALENDAR_ID}</li>
+         * <li>{@link #TITLE}</li>
+         * <li>{@link #EVENT_LOCATION}</li>
+         * <li>{@link #EVENT_COLOR}</li>
+         * <li>{@link #STATUS}</li>
+         * <li>{@link #DTSTART}</li>
+         * <li>{@link #DTEND}</li>
+         * <li>{@link #EVENT_TIMEZONE}</li>
+         * <li>{@link #EVENT_END_TIMEZONE}</li>
+         * <li>{@link #DURATION}</li>
+         * <li>{@link #ALL_DAY}</li>
+         * <li>{@link #AVAILABILITY}</li>
+         * <li>{@link #RRULE}</li>
+         * <li>{@link #RDATE}</li>
+         * <li>{@link #LAST_DATE}</li>
+         * <li>{@link #EXRULE}</li>
+         * <li>{@link #EXDATE}</li>
+         * <li>{@link #SELF_ATTENDEE_STATUS}</li>
+         * <li>{@link #DISPLAY_COLOR}</li>
+         * <li>{@link #CALENDAR_COLOR}</li>
+         * <li>{@link #VISIBLE}</li>
+         * <li>{@link #CALENDAR_TIME_ZONE}</li>
+         * <li>{@link #IS_PRIMARY}</li>
+         * </ul>
+         *
+         * <p>{@link IllegalArgumentException} is thrown if there exists columns in the
+         * projection of the query to this uri that are not contained in the above list.
+         *
+         * <p>This uri returns an empty cursor if the calling user is not a parent profile
+         * of a managed profile, or the managed profile is disabled, or cross-profile calendar is
+         * disabled in Settings, or this uri is queried from a package that is not allowed by
+         * the profile owner of the managed profile via
+         * {@link DevicePolicyManager#setCrossProfileCalendarPackages(ComponentName, Set)}.
+         *
+         * <p>Apps can register a {@link android.database.ContentObserver} for this URI to listen
+         * to changes.
+         *
+         * @see DevicePolicyManager#getCrossProfileCalendarPackages(ComponentName)
+         */
+        @NonNull
+        public static final Uri ENTERPRISE_CONTENT_URI =
+                Uri.parse("content://" + AUTHORITY + "/enterprise/events");
+
+        /**
          * The content:// style URI for recurring event exceptions.  Insertions require an
          * appended event ID.  Deletion of exceptions requires both the original event ID and
          * the exception event ID (see {@link Uri.Builder#appendPath}).
@@ -1664,6 +1827,7 @@ public final class CalendarContract {
          *
          * @hide
          */
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public static String[] PROVIDER_WRITABLE_COLUMNS = new String[] {
                 ACCOUNT_NAME,
                 ACCOUNT_TYPE,
@@ -1698,6 +1862,8 @@ public final class CalendarContract {
          *
          * @hide
          */
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+        @TestApi
         public static final String[] SYNC_WRITABLE_COLUMNS = new String[] {
             _SYNC_ID,
             DIRTY,
@@ -1816,6 +1982,66 @@ public final class CalendarContract {
          */
         public static final Uri CONTENT_SEARCH_BY_DAY_URI =
             Uri.parse("content://" + AUTHORITY + "/instances/searchbyday");
+
+        /**
+         * The content:// style URL for querying an instance range in the managed profile.
+         * It supports similar semantics as {@link #CONTENT_URI}.
+         *
+         * <p>The following columns plus the columns that are allowed by
+         * {@link Events#ENTERPRISE_CONTENT_URI} are allowed to be queried via this uri:
+         * <ul>
+         * <li>{@link #_ID}</li>
+         * <li>{@link #EVENT_ID}</li>
+         * <li>{@link #BEGIN}</li>
+         * <li>{@link #END}</li>
+         * <li>{@link #START_DAY}</li>
+         * <li>{@link #END_DAY}</li>
+         * <li>{@link #START_MINUTE}</li>
+         * <li>{@link #END_MINUTE}</li>
+         * </ul>
+         *
+         * <p>{@link IllegalArgumentException} is thrown if there exists columns in the
+         * projection of the query to this uri that are not contained in the above list.
+         *
+         * <p>This uri returns an empty cursor if the calling user is not a parent profile
+         * of a managed profile, or the managed profile is disabled, or cross-profile calendar is
+         * disabled in Settings, or this uri is queried from a package that is not allowed by
+         * the profile owner of the managed profile via
+         * {@link DevicePolicyManager#setCrossProfileCalendarPackages(ComponentName, Set)}.
+         *
+         * @see DevicePolicyManager#getCrossProfileCalendarPackages(ComponentName)
+         */
+        @NonNull
+        public static final Uri ENTERPRISE_CONTENT_URI =
+                Uri.parse("content://" + AUTHORITY + "/enterprise/instances/when");
+
+        /**
+         * The content:// style URL for querying an instance range by Julian
+         * Day in the managed profile. It supports similar semantics as {@link #CONTENT_BY_DAY_URI}
+         * and performs similar checks as {@link #ENTERPRISE_CONTENT_URI}.
+         */
+        @NonNull
+        public static final Uri ENTERPRISE_CONTENT_BY_DAY_URI =
+                Uri.parse("content://" + AUTHORITY + "/enterprise/instances/whenbyday");
+
+        /**
+         * The content:// style URL for querying an instance range with a search
+         * term in the managed profile. It supports similar semantics as {@link #CONTENT_SEARCH_URI}
+         * and performs similar checks as {@link #ENTERPRISE_CONTENT_URI}.
+         */
+        @NonNull
+        public static final Uri ENTERPRISE_CONTENT_SEARCH_URI =
+                Uri.parse("content://" + AUTHORITY + "/enterprise/instances/search");
+
+        /**
+         * The content:// style URL for querying an instance range with a search
+         * term in the managed profile. It supports similar semantics as
+         * {@link #CONTENT_SEARCH_BY_DAY_URI} and performs similar checks as
+         * {@link #ENTERPRISE_CONTENT_URI}.
+         */
+        @NonNull
+        public static final Uri ENTERPRISE_CONTENT_SEARCH_BY_DAY_URI =
+                Uri.parse("content://" + AUTHORITY + "/enterprise/instances/searchbyday");
 
         /**
          * The default sort order for this table.
@@ -2288,6 +2514,7 @@ public final class CalendarContract {
          *         if no such alarm exists.
          * @hide
          */
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public static final long findNextAlarmTime(ContentResolver cr, long millis) {
             String selection = ALARM_TIME + ">=" + millis;
             // TODO: construct an explicit SQL query so that we can add
@@ -2321,6 +2548,7 @@ public final class CalendarContract {
          * @param manager the AlarmManager
          * @hide
          */
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public static final void rescheduleMissedAlarms(ContentResolver cr,
                 Context context, AlarmManager manager) {
             // Get all the alerts that have been scheduled but have not fired
@@ -2377,11 +2605,10 @@ public final class CalendarContract {
          *            epoch
          * @hide
          */
+        @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public static void scheduleAlarm(Context context, AlarmManager manager, long alarmTime) {
             if (DEBUG) {
-                Time time = new Time();
-                time.set(alarmTime);
-                String schedTime = time.format(" %a, %b %d, %Y %I:%M%P");
+                String schedTime = TimeMigrationUtils.formatMillisWithFixedFormat(alarmTime);
                 Log.d(TAG, "Schedule alarm at " + alarmTime + " " + schedTime);
             }
 
@@ -2393,7 +2620,14 @@ public final class CalendarContract {
             intent.setData(ContentUris.withAppendedId(CalendarContract.CONTENT_URI, alarmTime));
             intent.putExtra(ALARM_TIME, alarmTime);
             intent.setFlags(Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND);
-            PendingIntent pi = PendingIntent.getBroadcast(context, 0, intent, 0);
+
+            // Disable strict mode VM policy violations temporarily for intents that contain a
+            // content URI but don't have FLAG_GRANT_READ_URI_PERMISSION.
+            StrictMode.VmPolicy oldVmPolicy = StrictMode.allowVmViolations();
+            PendingIntent pi = PendingIntent.getBroadcast(context, 0, intent,
+                    PendingIntent.FLAG_IMMUTABLE);
+            StrictMode.setVmPolicy(oldVmPolicy);
+
             manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, alarmTime, pi);
         }
 

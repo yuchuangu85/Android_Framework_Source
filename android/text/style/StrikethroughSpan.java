@@ -32,6 +32,7 @@ import android.text.TextUtils;
  * <img src="{@docRoot}reference/android/images/text/style/strikethroughspan.png" />
  * <figcaption>Strikethrough text.</figcaption>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class StrikethroughSpan extends CharacterStyle
         implements UpdateAppearance, ParcelableSpan {
 
@@ -76,5 +77,10 @@ public class StrikethroughSpan extends CharacterStyle
     @Override
     public void updateDrawState(@NonNull TextPaint ds) {
         ds.setStrikeThruText(true);
+    }
+
+    @Override
+    public String toString() {
+        return "StrikethroughSpan{}";
     }
 }

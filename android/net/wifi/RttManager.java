@@ -173,7 +173,7 @@ public class RttManager {
 
     /** @deprecated Use the new {@link android.net.wifi.RttManager#getRttCapabilities()} API.*/
     @Deprecated
-    @SuppressLint("Doclava125")
+    @SuppressLint("RequiresPermission")
     public Capabilities getCapabilities() {
         throw new UnsupportedOperationException(
                 "getCapabilities is not supported in the adaptation layer");
@@ -211,6 +211,7 @@ public class RttManager {
         /** Draft 11mc version supported, including major and minor version. e.g, draft 4.3 is 43 */
         public int mcVersion;
 
+        @NonNull
         @Override
         public String toString() {
             StringBuffer sb = new StringBuffer();
@@ -271,13 +272,19 @@ public class RttManager {
 
             return sb.toString();
         }
-        /** Implement the Parcelable interface {@hide} */
+        /**
+         * Implement the Parcelable interface
+         * @hide
+         */
         @Override
         public int describeContents() {
             return 0;
         }
 
-        /** Implement the Parcelable interface {@hide} */
+        /**
+         * Implement the Parcelable interface
+         * @hide
+         */
         @Override
         public void writeToParcel(Parcel dest, int flags) {
             dest.writeInt(oneSidedRttSupported ? 1 : 0);
@@ -291,8 +298,11 @@ public class RttManager {
             dest.writeInt(mcVersion);
         }
 
-        /** Implement the Parcelable interface {@hide} */
-        public static final Creator<RttCapabilities> CREATOR =
+        /**
+         * Implement the Parcelable interface
+         * @hide
+         */
+        public static final @android.annotation.NonNull Creator<RttCapabilities> CREATOR =
             new Creator<RttCapabilities>() {
             @Override
             public RttCapabilities createFromParcel(Parcel in) {
@@ -308,7 +318,10 @@ public class RttManager {
                 capabilities.mcVersion = in.readInt();
                 return capabilities;
             }
-                /** Implement the Parcelable interface {@hide} */
+                /**
+                 * Implement the Parcelable interface
+                 * @hide
+                 */
                 @Override
                 public RttCapabilities[] newArray(int size) {
                     return new RttCapabilities[size];
@@ -479,7 +492,7 @@ public class RttManager {
         }
 
         /**
-         * {@hide}
+         * @hide
          */
         public String toString() {
             StringBuilder sb = new StringBuilder();
@@ -522,13 +535,19 @@ public class RttManager {
             mParams = (params == null ? new RttParams[0] : params);
         }
 
-        /** Implement the Parcelable interface {@hide} */
+        /**
+         * Implement the Parcelable interface
+         * @hide
+         */
         @Override
         public int describeContents() {
             return 0;
         }
 
-        /** Implement the Parcelable interface {@hide} */
+        /**
+         * Implement the Parcelable interface
+         * @hide
+         */
         @Override
         public void writeToParcel(Parcel dest, int flags) {
             dest.writeInt(mParams.length);
@@ -555,8 +574,11 @@ public class RttManager {
             }
         }
 
-        /** Implement the Parcelable interface {@hide} */
-        public static final Creator<ParcelableRttParams> CREATOR =
+        /**
+         * Implement the Parcelable interface
+         * @hide
+         */
+        public static final @android.annotation.NonNull Creator<ParcelableRttParams> CREATOR =
                 new Creator<ParcelableRttParams>() {
                     @Override
                     public ParcelableRttParams createFromParcel(Parcel in) {
@@ -717,7 +739,7 @@ public class RttManager {
         /**
          * standard deviation observed in distance
          * @deprecated
-         * Use {@link .android.net.wifi.RttManager.RttResult#distanceStandardDeviation} API.
+         * Use {@link android.net.wifi.RttManager.RttResult#distanceStandardDeviation} API.
          */
         @Deprecated
         public int distance_sd_cm;
@@ -765,7 +787,7 @@ public class RttManager {
         }
 
         /**
-         * {@hide}
+         * @hide
          */
         public String toString() {
             StringBuilder sb = new StringBuilder();
@@ -809,13 +831,19 @@ public class RttManager {
             return sb.toString();
         }
 
-        /** Implement the Parcelable interface {@hide} */
+        /**
+         * Implement the Parcelable interface
+         * @hide
+         */
         @Override
         public int describeContents() {
             return 0;
         }
 
-        /** Implement the Parcelable interface {@hide} */
+        /**
+         * Implement the Parcelable interface
+         * @hide
+         */
         @Override
         public void writeToParcel(Parcel dest, int flags) {
             if (mResults != null) {
@@ -858,8 +886,11 @@ public class RttManager {
             }
         }
 
-        /** Implement the Parcelable interface {@hide} */
-        public static final Creator<ParcelableRttResults> CREATOR =
+        /**
+         * Implement the Parcelable interface
+         * @hide
+         */
+        public static final @android.annotation.NonNull Creator<ParcelableRttResults> CREATOR =
                 new Creator<ParcelableRttResults>() {
                     @Override
                     public ParcelableRttResults createFromParcel(Parcel in) {
@@ -937,8 +968,8 @@ public class RttManager {
      *
      * @param params  -- RTT request Parameters
      * @param listener -- Call back to inform RTT result
-     * @exception throw IllegalArgumentException when params are illegal
-     *            throw IllegalStateException when RttCapabilities do not exist
+     * @throws IllegalArgumentException when params are illegal
+     * @throws IllegalStateException when RttCapabilities do not exist
      */
     @RequiresPermission(android.Manifest.permission.LOCATION_HARDWARE)
     public void startRanging(RttParams[] params, RttListener listener) {
@@ -1130,6 +1161,7 @@ public class RttManager {
          */
         public int preamble;
 
+        @NonNull
         @Override
         public String toString() {
             StringBuilder builder = new StringBuilder();
@@ -1158,7 +1190,7 @@ public class RttManager {
         }
 
         /** Implement {@link Parcelable} interface */
-        public static final Parcelable.Creator<ResponderConfig> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<ResponderConfig> CREATOR =
                 new Parcelable.Creator<ResponderConfig>() {
             @Override
             public ResponderConfig createFromParcel(Parcel in) {
@@ -1210,7 +1242,7 @@ public class RttManager {
      *
      * @hide
      */
-    public RttManager(Context context, WifiRttManager service) {
+    public RttManager(@NonNull Context context, @NonNull WifiRttManager service) {
         mNewService = service;
         mContext = context;
 
@@ -1228,4 +1260,3 @@ public class RttManager {
         mRttCapabilities.secureRttSupported = false;
     }
 }
-

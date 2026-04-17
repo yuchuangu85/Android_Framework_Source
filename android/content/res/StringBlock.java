@@ -16,31 +16,66 @@
 
 package android.content.res;
 
+import android.annotation.Nullable;
+import android.app.ActivityThread;
+import android.app.Application;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Color;
-import android.text.*;
-import android.text.style.*;
-import android.util.Log;
-import android.util.SparseArray;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.graphics.text.LineBreakConfig;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
+import android.text.Annotation;
+import android.text.Spannable;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.SpannedString;
+import android.text.TextPaint;
+import android.text.TextUtils;
+import android.text.style.AbsoluteSizeSpan;
+import android.text.style.BackgroundColorSpan;
+import android.text.style.BulletSpan;
+import android.text.style.CharacterStyle;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.LineBreakConfigSpan;
+import android.text.style.LineHeightSpan;
+import android.text.style.RelativeSizeSpan;
+import android.text.style.StrikethroughSpan;
+import android.text.style.StyleSpan;
+import android.text.style.SubscriptSpan;
+import android.text.style.SuperscriptSpan;
+import android.text.style.TextAppearanceSpan;
+import android.text.style.TypefaceSpan;
+import android.text.style.URLSpan;
+import android.text.style.UnderlineSpan;
+import android.util.Log;
+import android.util.SparseArray;
 
+import com.android.internal.annotations.GuardedBy;
+
+import java.io.Closeable;
 import java.util.Arrays;
 
 /**
  * Conveniences for retrieving data out of a compiled string resource.
  *
- * {@hide}
+ * @hide
  */
-final class StringBlock {
+@RavenwoodKeepWholeClass
+public final class StringBlock implements Closeable {
     private static final String TAG = "AssetManager";
     private static final boolean localLOGV = false;
 
-    private final long mNative;
+    private long mNative;   // final, but gets modified when closed
     private final boolean mUseSparse;
     private final boolean mOwnsNative;
+
     private CharSequence[] mStrings;
     private SparseArray<CharSequence> mSparseStrings;
+
+    @GuardedBy("this") private boolean mOpen = true;
+
     StyleIDs mStyleIDs = null;
 
     public StringBlock(byte[] data, boolean useSparse) {
@@ -59,7 +94,20 @@ final class StringBlock {
                 + ": " + nativeGetSize(mNative));
     }
 
+    /**
+     * @deprecated use {@link #getSequence(int)} which can return null when a string cannot be found
+     *             due to incremental installation.
+     */
+    @Deprecated
+    @UnsupportedAppUsage
     public CharSequence get(int idx) {
+        CharSequence seq = getSequence(idx);
+        return seq == null ? "" : seq;
+    }
+
+    @Nullable
+    public CharSequence getSequence(int idx) {
+        CharSequence sparseStringRes = null;
         synchronized (this) {
             if (mStrings != null) {
                 CharSequence res = mStrings[idx];
@@ -67,10 +115,7 @@ final class StringBlock {
                     return res;
                 }
             } else if (mSparseStrings != null) {
-                CharSequence res = mSparseStrings.get(idx);
-                if (res != null) {
-                    return res;
-                }
+                sparseStringRes = mSparseStrings.get(idx);
             } else {
                 final int num = nativeGetSize(mNative);
                 if (mUseSparse && num > 250) {
@@ -79,7 +124,16 @@ final class StringBlock {
                     mStrings = new CharSequence[num];
                 }
             }
+        }
+        if (sparseStringRes != null) {
+            sparseStringRes = applyFontWeightAdjustment(sparseStringRes);
+            return sparseStringRes;
+        }
+        synchronized (this) {
             String str = nativeGetString(mNative, idx);
+            if (str == null) {
+                return null;
+            }
             CharSequence res = str;
             int[] style = nativeGetStyle(mNative, idx);
             if (localLOGV) Log.v(TAG, "Got string: " + str);
@@ -105,6 +159,9 @@ final class StringBlock {
                     }
 
                     String styleTag = nativeGetString(mNative, styleId);
+                    if (styleTag == null) {
+                        return null;
+                    }
 
                     if (styleTag.equals("b")) {
                         mStyleIDs.boldId = styleId;
@@ -128,23 +185,81 @@ final class StringBlock {
                         mStyleIDs.listItemId = styleId;
                     } else if (styleTag.equals("marquee")) {
                         mStyleIDs.marqueeId = styleId;
+                    } else if (styleTag.equals("nobreak")) {
+                        mStyleIDs.mNoBreakId = styleId;
+                    } else if (styleTag.equals("nohyphen")) {
+                        mStyleIDs.mNoHyphenId = styleId;
                     }
                 }
 
                 res = applyStyles(str, style, mStyleIDs);
             }
-            if (mStrings != null) mStrings[idx] = res;
-            else mSparseStrings.put(idx, res);
+            if (res != null) {
+                if (mStrings != null) mStrings[idx] = res;
+                else mSparseStrings.put(idx, res);
+            }
             return res;
         }
     }
 
+    private static CharSequence applyFontWeightAdjustment(CharSequence res) {
+        if (Flags.applyFontWeightAdjustmentOnCachedStrings()) {
+            if (!(res instanceof Spanned spannedText)) {
+                return res;
+            }
+            Application application = ActivityThread.currentApplication();
+            if (application == null) {
+                return res;
+            }
+            int fontWeightAdjustment =
+                    application.getResources().getConfiguration()
+                            .fontWeightAdjustment;
+
+            StyleSpan[] spans = spannedText.getSpans(0, res.length(), StyleSpan.class);
+            if (spans.length == 0) {
+                return res;
+            }
+            SpannableString buffer = null;
+            for (StyleSpan span : spans) {
+                if (span.getStyle() == Typeface.BOLD && span.getFontWeightAdjustment()
+                        != fontWeightAdjustment) {
+                    if (buffer == null) {
+                        buffer = new SpannableString(res);
+                    }
+                    // Remove the old span to avoid duplication.
+                    buffer.removeSpan(span);
+                    buffer.setSpan(new StyleSpan(Typeface.BOLD, fontWeightAdjustment),
+                            spannedText.getSpanStart(span),
+                            spannedText.getSpanEnd(span),
+                            Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                }
+            }
+            if (buffer != null) {
+                res = new SpannedString(buffer);
+            }
+        }
+        return res;
+    }
+
+    @Override
     protected void finalize() throws Throwable {
         try {
             super.finalize();
         } finally {
-            if (mOwnsNative) {
-                nativeDestroy(mNative);
+            close();
+        }
+    }
+
+    @Override
+    public void close() {
+        synchronized (this) {
+            if (mOpen) {
+                mOpen = false;
+
+                if (mOwnsNative) {
+                    nativeDestroy(mNative);
+                }
+                mNative = 0;
             }
         }
     }
@@ -161,8 +276,11 @@ final class StringBlock {
         private int strikeId = -1;
         private int listItemId = -1;
         private int marqueeId = -1;
+        private int mNoBreakId = -1;
+        private int mNoHyphenId = -1;
     }
 
+    @Nullable
     private CharSequence applyStyles(String str, int[] style, StyleIDs ids) {
         if (style.length == 0)
             return str;
@@ -176,7 +294,10 @@ final class StringBlock {
 
 
             if (type == ids.boldId) {
-                buffer.setSpan(new StyleSpan(Typeface.BOLD),
+                Application application = ActivityThread.currentApplication();
+                int fontWeightAdjustment =
+                        application.getResources().getConfiguration().fontWeightAdjustment;
+                buffer.setSpan(new StyleSpan(Typeface.BOLD, fontWeightAdjustment),
                                style[i+1], style[i+2]+1,
                                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
             } else if (type == ids.italicId) {
@@ -218,9 +339,19 @@ final class StringBlock {
                 buffer.setSpan(TextUtils.TruncateAt.MARQUEE,
                                style[i+1], style[i+2]+1,
                                Spannable.SPAN_INCLUSIVE_INCLUSIVE);
+            } else if (type == ids.mNoBreakId) {
+                buffer.setSpan(LineBreakConfigSpan.createNoBreakSpan(),
+                        style[i + 1], style[i + 2] + 1,
+                        Spannable.SPAN_INCLUSIVE_EXCLUSIVE);
+            } else if (type == ids.mNoHyphenId) {
+                buffer.setSpan(LineBreakConfigSpan.createNoHyphenationSpan(),
+                        style[i + 1], style[i + 2] + 1,
+                        Spannable.SPAN_INCLUSIVE_EXCLUSIVE);
             } else {
                 String tag = nativeGetString(mNative, type);
-
+                if (tag == null) {
+                    return null;
+                }
                 if (tag.startsWith("font;")) {
                     String sub;
 
@@ -296,6 +427,44 @@ final class StringBlock {
                         buffer.setSpan(new Annotation(key, value),
                                        style[i+1], style[i+2]+1,
                                        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                    }
+                } else if (tag.startsWith("lineBreakConfig;")) {
+                    String lbStyleStr = subtag(tag, ";style=");
+                    int lbStyle = LineBreakConfig.LINE_BREAK_STYLE_UNSPECIFIED;
+                    if (lbStyleStr != null) {
+                        if (lbStyleStr.equals("none")) {
+                            lbStyle = LineBreakConfig.LINE_BREAK_STYLE_NONE;
+                        } else if (lbStyleStr.equals("normal")) {
+                            lbStyle = LineBreakConfig.LINE_BREAK_STYLE_NORMAL;
+                        } else if (lbStyleStr.equals("loose")) {
+                            lbStyle = LineBreakConfig.LINE_BREAK_STYLE_LOOSE;
+                        } else if (lbStyleStr.equals("strict")) {
+                            lbStyle = LineBreakConfig.LINE_BREAK_STYLE_STRICT;
+                        } else {
+                            Log.w(TAG, "Unknown LineBreakConfig style: " + lbStyleStr);
+                        }
+                    }
+
+                    String lbWordStyleStr = subtag(tag, ";wordStyle=");
+                    int lbWordStyle = LineBreakConfig.LINE_BREAK_STYLE_UNSPECIFIED;
+                    if (lbWordStyleStr != null) {
+                        if (lbWordStyleStr.equals("none")) {
+                            lbWordStyle = LineBreakConfig.LINE_BREAK_WORD_STYLE_NONE;
+                        } else if (lbWordStyleStr.equals("phrase")) {
+                            lbWordStyle = LineBreakConfig.LINE_BREAK_WORD_STYLE_PHRASE;
+                        } else {
+                            Log.w(TAG, "Unknown LineBreakConfig word style: " + lbWordStyleStr);
+                        }
+                    }
+
+                    // Attach span only when the both lbStyle and lbWordStyle are valid.
+                    if (lbStyle != LineBreakConfig.LINE_BREAK_STYLE_UNSPECIFIED
+                            || lbWordStyle != LineBreakConfig.LINE_BREAK_WORD_STYLE_UNSPECIFIED) {
+                        buffer.setSpan(new LineBreakConfigSpan(
+                                new LineBreakConfig(lbStyle, lbWordStyle,
+                                        LineBreakConfig.HYPHENATION_UNSPECIFIED)),
+                                style[i + 1], style[i + 2] + 1,
+                                Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
                     }
                 }
             }
@@ -478,7 +647,8 @@ final class StringBlock {
      *  are doing!  The given native object must exist for the entire lifetime
      *  of this newly creating StringBlock.
      */
-    StringBlock(long obj, boolean useSparse) {
+    @UnsupportedAppUsage
+    public StringBlock(long obj, boolean useSparse) {
         mNative = obj;
         mUseSparse = useSparse;
         mOwnsNative = false;

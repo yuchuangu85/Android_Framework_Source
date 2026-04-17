@@ -49,20 +49,45 @@ final class MethodTypeForm {
     final MethodType erasedType;        // the canonical erasure
     final MethodType basicType;         // the canonical erasure, with primitives simplified
 
+    // BEGIN Android-removed: Cached adaptors / lambda forms.
+    // The upstream caching mechanism will not work on Android because of fundamental differences
+    // in the Android runtime/implementation of MethodHandle. LambdaForm is not supported on
+    // Android for similar reasons.
+    /*
     // Cached adapter information:
-    //
-    // @Stable final SoftReference<MethodHandle>[] methodHandles;
-    // static final int  MH_BASIC_INV, MH_NF_INV, MH_UNINIT_CS, MH_LIMIT;
-    //
+    @Stable final SoftReference<MethodHandle>[] methodHandles;
+    // Indexes into methodHandles:
+    static final int
+            MH_BASIC_INV      =  0,  // cached instance of MH.invokeBasic
+            MH_NF_INV         =  1,  // cached helper for LF.NamedFunction
+            MH_UNINIT_CS      =  2,  // uninitialized call site
+            MH_LIMIT          =  3;
+
     // Cached lambda form information, for basic types only:
-    // final @Stable SoftReference<LambdaForm>[] lambdaForms;
-    //
+    final @Stable SoftReference<LambdaForm>[] lambdaForms;
     // Indexes into lambdaForms:
-    //
-    // static final int LF_INVVIRTUAL, LF_INVSTATIC, LF_INVSPECIAL, LF_NEWINVSPECIAL,
-    // LF_INVINTERFACE, LF_INVSTATIC_INIT, LF_INTERPRET, LF_REBIND, LF_DELEGATE,
-    // LF_DELEGATE_BLOCK_INLINING, LF_EX_LINKER, LF_EX_INVOKER, LF_GEN_LINKER, LF_GEN_INVOKER,
-    // LF_CS_LINKER, LF_MH_LINKER, LF_GWC, LF_GWT, LF_LIMIT;
+    static final int
+            LF_INVVIRTUAL              =  0,  // DMH invokeVirtual
+            LF_INVSTATIC               =  1,
+            LF_INVSPECIAL              =  2,
+            LF_NEWINVSPECIAL           =  3,
+            LF_INVINTERFACE            =  4,
+            LF_INVSTATIC_INIT          =  5,  // DMH invokeStatic with <clinit> barrier
+            LF_INTERPRET               =  6,  // LF interpreter
+            LF_REBIND                  =  7,  // BoundMethodHandle
+            LF_DELEGATE                =  8,  // DelegatingMethodHandle
+            LF_DELEGATE_BLOCK_INLINING =  9,  // Counting DelegatingMethodHandle w/ @DontInline
+            LF_EX_LINKER               = 10,  // invokeExact_MT (for invokehandle)
+            LF_EX_INVOKER              = 11,  // MHs.invokeExact
+            LF_GEN_LINKER              = 12,  // generic invoke_MT (for invokehandle)
+            LF_GEN_INVOKER             = 13,  // generic MHs.invoke
+            LF_CS_LINKER               = 14,  // linkToCallSite_CS
+            LF_MH_LINKER               = 15,  // linkToCallSite_MH
+            LF_GWC                     = 16,  // guardWithCatch (catchException)
+            LF_GWT                     = 17,  // guardWithTest
+            LF_LIMIT                   = 18;
+    */
+    // END Android-removed: Cached adaptors / lambda forms.
 
     /** Return the type corresponding uniquely (1-1) to this MT-form.
      *  It might have any primitive returns or arguments, but will have no references except Object.
@@ -87,12 +112,47 @@ final class MethodTypeForm {
         return true;
     }
 
-    // Android-changed: Removed caches for MethodHandle adaptors / LambdaForms.
-    //
-    // public MethodHandle cachedMethodHandle(int which);
-    // synchronized public MethodHandle setCachedMethodHandle(int which, MethodHandle mh);
-    // public LambdaForm cachedLambdaForm(int which);
-    // synchronized public LambdaForm setCachedLambdaForm(int which, LambdaForm form);
+    // BEGIN Android-removed: Cached adaptors / lambda forms.
+    /*
+    public MethodHandle cachedMethodHandle(int which) {
+        assert(assertIsBasicType());
+        SoftReference<MethodHandle> entry = methodHandles[which];
+        return (entry != null) ? entry.get() : null;
+    }
+
+    synchronized public MethodHandle setCachedMethodHandle(int which, MethodHandle mh) {
+        // Simulate a CAS, to avoid racy duplication of results.
+        SoftReference<MethodHandle> entry = methodHandles[which];
+        if (entry != null) {
+            MethodHandle prev = entry.get();
+            if (prev != null) {
+                return prev;
+            }
+        }
+        methodHandles[which] = new SoftReference<>(mh);
+        return mh;
+    }
+
+    public LambdaForm cachedLambdaForm(int which) {
+        assert(assertIsBasicType());
+        SoftReference<LambdaForm> entry = lambdaForms[which];
+        return (entry != null) ? entry.get() : null;
+    }
+
+    synchronized public LambdaForm setCachedLambdaForm(int which, LambdaForm form) {
+        // Simulate a CAS, to avoid racy duplication of results.
+        SoftReference<LambdaForm> entry = lambdaForms[which];
+        if (entry != null) {
+            LambdaForm prev = entry.get();
+            if (prev != null) {
+                return prev;
+            }
+        }
+        lambdaForms[which] = new SoftReference<>(form);
+        return form;
+    }
+    */
+    // END Android-removed: Cached adaptors / lambda forms.
 
     /**
      * Build an MTF for a given type, which must have all references erased to Object.
@@ -154,8 +214,7 @@ final class MethodTypeForm {
             this.argCounts = that.argCounts;
             this.argToSlotTable = that.argToSlotTable;
             this.slotToArgTable = that.slotToArgTable;
-            // Android-changed: Removed cached adaptors / lambda forms.
-            //
+            // Android-removed: Cached adaptors / lambda forms.
             // this.methodHandles = null;
             // this.lambdaForms = null;
             return;
@@ -201,8 +260,7 @@ final class MethodTypeForm {
 
         // Initialize caches, but only for basic types
         assert(basicType == erasedType);
-        // Android-changed: Removed cached adaptors / lambda forms.
-        //
+        // Android-removed: Cached adaptors / lambda forms.
         // this.lambdaForms   = new SoftReference[LF_LIMIT];
         // this.methodHandles = new SoftReference[MH_LIMIT];
     }

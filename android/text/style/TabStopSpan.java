@@ -24,6 +24,7 @@ import android.annotation.Px;
  * the leading margin of the line. <code>TabStopSpan</code> will only affect the first tab
  * encountered on the first line of the text.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface TabStopSpan extends ParagraphStyle {
 
     /**
@@ -64,6 +65,11 @@ public interface TabStopSpan extends ParagraphStyle {
         @Override
         public int getTabStop() {
             return mTabOffset;
+        }
+
+        @Override
+        public String toString() {
+            return "TabStopSpan.Standard{tabOffset=" + getTabStop() + '}';
         }
     }
 }

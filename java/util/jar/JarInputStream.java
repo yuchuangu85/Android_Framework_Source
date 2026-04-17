@@ -28,7 +28,7 @@ package java.util.jar;
 import java.util.zip.*;
 import java.io.*;
 import sun.security.util.ManifestEntryVerifier;
-import sun.misc.JarIndex;
+import jdk.internal.util.jar.JarIndex;
 
 /**
  * The <code>JarInputStream</code> class is used to read the contents of
@@ -95,7 +95,7 @@ class JarInputStream extends ZipInputStream {
             man.read(new ByteArrayInputStream(bytes));
             closeEntry();
             if (doVerify) {
-                jv = new JarVerifier(bytes);
+                jv = new JarVerifier(e.getName(), bytes);
                 mev = new ManifestEntryVerifier(man);
             }
             return (JarEntry)super.getNextEntry();

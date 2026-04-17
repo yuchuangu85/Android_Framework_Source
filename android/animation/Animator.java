@@ -16,11 +16,19 @@
 
 package android.animation;
 
+import android.annotation.CallSuper;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo.Config;
 import android.content.res.ConstantState;
+import android.os.Build;
+import android.os.Trace;
+import android.util.LongArray;
 
 import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * This is the superclass for classes which provide basic support for animations which can be
@@ -59,6 +67,92 @@ public abstract class Animator implements Cloneable {
      * ConstantState will not be garbage collected until this animator is collected
      */
     private AnimatorConstantState mConstantState;
+
+    /**
+     * backing field for backgroundPauseDelay property. This could be simply a hardcoded
+     * value in AnimationHandler, but it is useful to be able to change the value in tests.
+     */
+    private static long sBackgroundPauseDelay = 1000;
+
+    /**
+     * If true, when the animation plays normally to the end, the callback
+     * {@link AnimatorListener#onAnimationEnd(Animator)} will be scheduled on the next frame.
+     * It is to avoid the last animation frame being delayed by the implementation of listeners.
+     */
+    static boolean sPostNotifyEndListenerEnabled;
+
+    /**
+     * If {@link #sPostNotifyEndListenerEnabled} is enabled, it will be set when the end callback
+     * is scheduled. It is cleared when it runs or finishes immediately, e.g. cancel.
+     */
+    private Runnable mPendingEndCallback;
+
+    /**
+     * A cache of the values in a list. Used so that when calling the list, we have a copy
+     * of it in case the list is modified while iterating. The array can be reused to avoid
+     * allocation on every notification.
+     */
+    private AtomicReference<Object[]> mCachedList = new AtomicReference<>();
+
+    /**
+     * Tracks whether we've notified listeners of the onAnimationStart() event. This can be
+     * complex to keep track of since we notify listeners at different times depending on
+     * startDelay and whether start() was called before end().
+     */
+    boolean mStartListenersCalled = false;
+
+    /**
+     * Sets the duration for delaying pausing animators when apps go into the background.
+     * Used by AnimationHandler when requested to pause animators.
+     *
+     * @hide
+     */
+    @TestApi
+    public static void setBackgroundPauseDelay(long value) {
+        sBackgroundPauseDelay = value;
+    }
+
+    /**
+     * Gets the duration for delaying pausing animators when apps go into the background.
+     * Used by AnimationHandler when requested to pause animators.
+     *
+     * @hide
+     */
+    @TestApi
+    public static long getBackgroundPauseDelay() {
+        return sBackgroundPauseDelay;
+    }
+
+    /**
+     * Sets the behavior of animator pausing when apps go into the background.
+     * This is exposed as a test API for verification, but is intended for use by internal/
+     * platform code, potentially for use by a system property that could disable it
+     * system wide.
+     *
+     * @param enable Enable (default behavior) or disable background pausing behavior.
+     * @hide
+     */
+    @TestApi
+    public static void setAnimatorPausingEnabled(boolean enable) {
+        AnimationHandler.setAnimatorPausingEnabled(enable);
+        AnimationHandler.setOverrideAnimatorPausingSystemProperty(!enable);
+    }
+
+    /**
+     * @see #sPostNotifyEndListenerEnabled
+     * @hide
+     */
+    public static void setPostNotifyEndListenerEnabled(boolean enable) {
+        sPostNotifyEndListenerEnabled = enable;
+    }
+
+    /**
+     * @see #sPostNotifyEndListenerEnabled
+     * @hide
+     */
+    public static boolean isPostNotifyEndListenerEnabled() {
+        return sPostNotifyEndListenerEnabled;
+    }
 
     /**
      * Starts this animation. If the animation has a nonzero startDelay, the animation will start
@@ -110,16 +204,11 @@ public abstract class Animator implements Cloneable {
      * @see AnimatorPauseListener
      */
     public void pause() {
-        if (isStarted() && !mPaused) {
+        // We only want to pause started Animators or animators that setCurrentPlayTime()
+        // have been called on. mStartListenerCalled will be true if seek has happened.
+        if ((isStarted() || mStartListenersCalled) && !mPaused) {
             mPaused = true;
-            if (mPauseListeners != null) {
-                ArrayList<AnimatorPauseListener> tmpListeners =
-                        (ArrayList<AnimatorPauseListener>) mPauseListeners.clone();
-                int numListeners = tmpListeners.size();
-                for (int i = 0; i < numListeners; ++i) {
-                    tmpListeners.get(i).onAnimationPause(this);
-                }
-            }
+            notifyPauseListeners(AnimatorCaller.ON_PAUSE);
         }
     }
 
@@ -136,14 +225,7 @@ public abstract class Animator implements Cloneable {
     public void resume() {
         if (mPaused) {
             mPaused = false;
-            if (mPauseListeners != null) {
-                ArrayList<AnimatorPauseListener> tmpListeners =
-                        (ArrayList<AnimatorPauseListener>) mPauseListeners.clone();
-                int numListeners = tmpListeners.size();
-                for (int i = 0; i < numListeners; ++i) {
-                    tmpListeners.get(i).onAnimationResume(this);
-                }
-            }
+            notifyPauseListeners(AnimatorCaller.ON_RESUME);
         }
     }
 
@@ -402,6 +484,8 @@ public abstract class Animator implements Cloneable {
             if (mPauseListeners != null) {
                 anim.mPauseListeners = new ArrayList<AnimatorPauseListener>(mPauseListeners);
             }
+            anim.mCachedList.set(null);
+            anim.mStartListenersCalled = false;
             return anim;
         } catch (CloneNotSupportedException e) {
            throw new AssertionError();
@@ -437,10 +521,6 @@ public abstract class Animator implements Cloneable {
      * operate on target objects (for example, {@link ValueAnimator}, but this method
      * is on the superclass for the convenience of dealing generically with those subclasses
      * that do handle targets.
-     * <p>
-     * <strong>Note:</strong> The target is stored as a weak reference internally to avoid leaking
-     * resources by having animators directly reference old targets. Therefore, you should
-     * ensure that animator targets always have a hard reference elsewhere.
      *
      * @param target The object being animated
      */
@@ -460,6 +540,7 @@ public abstract class Animator implements Cloneable {
     /**
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void reverse() {
         throw new IllegalStateException("Reverse is not supported");
     }
@@ -498,7 +579,6 @@ public abstract class Animator implements Cloneable {
      */
     void skipToEndValue(boolean inReverse) {}
 
-
     /**
      * Internal use only.
      *
@@ -511,9 +591,157 @@ public abstract class Animator implements Cloneable {
     }
 
     /**
-     * Internal use only.
+     * Internal use only. Changes the value of the animator as if currentPlayTime has passed since
+     * the start of the animation. Therefore, currentPlayTime includes the start delay, and any
+     * repetition. lastPlayTime is similar and is used to calculate how many repeats have been
+     * done between the two times.
      */
-    void animateBasedOnPlayTime(long currentPlayTime, long lastPlayTime, boolean inReverse) {}
+    void animateValuesInRange(long currentPlayTime, long lastPlayTime) {}
+
+    /**
+     * Internal use only. This animates any animation that has ended since lastPlayTime.
+     * If an animation hasn't been finished, no change will be made.
+     */
+    void animateSkipToEnds(long currentPlayTime, long lastPlayTime) {}
+
+    /**
+     * Internal use only. Adds all start times (after delay) to and end times to times.
+     * The value must include offset.
+     */
+    void getStartAndEndTimes(LongArray times, long offset) {
+        long startTime = offset + getStartDelay();
+        if (times.indexOf(startTime) < 0) {
+            times.add(startTime);
+        }
+        long duration = getTotalDuration();
+        if (duration != DURATION_INFINITE) {
+            long endTime = duration + offset;
+            if (times.indexOf(endTime) < 0) {
+                times.add(endTime);
+            }
+        }
+    }
+
+    /**
+     * Calls notification for each AnimatorListener.
+     *
+     * @param notification The notification method to call on each listener.
+     * @param isReverse When this is used with start/end, this is the isReverse parameter. For
+     *                  other calls, this is ignored.
+     */
+    void notifyListeners(
+            AnimatorCaller<AnimatorListener, Animator> notification,
+            boolean isReverse
+    ) {
+        callOnList(mListeners, notification, this, isReverse);
+    }
+
+    /**
+     * Call pause/resume on each AnimatorPauseListener.
+     *
+     * @param notification Either ON_PAUSE or ON_RESUME to call onPause or onResume on each
+     *                     listener.
+     */
+    void notifyPauseListeners(AnimatorCaller<AnimatorPauseListener, Animator> notification) {
+        callOnList(mPauseListeners, notification, this, false);
+    }
+
+    void notifyStartListeners(boolean isReversing) {
+        boolean startListenersCalled = mStartListenersCalled;
+        mStartListenersCalled = true;
+        if (mListeners != null && !startListenersCalled) {
+            notifyListeners(AnimatorCaller.ON_START, isReversing);
+        }
+    }
+
+    void notifyEndListeners(boolean isReversing) {
+        boolean startListenersCalled = mStartListenersCalled;
+        mStartListenersCalled = false;
+        if (mListeners != null && startListenersCalled) {
+            notifyListeners(AnimatorCaller.ON_END, isReversing);
+        }
+    }
+
+    /**
+     * This is called when the animator needs to finish immediately. This is usually no-op unless
+     * {@link #sPostNotifyEndListenerEnabled} is enabled and a finish request calls around the last
+     * animation frame.
+     *
+     * @param notifyListeners Whether to invoke {@link AnimatorListener#onAnimationEnd}.
+     * @return {@code true} if the pending listeners are removed.
+     */
+    boolean consumePendingEndListeners(boolean notifyListeners) {
+        if (mPendingEndCallback == null) {
+            return false;
+        }
+        AnimationHandler.getInstance().removePendingEndAnimationCallback(mPendingEndCallback);
+        mPendingEndCallback = null;
+        if (notifyListeners) {
+            completeEndAnimation(false /* isReversing */, "notifyAnimEndNow");
+        }
+        return true;
+    }
+
+    void notifyEndListenersFromEndAnimation(boolean isReversing, boolean postNotifyEndListener) {
+        if (postNotifyEndListener) {
+            mPendingEndCallback = () -> {
+                completeEndAnimation(isReversing, "postNotifyAnimEnd");
+                mPendingEndCallback = null;
+            };
+            AnimationHandler.getInstance().postEndAnimationCallback(mPendingEndCallback);
+        } else {
+            completeEndAnimation(isReversing, "notifyAnimEnd");
+        }
+    }
+
+    @CallSuper
+    void completeEndAnimation(boolean isReversing, String notifyListenerTraceName) {
+        final boolean useTrace = mListeners != null && Trace.isTagEnabled(Trace.TRACE_TAG_VIEW);
+        if (useTrace) {
+            Trace.traceBegin(Trace.TRACE_TAG_VIEW, notifyListenerTraceName
+                    + "-" + getClass().getSimpleName());
+        }
+        notifyEndListeners(isReversing);
+        if (useTrace) {
+            Trace.traceEnd(Trace.TRACE_TAG_VIEW);
+        }
+    }
+
+    /**
+     * Calls <code>call</code> for every item in <code>list</code> with <code>animator</code> and
+     * <code>isReverse</code> as parameters.
+     *
+     * @param list The list of items to make calls on.
+     * @param call The method to call for each item in list.
+     * @param animator The animator parameter of call.
+     * @param isReverse The isReverse parameter of call.
+     * @param <T> The item type of list
+     * @param <A> The Animator type of animator.
+     */
+    <T, A> void callOnList(
+            ArrayList<T> list,
+            AnimatorCaller<T, A> call,
+            A animator,
+            boolean isReverse
+    ) {
+        int size = list == null ? 0 : list.size();
+        if (size > 0) {
+            // Try to reuse mCacheList to store the items of list.
+            Object[] array = mCachedList.getAndSet(null);
+            if (array == null || array.length < size) {
+                array = new Object[size];
+            }
+            list.toArray(array);
+            for (int i = 0; i < size; i++) {
+                //noinspection unchecked
+                T item = (T) array[i];
+                call.call(item, animator, isReverse);
+                array[i] = null;
+            }
+            // Store it for the next call so we can reuse this array, if needed.
+            mCachedList.compareAndSet(null, array);
+        }
+    }
 
     /**
      * <p>An animation listener receives notifications from an animation.
@@ -532,7 +760,7 @@ public abstract class Animator implements Cloneable {
          * @param animation The started animation.
          * @param isReverse Whether the animation is playing in reverse.
          */
-        default void onAnimationStart(Animator animation, boolean isReverse) {
+        default void onAnimationStart(@NonNull Animator animation, boolean isReverse) {
             onAnimationStart(animation);
         }
 
@@ -548,7 +776,7 @@ public abstract class Animator implements Cloneable {
          * @param animation The animation which reached its end.
          * @param isReverse Whether the animation is playing in reverse.
          */
-        default void onAnimationEnd(Animator animation, boolean isReverse) {
+        default void onAnimationEnd(@NonNull Animator animation, boolean isReverse) {
             onAnimationEnd(animation);
         }
 
@@ -557,7 +785,7 @@ public abstract class Animator implements Cloneable {
          *
          * @param animation The started animation.
          */
-        void onAnimationStart(Animator animation);
+        void onAnimationStart(@NonNull Animator animation);
 
         /**
          * <p>Notifies the end of the animation. This callback is not invoked
@@ -565,7 +793,7 @@ public abstract class Animator implements Cloneable {
          *
          * @param animation The animation which reached its end.
          */
-        void onAnimationEnd(Animator animation);
+        void onAnimationEnd(@NonNull Animator animation);
 
         /**
          * <p>Notifies the cancellation of the animation. This callback is not invoked
@@ -573,14 +801,14 @@ public abstract class Animator implements Cloneable {
          *
          * @param animation The animation which was canceled.
          */
-        void onAnimationCancel(Animator animation);
+        void onAnimationCancel(@NonNull Animator animation);
 
         /**
          * <p>Notifies the repetition of the animation.</p>
          *
          * @param animation The animation which was repeated.
          */
-        void onAnimationRepeat(Animator animation);
+        void onAnimationRepeat(@NonNull Animator animation);
     }
 
     /**
@@ -596,7 +824,7 @@ public abstract class Animator implements Cloneable {
          * @param animation The animaton being paused.
          * @see #pause()
          */
-        void onAnimationPause(Animator animation);
+        void onAnimationPause(@NonNull Animator animation);
 
         /**
          * <p>Notifies that the animation was resumed, after being
@@ -605,7 +833,7 @@ public abstract class Animator implements Cloneable {
          * @param animation The animation being resumed.
          * @see #resume()
          */
-        void onAnimationResume(Animator animation);
+        void onAnimationResume(@NonNull Animator animation);
     }
 
     /**
@@ -672,5 +900,30 @@ public abstract class Animator implements Cloneable {
             clone.mConstantState = this;
             return clone;
         }
+    }
+
+    /**
+     * Internally used by {@link #callOnList(ArrayList, AnimatorCaller, Object, boolean)} to
+     * make a call on all children of a list. This can be for start, stop, pause, cancel, update,
+     * etc notifications.
+     *
+     * @param <T> The type of listener to make the call on
+     * @param <A> The type of animator that is passed as a parameter
+     */
+    interface AnimatorCaller<T, A> {
+        void call(T listener, A animator, boolean isReverse);
+
+        AnimatorCaller<AnimatorListener, Animator> ON_START = AnimatorListener::onAnimationStart;
+        AnimatorCaller<AnimatorListener, Animator> ON_END = AnimatorListener::onAnimationEnd;
+        AnimatorCaller<AnimatorListener, Animator> ON_CANCEL =
+                (listener, animator, isReverse) -> listener.onAnimationCancel(animator);
+        AnimatorCaller<AnimatorListener, Animator> ON_REPEAT =
+                (listener, animator, isReverse) -> listener.onAnimationRepeat(animator);
+        AnimatorCaller<AnimatorPauseListener, Animator> ON_PAUSE =
+                (listener, animator, isReverse) -> listener.onAnimationPause(animator);
+        AnimatorCaller<AnimatorPauseListener, Animator> ON_RESUME =
+                (listener, animator, isReverse) -> listener.onAnimationResume(animator);
+        AnimatorCaller<ValueAnimator.AnimatorUpdateListener, ValueAnimator> ON_UPDATE =
+                (listener, animator, isReverse) -> listener.onAnimationUpdate(animator);
     }
 }

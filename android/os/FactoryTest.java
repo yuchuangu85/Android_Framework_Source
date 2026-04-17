@@ -24,7 +24,7 @@ import com.android.internal.os.RoSystemProperties;
  * This class provides a few properties that alter the normal operation of the system
  * during factory testing.
  *
- * {@hide}
+ * @hide
  */
 public final class FactoryTest {
     public static final int FACTORY_TEST_OFF = 0;

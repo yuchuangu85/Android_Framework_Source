@@ -17,6 +17,7 @@
 package android.content;
 
 import android.app.SearchManager;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
@@ -115,6 +116,7 @@ public class SearchRecentSuggestionsProvider extends ContentProvider {
     private UriMatcher mUriMatcher;
     
     private String mSuggestSuggestionClause;
+    @UnsupportedAppUsage
     private String[] mSuggestionProjection;
 
     /**

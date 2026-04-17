@@ -16,10 +16,15 @@
 
 package android.animation;
 
+import android.annotation.Nullable;
 import android.os.SystemClock;
+import android.os.SystemProperties;
 import android.util.ArrayMap;
+import android.util.Log;
+import android.util.TimeUtils;
 import android.view.Choreographer;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 
 /**
@@ -35,38 +40,251 @@ import java.util.ArrayList;
  * @hide
  */
 public class AnimationHandler {
+
+    private static final String TAG = "AnimationHandler";
+    private static final boolean LOCAL_LOGV = false;
+
     /**
      * Internal per-thread collections used to avoid set collisions as animations start and end
      * while being processed.
-     * @hide
      */
     private final ArrayMap<AnimationFrameCallback, Long> mDelayedCallbackStartTime =
             new ArrayMap<>();
     private final ArrayList<AnimationFrameCallback> mAnimationCallbacks =
             new ArrayList<>();
-    private final ArrayList<AnimationFrameCallback> mCommitCallbacks =
-            new ArrayList<>();
     private AnimationFrameCallbackProvider mProvider;
+
+    // Static flag which allows the pausing behavior to be globally disabled/enabled.
+    private static boolean sAnimatorPausingEnabled = isPauseBgAnimationsEnabledInSystemProperties();
+
+    // Static flag which prevents the system property from overriding sAnimatorPausingEnabled field.
+    private static boolean sOverrideAnimatorPausingSystemProperty = false;
+
+    /**
+     * This paused list is used to store animators forcibly paused when the activity
+     * went into the background (to avoid unnecessary background processing work).
+     * These animators should be resume()'d when the activity returns to the foreground.
+     */
+    private final ArrayList<Animator> mPausedAnimators = new ArrayList<>();
+
+    /**
+     * This structure is used to store the currently active objects (ViewRootImpls or
+     * WallpaperService.Engines) in the process. Each of these objects sends a request to
+     * AnimationHandler when it goes into the background (request to pause) or foreground
+     * (request to resume). Because all animators are managed by AnimationHandler on the same
+     * thread, it should only ever pause animators when *all* requestors are in the background.
+     * This list tracks the background/foreground state of all requestors and only ever
+     * pauses animators when all items are in the background (false). To simplify, we only ever
+     * store visible (foreground) requestors; if the set size reaches zero, there are no
+     * objects in the foreground and it is time to pause animators.
+     */
+    private final ArrayList<WeakReference<Object>> mAnimatorRequestors = new ArrayList<>();
+
+    /**
+     * The callbacks which will invoke {@link Animator#notifyEndListeners(boolean)} on next frame.
+     * It is only used if {@link Animator#setPostNotifyEndListenerEnabled(boolean)} sets true.
+     */
+    private ArrayList<Runnable> mPendingEndAnimationListeners;
+
+    /**
+     * The value of {@link Choreographer#getVsyncId()} at the last animation frame.
+     * It is only used if {@link Animator#setPostNotifyEndListenerEnabled(boolean)} sets true.
+     */
+    private long mLastAnimationFrameVsyncId;
+
+    /**
+     * The value of {@link Choreographer#getVsyncId()} when calling
+     * {@link Animator#notifyEndListeners(boolean)}.
+     * It is only used if {@link Animator#setPostNotifyEndListenerEnabled(boolean)} sets true.
+     */
+    private long mEndAnimationFrameVsyncId;
 
     private final Choreographer.FrameCallback mFrameCallback = new Choreographer.FrameCallback() {
         @Override
         public void doFrame(long frameTimeNanos) {
-            doAnimationFrame(getProvider().getFrameTime());
+            doAnimationFrame(frameTimeNanos / TimeUtils.NANOS_PER_MS);
             if (mAnimationCallbacks.size() > 0) {
                 getProvider().postFrameCallback(this);
             }
         }
     };
 
-    public final static ThreadLocal<AnimationHandler> sAnimatorHandler = new ThreadLocal<>();
+    public static final ThreadLocal<AnimationHandler> sAnimatorHandler = new ThreadLocal<>();
+    private static AnimationHandler sTestHandler = null;
     private boolean mListDirty = false;
 
     public static AnimationHandler getInstance() {
-        if (sAnimatorHandler.get() == null) {
-            sAnimatorHandler.set(new AnimationHandler());
+        if (sTestHandler != null) {
+            return sTestHandler;
         }
-        return sAnimatorHandler.get();
+        AnimationHandler animatorHandler = sAnimatorHandler.get();
+        if (animatorHandler == null) {
+            animatorHandler = new AnimationHandler();
+            sAnimatorHandler.set(animatorHandler);
+        }
+        return animatorHandler;
     }
+
+    /**
+     * Sets an instance that will be returned by {@link #getInstance()} on every thread.
+     * @return  the previously active test handler, if any.
+     * @hide
+     */
+    public static @Nullable AnimationHandler setTestHandler(@Nullable AnimationHandler handler) {
+        AnimationHandler oldHandler = sTestHandler;
+        sTestHandler = handler;
+        return oldHandler;
+    }
+
+    /**
+     * System property that controls the behavior of pausing infinite animators when an app
+     * is moved to the background.
+     *
+     * @return the value of 'framework.pause_bg_animations.enabled' system property
+     */
+    private static boolean isPauseBgAnimationsEnabledInSystemProperties() {
+        if (sOverrideAnimatorPausingSystemProperty) return sAnimatorPausingEnabled;
+        return SystemProperties
+                .getBoolean("framework.pause_bg_animations.enabled", true);
+    }
+
+    /**
+     * Disable the default behavior of pausing infinite animators when
+     * apps go into the background.
+     *
+     * @param enable Enable (default behavior) or disable background pausing behavior.
+     */
+    public static void setAnimatorPausingEnabled(boolean enable) {
+        sAnimatorPausingEnabled = enable;
+    }
+
+    /**
+     * Prevents the setAnimatorPausingEnabled behavior from being overridden
+     * by the 'framework.pause_bg_animations.enabled' system property value.
+     *
+     * This is for testing purposes only.
+     *
+     * @param enable Enable or disable (default behavior) overriding the system
+     *               property.
+     */
+    public static void setOverrideAnimatorPausingSystemProperty(boolean enable) {
+        sOverrideAnimatorPausingSystemProperty = enable;
+    }
+
+    /**
+     * This is called when a window goes away. We should remove
+     * it from the requestors list to ensure that we are counting requests correctly and not
+     * tracking obsolete+enabled requestors.
+     */
+    public static void removeRequestor(Object requestor) {
+        getInstance().requestAnimatorsEnabledImpl(false, requestor);
+        if (LOCAL_LOGV) {
+            Log.v(TAG, "removeRequestor for " + requestor);
+        }
+    }
+
+    /**
+     * This method is called from ViewRootImpl or WallpaperService when either a window is no
+     * longer visible (enable == false) or when a window becomes visible (enable == true).
+     * If animators are not properly disabled when activities are backgrounded, it can lead to
+     * unnecessary processing, particularly for infinite animators, as the system will continue
+     * to pulse timing events even though the results are not visible. As a workaround, we
+     * pause all un-paused infinite animators, and resume them when any window in the process
+     * becomes visible.
+     */
+    public static void requestAnimatorsEnabled(boolean enable, Object requestor) {
+        getInstance().requestAnimatorsEnabledImpl(enable, requestor);
+    }
+
+    private void requestAnimatorsEnabledImpl(boolean enable, Object requestor) {
+        boolean wasEmpty = mAnimatorRequestors.isEmpty();
+        setAnimatorPausingEnabled(isPauseBgAnimationsEnabledInSystemProperties());
+        synchronized (mAnimatorRequestors) {
+            // Only store WeakRef objects to avoid leaks
+            if (enable) {
+                // First, check whether such a reference is already on the list
+                WeakReference<Object> weakRef = null;
+                for (int i = mAnimatorRequestors.size() - 1; i >= 0; --i) {
+                    WeakReference<Object> ref = mAnimatorRequestors.get(i);
+                    Object referent = ref.get();
+                    if (referent == requestor) {
+                        weakRef = ref;
+                    } else if (referent == null) {
+                        // Remove any reference that has been cleared
+                        mAnimatorRequestors.remove(i);
+                    }
+                }
+                if (weakRef == null) {
+                    weakRef = new WeakReference<>(requestor);
+                    mAnimatorRequestors.add(weakRef);
+                }
+            } else {
+                for (int i = mAnimatorRequestors.size() - 1; i >= 0; --i) {
+                    WeakReference<Object> ref = mAnimatorRequestors.get(i);
+                    Object referent = ref.get();
+                    if (referent == requestor || referent == null) {
+                        // remove requested item or item that has been cleared
+                        mAnimatorRequestors.remove(i);
+                    }
+                }
+                // If a reference to the requestor wasn't in the list, nothing to remove
+            }
+        }
+        if (!sAnimatorPausingEnabled) {
+            // Resume any animators that have been paused in the meantime, otherwise noop
+            // Leave logic above so that if pausing gets re-enabled, the state of the requestors
+            // list is valid
+            resumeAnimators();
+            return;
+        }
+        boolean isEmpty = mAnimatorRequestors.isEmpty();
+        if (wasEmpty != isEmpty) {
+            // only paused/resume animators if there was a visibility change
+            if (!isEmpty) {
+                // If any requestors are enabled, resume currently paused animators
+                resumeAnimators();
+            } else {
+                // Wait before pausing to avoid thrashing animator state for temporary backgrounding
+                Choreographer.getInstance().postFrameCallbackDelayed(mPauser,
+                        Animator.getBackgroundPauseDelay());
+            }
+        }
+        if (LOCAL_LOGV) {
+            Log.v(TAG, (enable ? "enable" : "disable") + " animators for " + requestor
+                    + " with pauseDelay of " + Animator.getBackgroundPauseDelay());
+            for (int i = 0; i < mAnimatorRequestors.size(); ++i) {
+                Log.v(TAG, "animatorRequestors " + i + " = "
+                        + mAnimatorRequestors.get(i) + " with referent "
+                        + mAnimatorRequestors.get(i).get());
+            }
+        }
+    }
+
+    private void resumeAnimators() {
+        Choreographer.getInstance().removeFrameCallback(mPauser);
+        for (int i = mPausedAnimators.size() - 1; i >= 0; --i) {
+            mPausedAnimators.get(i).resume();
+        }
+        mPausedAnimators.clear();
+    }
+
+    private Choreographer.FrameCallback mPauser = frameTimeNanos -> {
+        if (mAnimatorRequestors.size() > 0) {
+            // something enabled animators since this callback was scheduled - bail
+            return;
+        }
+        for (int i = 0; i < mAnimationCallbacks.size(); ++i) {
+            AnimationFrameCallback callback = mAnimationCallbacks.get(i);
+            if (callback instanceof Animator) {
+                Animator animator = ((Animator) callback);
+                if (animator.getTotalDuration() == Animator.DURATION_INFINITE
+                        && !animator.isPaused()) {
+                    mPausedAnimators.add(animator);
+                    animator.pause();
+                }
+            }
+        }
+    };
 
     /**
      * By default, the Choreographer is used to provide timing for frame callbacks. A custom
@@ -104,33 +322,54 @@ public class AnimationHandler {
     }
 
     /**
-     * Register to get a one shot callback for frame commit timing. Frame commit timing is the
-     * time *after* traversals are done, as opposed to the animation frame timing, which is
-     * before any traversals. This timing can be used to adjust the start time of an animation
-     * when expensive traversals create big delta between the animation frame timing and the time
-     * that animation is first shown on screen.
-     *
-     * Note this should only be called when the animation has already registered to receive
-     * animation frame callbacks. This callback will be guaranteed to happen *after* the next
-     * animation frame callback.
-     */
-    public void addOneShotCommitCallback(final AnimationFrameCallback callback) {
-        if (!mCommitCallbacks.contains(callback)) {
-            mCommitCallbacks.add(callback);
-        }
-    }
-
-    /**
      * Removes the given callback from the list, so it will no longer be called for frame related
      * timing.
      */
     public void removeCallback(AnimationFrameCallback callback) {
-        mCommitCallbacks.remove(callback);
         mDelayedCallbackStartTime.remove(callback);
         int id = mAnimationCallbacks.indexOf(callback);
         if (id >= 0) {
             mAnimationCallbacks.set(id, null);
             mListDirty = true;
+        }
+    }
+
+    /**
+     * Returns the vsyncId of last animation frame if the given {@code currentVsyncId} matches
+     * the vsyncId from the end callback of animation. Otherwise it returns the given vsyncId.
+     * It only takes effect if {@link #postEndAnimationCallback(Runnable)} is called.
+     */
+    public long getLastAnimationFrameVsyncId(long currentVsyncId) {
+        return currentVsyncId == mEndAnimationFrameVsyncId && mLastAnimationFrameVsyncId != 0
+                ? mLastAnimationFrameVsyncId : currentVsyncId;
+    }
+
+    /** Runs the given callback on next frame to notify the end of the animation. */
+    public void postEndAnimationCallback(Runnable notifyEndAnimation) {
+        if (mPendingEndAnimationListeners == null) {
+            mPendingEndAnimationListeners = new ArrayList<>();
+        }
+        mPendingEndAnimationListeners.add(notifyEndAnimation);
+        if (mPendingEndAnimationListeners.size() > 1) {
+            return;
+        }
+        final Choreographer choreographer = Choreographer.getInstance();
+        mLastAnimationFrameVsyncId = choreographer.getVsyncId();
+        getProvider().postFrameCallback(frame -> {
+            mEndAnimationFrameVsyncId = choreographer.getVsyncId();
+            // The animation listeners can only get vsyncId of last animation frame in this frame
+            // by getLastAnimationFrameVsyncId(currentVsyncId).
+            while (mPendingEndAnimationListeners.size() > 0) {
+                mPendingEndAnimationListeners.remove(0).run();
+            }
+            mEndAnimationFrameVsyncId = 0;
+            mLastAnimationFrameVsyncId = 0;
+        });
+    }
+
+    void removePendingEndAnimationCallback(Runnable notifyEndAnimation) {
+        if (mPendingEndAnimationListeners != null) {
+            mPendingEndAnimationListeners.remove(notifyEndAnimation);
         }
     }
 
@@ -144,25 +383,9 @@ public class AnimationHandler {
             }
             if (isCallbackDue(callback, currentTime)) {
                 callback.doAnimationFrame(frameTime);
-                if (mCommitCallbacks.contains(callback)) {
-                    getProvider().postCommitCallback(new Runnable() {
-                        @Override
-                        public void run() {
-                            commitAnimationFrame(callback, getProvider().getFrameTime());
-                        }
-                    });
-                }
             }
         }
         cleanUpList();
-    }
-
-    private void commitAnimationFrame(AnimationFrameCallback callback, long frameTime) {
-        if (!mDelayedCallbackStartTime.containsKey(callback) &&
-                mCommitCallbacks.contains(callback)) {
-            callback.commitAnimationFrame(frameTime);
-            mCommitCallbacks.remove(callback);
-        }
     }
 
     /**
@@ -187,7 +410,10 @@ public class AnimationHandler {
      * Return the number of callbacks that have registered for frame callbacks.
      */
     public static int getAnimationCount() {
-        AnimationHandler handler = sAnimatorHandler.get();
+        AnimationHandler handler = sTestHandler;
+        if (handler == null) {
+            handler = sAnimatorHandler.get();
+        }
         if (handler == null) {
             return 0;
         }
@@ -249,16 +475,6 @@ public class AnimationHandler {
         }
 
         @Override
-        public void postCommitCallback(Runnable runnable) {
-            mChoreographer.postCallback(Choreographer.CALLBACK_COMMIT, runnable, null);
-        }
-
-        @Override
-        public long getFrameTime() {
-            return mChoreographer.getFrameTime();
-        }
-
-        @Override
         public long getFrameDelay() {
             return Choreographer.getFrameDelay();
         }
@@ -271,8 +487,9 @@ public class AnimationHandler {
 
     /**
      * Callbacks that receives notifications for animation timing and frame commit timing.
+     * @hide
      */
-    interface AnimationFrameCallback {
+    public interface AnimationFrameCallback {
         /**
          * Run animation based on the frame time.
          * @param frameTime The frame start time, in the {@link SystemClock#uptimeMillis()} time
@@ -280,23 +497,6 @@ public class AnimationHandler {
          * @return if the animation has finished.
          */
         boolean doAnimationFrame(long frameTime);
-
-        /**
-         * This notifies the callback of frame commit time. Frame commit time is the time after
-         * traversals happen, as opposed to the normal animation frame time that is before
-         * traversals. This is used to compensate expensive traversals that happen as the
-         * animation starts. When traversals take a long time to complete, the rendering of the
-         * initial frame will be delayed (by a long time). But since the startTime of the
-         * animation is set before the traversal, by the time of next frame, a lot of time would
-         * have passed since startTime was set, the animation will consequently skip a few frames
-         * to respect the new frameTime. By having the commit time, we can adjust the start time to
-         * when the first frame was drawn (after any expensive traversals) so that no frames
-         * will be skipped.
-         *
-         * @param frameTime The frame time after traversals happen, if any, in the
-         *                  {@link SystemClock#uptimeMillis()} time base.
-         */
-        void commitAnimationFrame(long frameTime);
     }
 
     /**
@@ -309,8 +509,6 @@ public class AnimationHandler {
      */
     public interface AnimationFrameCallbackProvider {
         void postFrameCallback(Choreographer.FrameCallback callback);
-        void postCommitCallback(Runnable runnable);
-        long getFrameTime();
         long getFrameDelay();
         void setFrameDelay(long delay);
     }

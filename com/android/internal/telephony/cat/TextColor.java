@@ -20,7 +20,7 @@ package com.android.internal.telephony.cat;
 /**
  * Enumeration for representing text color.
  *
- * {@hide}
+ * @hide
  */
 public enum TextColor {
     BLACK(0x0),

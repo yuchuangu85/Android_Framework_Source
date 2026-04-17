@@ -16,36 +16,117 @@
 
 package android.content.pm;
 
+import static android.content.pm.SigningDetails.SignatureSchemeVersion;
 
+import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.content.pm.SigningDetails.SignatureSchemeVersion;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.ArraySet;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.security.PublicKey;
+import java.util.Collection;
 
 /**
  * Information pertaining to the signing certificates used to sign a package.
  */
 public final class SigningInfo implements Parcelable {
+    /**
+     * JAR signing (v1 scheme).
+     * See https://source.android.com/docs/security/features/apksigning#v1.
+     */
+    public static final int VERSION_JAR = SignatureSchemeVersion.JAR;
+
+    /**
+     * APK signature scheme v2.
+     * See https://source.android.com/docs/security/features/apksigning/v2.
+     */
+    public static final int VERSION_SIGNING_BLOCK_V2 = SignatureSchemeVersion.SIGNING_BLOCK_V2;
+
+    /**
+     * APK signature scheme v3.
+     * See https://source.android.com/docs/security/features/apksigning/v3.
+     */
+    public static final int VERSION_SIGNING_BLOCK_V3 = SignatureSchemeVersion.SIGNING_BLOCK_V3;
+
+    /**
+     * APK signature scheme v4.
+     * See https://source.android.com/docs/security/features/apksigning/v4.
+     */
+    public static final int VERSION_SIGNING_BLOCK_V4 = SignatureSchemeVersion.SIGNING_BLOCK_V4;
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = {"VERSION_"}, value = {
+            VERSION_JAR,
+            VERSION_SIGNING_BLOCK_V2,
+            VERSION_SIGNING_BLOCK_V3,
+            VERSION_SIGNING_BLOCK_V4,
+    })
+    public @interface AppSigningSchemeVersion {}
 
     @NonNull
-    private final PackageParser.SigningDetails mSigningDetails;
+    private final SigningDetails mSigningDetails;
 
     public SigningInfo() {
-        mSigningDetails = PackageParser.SigningDetails.UNKNOWN;
+        mSigningDetails = SigningDetails.UNKNOWN;
+    }
+
+    /**
+     * Creates a new instance of information used to sign the APK.
+     *
+     * @param schemeVersion version of signing schema.
+     * @param apkContentsSigners signing certificates.
+     * @param publicKeys for the signing certificates.
+     * @param signingCertificateHistory All signing certificates the package has proven it is
+     *                                  authorized to use.
+     *
+     * @see
+     * <a href="https://source.android.com/docs/security/features/apksigning#schemes">APK signing
+     * schemas</a>
+     */
+    @FlaggedApi(Flags.FLAG_ARCHIVING)
+    public SigningInfo(@SignatureSchemeVersion int schemeVersion,
+            @Nullable Collection<Signature> apkContentsSigners,
+            @Nullable Collection<PublicKey> publicKeys,
+            @Nullable Collection<Signature> signingCertificateHistory) {
+        if (schemeVersion <= 0 || apkContentsSigners == null) {
+            mSigningDetails = SigningDetails.UNKNOWN;
+            return;
+        }
+        Signature[] signatures = apkContentsSigners != null && !apkContentsSigners.isEmpty()
+                ? apkContentsSigners.toArray(new Signature[apkContentsSigners.size()])
+                : null;
+        Signature[] pastSignatures =
+                signingCertificateHistory != null && !signingCertificateHistory.isEmpty()
+                ? signingCertificateHistory.toArray(new Signature[signingCertificateHistory.size()])
+                : null;
+        if (Signature.areExactArraysMatch(signatures, pastSignatures)) {
+            pastSignatures = null;
+        }
+        ArraySet<PublicKey> keys =
+                publicKeys != null && !publicKeys.isEmpty() ? new ArraySet<>(publicKeys) : null;
+        mSigningDetails = new SigningDetails(signatures, schemeVersion, keys, pastSignatures);
     }
 
     /**
      * @hide only packagemanager should be populating this
      */
-    public SigningInfo(PackageParser.SigningDetails signingDetails) {
-        mSigningDetails = new PackageParser.SigningDetails(signingDetails);
+    public SigningInfo(SigningDetails signingDetails) {
+        mSigningDetails = new SigningDetails(signingDetails);
     }
 
     public SigningInfo(SigningInfo orig) {
-        mSigningDetails = new PackageParser.SigningDetails(orig.mSigningDetails);
+        mSigningDetails = new SigningDetails(orig.mSigningDetails);
     }
 
     private SigningInfo(Parcel source) {
-        mSigningDetails = PackageParser.SigningDetails.CREATOR.createFromParcel(source);
+        mSigningDetails = SigningDetails.CREATOR.createFromParcel(source);
     }
 
     /**
@@ -53,7 +134,8 @@ public final class SigningInfo implements Parcelable {
      * their identity is viewed as being the set of all signers, not just any one.
      */
     public boolean hasMultipleSigners() {
-        return mSigningDetails.signatures != null && mSigningDetails.signatures.length > 1;
+        return mSigningDetails.getSignatures() != null
+                && mSigningDetails.getSignatures().length > 1;
     }
 
     /**
@@ -65,16 +147,18 @@ public final class SigningInfo implements Parcelable {
      * signing history, since it could change to a new signing certificate at any time.
      */
     public boolean hasPastSigningCertificates() {
-        return mSigningDetails.signatures != null
-                && mSigningDetails.pastSigningCertificates != null;
+        return mSigningDetails.getPastSigningCertificates() != null
+                && mSigningDetails.getPastSigningCertificates().length > 0;
     }
 
     /**
      * Returns the signing certificates this package has proven it is authorized to use. This
      * includes both the signing certificate associated with the signer of the package and the past
-     * signing certificates it included as its proof of signing certificate rotation.  This method
-     * is the preferred replacement for the {@code GET_SIGNATURES} flag used with {@link
-     * PackageManager#getPackageInfo(String, int)}.  When determining if a package is signed by a
+     * signing certificates it included as its proof of signing certificate rotation.  Signing
+     * certificates are returned in the order of rotation with the original signing certificate at
+     * index 0, and the current signing certificate at the last index. This method is the preferred
+     * replacement for the {@code GET_SIGNATURES} flag used with {@link
+     * PackageManager#getPackageInfo(String, int)}. When determining if a package is signed by a
      * desired certificate, the returned array should be checked to determine if it is one of the
      * entries.
      *
@@ -93,11 +177,11 @@ public final class SigningInfo implements Parcelable {
         } else if (!hasPastSigningCertificates()) {
 
             // this package is only signed by one signer with no history, return it
-            return mSigningDetails.signatures;
+            return mSigningDetails.getSignatures();
         } else {
 
             // this package has provided proof of past signing certificates, include them
-            return mSigningDetails.pastSigningCertificates;
+            return mSigningDetails.getPastSigningCertificates();
         }
     }
 
@@ -111,7 +195,27 @@ public final class SigningInfo implements Parcelable {
      * </note>
      */
     public Signature[] getApkContentsSigners() {
-        return mSigningDetails.signatures;
+        return mSigningDetails.getSignatures();
+    }
+
+    /**
+     * Returns the version of signing schema used to sign the APK.
+     *
+     * @see
+     * <a href="https://source.android.com/docs/security/features/apksigning#schemes">APK signing
+     * schemas</a>
+     */
+    @FlaggedApi(Flags.FLAG_ARCHIVING)
+    public @SignatureSchemeVersion int getSchemeVersion() {
+        return mSigningDetails.getSignatureSchemeVersion();
+    }
+
+    /**
+     * Returns the public keys for the signing certificates.
+     */
+    @FlaggedApi(Flags.FLAG_ARCHIVING)
+    public @NonNull Collection<PublicKey> getPublicKeys() {
+        return mSigningDetails.getPublicKeys();
     }
 
     @Override
@@ -124,7 +228,22 @@ public final class SigningInfo implements Parcelable {
         mSigningDetails.writeToParcel(dest, parcelableFlags);
     }
 
-    public static final Parcelable.Creator<SigningInfo> CREATOR =
+    /**
+     *  @hide
+     */
+    @NonNull
+    public SigningDetails getSigningDetails() {
+        return mSigningDetails;
+    }
+
+    /**
+     * Returns true if the signing certificates in this and other match exactly.
+     */
+    public boolean signersMatchExactly(@NonNull SigningInfo other) {
+        return mSigningDetails.signaturesMatchExactly(other.mSigningDetails);
+    }
+
+    public static final @android.annotation.NonNull Parcelable.Creator<SigningInfo> CREATOR =
             new Parcelable.Creator<SigningInfo>() {
         @Override
         public SigningInfo createFromParcel(Parcel source) {

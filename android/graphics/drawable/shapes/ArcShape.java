@@ -20,6 +20,8 @@ import android.graphics.Canvas;
 import android.graphics.Outline;
 import android.graphics.Paint;
 
+import java.util.Objects;
+
 /**
  * Creates an arc shape. The arc shape starts at a specified angle and sweeps
  * clockwise, drawing slices of pie.
@@ -29,6 +31,7 @@ import android.graphics.Paint;
  * if you instead pass the ArcShape to a
  * {@link android.graphics.drawable.ShapeDrawable}.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class ArcShape extends RectShape {
     private final float mStartAngle;
     private final float mSweepAngle;
@@ -73,6 +76,27 @@ public class ArcShape extends RectShape {
     @Override
     public ArcShape clone() throws CloneNotSupportedException {
         return (ArcShape) super.clone();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        ArcShape arcShape = (ArcShape) o;
+        return Float.compare(arcShape.mStartAngle, mStartAngle) == 0
+            && Float.compare(arcShape.mSweepAngle, mSweepAngle) == 0;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), mStartAngle, mSweepAngle);
     }
 }
 

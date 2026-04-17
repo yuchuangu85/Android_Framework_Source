@@ -14,13 +14,16 @@
 
 package android.util;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Path;
+import android.os.Build;
 
 import dalvik.annotation.optimization.FastNative;
 
 /**
  * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class PathParser {
     static final String LOGTAG = PathParser.class.getSimpleName();
 
@@ -28,6 +31,7 @@ public class PathParser {
      * @param pathString The string representing a path, the same as "d" string in svg file.
      * @return the generated Path object.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static Path createPathFromPathData(String pathString) {
         if (pathString == null) {
             throw new IllegalArgumentException("Path string can not be null.");

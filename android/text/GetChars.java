@@ -21,6 +21,7 @@ package android.text;
  * getChars() method like the one in String that is faster than
  * calling charAt() multiple times.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface GetChars
 extends CharSequence
 {

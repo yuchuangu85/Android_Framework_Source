@@ -23,7 +23,7 @@ import android.os.Parcelable;
  * Enumeration for representing the tone values for use with PLAY TONE
  * proactive commands.
  *
- * {@hide}
+ * @hide
  */
 public enum Tone implements Parcelable {
     // Standard supervisory tones

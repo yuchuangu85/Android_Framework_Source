@@ -44,6 +44,7 @@ import android.text.Spanned;
  * @see IconMarginSpan for working with a {@link android.graphics.Bitmap} instead of
  * a {@link Drawable}.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class DrawableMarginSpan implements LeadingMarginSpan, LineHeightSpan {
     private static final int STANDARD_PAD_WIDTH = 0;
 
@@ -111,5 +112,26 @@ public class DrawableMarginSpan implements LeadingMarginSpan, LineHeightSpan {
                 fm.bottom += need;
             }
         }
+    }
+
+    @Override
+    public String toString() {
+        return "DrawableMarginSpan{drawable=" + mDrawable + ", padding=" + mPad + '}';
+    }
+
+    /**
+     * Returns the drawable used.
+     * @return a drawable
+     */
+    @NonNull public Drawable getDrawable() {
+        return mDrawable;
+    }
+
+    /**
+     * Returns a distance between the drawable and text in pixel.
+     * @return a distance pixel from the text
+     */
+    @Px public int getPadding() {
+        return mPad;
     }
 }

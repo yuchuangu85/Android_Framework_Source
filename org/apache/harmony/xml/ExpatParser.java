@@ -16,14 +16,6 @@
 
 package org.apache.harmony.xml;
 
-import dalvik.annotation.optimization.ReachabilitySensitive;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.Reader;
-import java.net.URI;
-import java.net.URL;
-import java.net.URLConnection;
-import libcore.io.IoUtils;
 import org.xml.sax.Attributes;
 import org.xml.sax.ContentHandler;
 import org.xml.sax.DTDHandler;
@@ -33,6 +25,18 @@ import org.xml.sax.Locator;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
 import org.xml.sax.ext.LexicalHandler;
+
+import android.compat.annotation.UnsupportedAppUsage;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
+import java.net.URI;
+import java.net.URL;
+import java.net.URLConnection;
+import libcore.io.IoUtils;
+
+import dalvik.annotation.optimization.ReachabilitySensitive;
 
 /**
  * Adapts SAX API to the Expat native XML parser. Not intended for reuse
@@ -56,6 +60,7 @@ class ExpatParser {
 
     private final Locator locator = new ExpatLocator();
 
+    @UnsupportedAppUsage
     private final ExpatReader xmlReader;
 
     private final String publicId;
@@ -63,6 +68,7 @@ class ExpatParser {
 
     private final String encoding;
 
+    @UnsupportedAppUsage
     private final ExpatAttributes attributes = new CurrentAttributes();
 
     private static final String OUTSIDE_START_ELEMENT
@@ -80,6 +86,7 @@ class ExpatParser {
     /**
      * Constructs a new parser with the specified encoding.
      */
+    @UnsupportedAppUsage
     /*package*/ ExpatParser(String encoding, ExpatReader xmlReader,
             boolean processNamespaces, String publicId, String systemId) {
         this.publicId = publicId;
@@ -261,7 +268,7 @@ class ExpatParser {
          * specify how to tell whether or not the systemId is a URL let alone
          * how to resolve it.
          *
-         * Other implementations do various insane things. We try to keep it
+         * Other implementations do various dangerous things. We try to keep it
          * simple: if the systemId parses as a URI and it's relative, we try to
          * resolve it against the parent document's systemId. If anything goes
          * wrong, we go with the original systemId. If crazybob had designed
@@ -425,6 +432,7 @@ class ExpatParser {
      * @param length of characters to use
      * @throws SAXException if an error occurs during parsing
      */
+    @UnsupportedAppUsage
     /*package*/ void append(char[] xml, int offset, int length)
             throws SAXException {
         try {
@@ -457,6 +465,7 @@ class ExpatParser {
      * @param length of bytes to use
      * @throws SAXException if an error occurs during parsing
      */
+    @UnsupportedAppUsage
     /*package*/ void append(byte[] xml, int offset, int length)
             throws SAXException {
         try {
@@ -542,6 +551,7 @@ class ExpatParser {
      *
      * @throws SAXException if the xml is incomplete
      */
+    @UnsupportedAppUsage
     /*package*/ void finish() throws SAXException {
         try {
             appendString(this.pointer, "", true);
@@ -602,6 +612,7 @@ class ExpatParser {
      * Clones the current attributes so they can be used outside of
      * startElement().
      */
+    @UnsupportedAppUsage
     /*package*/ Attributes cloneAttributes() {
         if (!inStartElement) {
             throw new IllegalStateException(OUTSIDE_START_ELEMENT);
@@ -770,6 +781,7 @@ class ExpatParser {
      */
     private static class EntityParser extends ExpatParser {
 
+        @UnsupportedAppUsage
         private int depth = 0;
 
         private EntityParser(String encoding, ExpatReader xmlReader,

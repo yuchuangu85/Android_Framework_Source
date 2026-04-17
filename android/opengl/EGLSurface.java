@@ -22,7 +22,7 @@ package android.opengl;
  *
  */
 public class EGLSurface extends EGLObjectHandle {
-    private EGLSurface(long handle) {
+    EGLSurface(long handle) {
         super(handle);
     }
 

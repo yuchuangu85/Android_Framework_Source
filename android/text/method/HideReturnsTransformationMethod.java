@@ -16,11 +16,15 @@
 
 package android.text.method;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 /**
  * This transformation method causes any carriage return characters (\r)
  * to be hidden by displaying them as zero-width non-breaking space
  * characters (\uFEFF).
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class HideReturnsTransformationMethod
 extends ReplacementTransformationMethod {
     private static char[] ORIGINAL = new char[] { '\r' };
@@ -48,5 +52,6 @@ extends ReplacementTransformationMethod {
         return sInstance;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private static HideReturnsTransformationMethod sInstance;
 }

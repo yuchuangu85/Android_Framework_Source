@@ -22,6 +22,7 @@ package android.text;
  * see {@link Spannable} for mutable markup and {@link Editable} for
  * mutable text.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface Spanned
 extends CharSequence
 {

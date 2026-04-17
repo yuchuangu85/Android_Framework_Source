@@ -17,12 +17,14 @@
 package android.content.pm.dex;
 
 import static android.content.pm.PackageManager.INSTALL_FAILED_BAD_DEX_METADATA;
-import static android.content.pm.PackageParser.APK_FILE_EXTENSION;
+import static android.content.pm.parsing.ApkLiteParseUtils.APK_FILE_EXTENSION;
 
-import android.content.pm.PackageParser;
-import android.content.pm.PackageParser.PackageLite;
-import android.content.pm.PackageParser.PackageParserException;
+import android.content.pm.parsing.ApkLiteParseUtils;
+import android.content.pm.parsing.PackageLite;
+import android.content.pm.parsing.result.ParseInput;
+import android.content.pm.parsing.result.ParseResult;
 import android.util.ArrayMap;
+import android.util.Log;
 import android.util.jar.StrictJarFile;
 
 import java.io.File;
@@ -40,14 +42,13 @@ import java.util.Map;
  * @hide
  */
 public class DexMetadataHelper {
+    public static final String TAG = "DexMetadataHelper";
+    /** $> adb shell 'setprop log.tag.DexMetadataHelper VERBOSE' */
+    public static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
+
     private static final String DEX_METADATA_FILE_EXTENSION = ".dm";
 
     private DexMetadataHelper() {}
-
-    /** Return true if the given file is a dex metadata file. */
-    public static boolean isDexMetadataFile(File file) {
-        return isDexMetadataPath(file.getName());
-    }
 
     /** Return true if the given path is a dex metadata path. */
     private static boolean isDexMetadataPath(String path) {
@@ -67,37 +68,13 @@ public class DexMetadataHelper {
     }
 
     /**
-     * Search for the dex metadata file associated with the given target file.
-     * If it exists, the method returns the dex metadata file; otherwise it returns null.
-     *
-     * Note that this performs a loose matching suitable to be used in the InstallerSession logic.
-     * i.e. the method will attempt to match the {@code dmFile} regardless of {@code targetFile}
-     * extension (e.g. 'foo.dm' will match 'foo' or 'foo.apk').
-     */
-    public static File findDexMetadataForFile(File targetFile) {
-        String dexMetadataPath = buildDexMetadataPathForFile(targetFile);
-        File dexMetadataFile = new File(dexMetadataPath);
-        return dexMetadataFile.exists() ? dexMetadataFile : null;
-    }
-
-    /**
-     * Return the dex metadata files for the given package as a map
-     * [code path -> dex metadata path].
-     *
-     * NOTE: involves I/O checks.
-     */
-    public static Map<String, String> getPackageDexMetadata(PackageParser.Package pkg) {
-        return buildPackageApkToDexMetadataMap(pkg.getAllCodePaths());
-    }
-
-    /**
      * Return the dex metadata files for the given package as a map
      * [code path -> dex metadata path].
      *
      * NOTE: involves I/O checks.
      */
     private static Map<String, String> getPackageDexMetadata(PackageLite pkg) {
-        return buildPackageApkToDexMetadataMap(pkg.getAllCodePaths());
+        return buildPackageApkToDexMetadataMap(pkg.getAllApkPaths());
     }
 
     /**
@@ -113,7 +90,7 @@ public class DexMetadataHelper {
      * This should only be used for code paths extracted from a package structure after the naming
      * was enforced in the installer.
      */
-    private static Map<String, String> buildPackageApkToDexMetadataMap(
+    public static Map<String, String> buildPackageApkToDexMetadataMap(
             List<String> codePaths) {
         ArrayMap<String, String> result = new ArrayMap<>();
         for (int i = codePaths.size() - 1; i >= 0; i--) {
@@ -135,7 +112,7 @@ public class DexMetadataHelper {
      * @throws IllegalArgumentException if the code path is not an .apk.
      */
     public static String buildDexMetadataPathForApk(String codePath) {
-        if (!PackageParser.isApkPath(codePath)) {
+        if (!ApkLiteParseUtils.isApkPath(codePath)) {
             throw new IllegalStateException(
                     "Corrupted package. Code path is not an apk " + codePath);
         }
@@ -150,37 +127,30 @@ public class DexMetadataHelper {
      * extension (e.g. 'foo.dm' will match 'foo' or 'foo.apk').
      */
     private static String buildDexMetadataPathForFile(File targetFile) {
-        return PackageParser.isApkFile(targetFile)
+        return ApkLiteParseUtils.isApkFile(targetFile)
                 ? buildDexMetadataPathForApk(targetFile.getPath())
                 : targetFile.getPath() + DEX_METADATA_FILE_EXTENSION;
     }
 
     /**
-     * Validate the dex metadata files installed for the given package.
-     *
-     * @throws PackageParserException in case of errors.
-     */
-    public static void validatePackageDexMetadata(PackageParser.Package pkg)
-            throws PackageParserException {
-        Collection<String> apkToDexMetadataList = getPackageDexMetadata(pkg).values();
-        for (String dexMetadata : apkToDexMetadataList) {
-            validateDexMetadataFile(dexMetadata);
-        }
-    }
-
-    /**
      * Validate that the given file is a dex metadata archive.
-     * This is just a sanity validation that the file is a zip archive.
-     *
-     * @throws PackageParserException if the file is not a .dm file.
+     * This is just a validation that the file is a zip archive that contains a manifest.json
+     * with the package name and version code.
      */
-    private static void validateDexMetadataFile(String dmaPath) throws PackageParserException {
+    public static ParseResult validateDexMetadataFile(ParseInput input, String dmaPath,
+            String packageName, long versionCode) {
         StrictJarFile jarFile = null;
+
+        if (DEBUG) {
+            Log.v(TAG, "validateDexMetadataFile: " + dmaPath + ", " + packageName +
+                    ", " + versionCode);
+        }
+
         try {
             jarFile = new StrictJarFile(dmaPath, false, false);
+            return input.success(null);
         } catch (IOException e) {
-            throw new PackageParserException(INSTALL_FAILED_BAD_DEX_METADATA,
-                    "Error opening " + dmaPath, e);
+            return input.error(INSTALL_FAILED_BAD_DEX_METADATA, "Error opening " + dmaPath, e);
         } finally {
             if (jarFile != null) {
                 try {
@@ -196,13 +166,13 @@ public class DexMetadataHelper {
      * (for any foo.dm there should be either a 'foo' of a 'foo.apk' file).
      * If that's not the case it throws {@code IllegalStateException}.
      *
-     * This is used to perform a basic sanity check during adb install commands.
+     * This is used to perform a basic check during adb install commands.
      * (The installer does not support stand alone .dm files)
      */
     public static void validateDexPaths(String[] paths) {
         ArrayList<String> apks = new ArrayList<>();
         for (int i = 0; i < paths.length; i++) {
-            if (PackageParser.isApkPath(paths[i])) {
+            if (ApkLiteParseUtils.isApkPath(paths[i])) {
                 apks.add(paths[i]);
             }
         }

@@ -16,9 +16,8 @@
 
 package com.android.internal.view.menu;
 
-import com.android.internal.view.menu.MenuView.ItemView;
-
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
@@ -26,6 +25,7 @@ import android.content.res.ColorStateList;
 import android.content.res.Resources;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.util.Log;
 import android.view.ActionProvider;
 import android.view.ContextMenu.ContextMenuInfo;
@@ -37,6 +37,8 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewDebug;
 import android.widget.LinearLayout;
+
+import com.android.internal.view.menu.MenuView.ItemView;
 
 /**
  * @hide
@@ -67,6 +69,7 @@ public final class MenuItemImpl implements MenuItem {
      * needed (if the Drawable isn't already obtained--only one of the two is
      * needed).
      */
+    @UnsupportedAppUsage
     private int mIconResId = NO_ICON;
 
     private ColorStateList mIconTintList = null;
@@ -139,6 +142,7 @@ public final class MenuItemImpl implements MenuItem {
      *
      * @return true if the invocation was handled, false otherwise
      */
+    @UnsupportedAppUsage
     public boolean invoke() {
         if (mClickListener != null &&
             mClickListener.onMenuItemClick(this)) {
@@ -565,6 +569,7 @@ public final class MenuItemImpl implements MenuItem {
         return this;
     }
 
+    @UnsupportedAppUsage
     public void setExclusiveCheckable(boolean exclusive) {
         mFlags = (mFlags & ~EXCLUSIVE) | (exclusive ? EXCLUSIVE : 0);
     }
@@ -638,6 +643,7 @@ public final class MenuItemImpl implements MenuItem {
         return mTitle != null ? mTitle.toString() : null;
     }
 
+    @UnsupportedAppUsage
     void setMenuInfo(ContextMenuInfo menuInfo) {
         mMenuInfo = menuInfo;
     }
@@ -657,14 +663,17 @@ public final class MenuItemImpl implements MenuItem {
         return mMenu.getOptionalIconsVisible();
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isActionButton() {
         return (mFlags & IS_ACTION) == IS_ACTION;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean requestsActionButton() {
         return (mShowAsAction & SHOW_AS_ACTION_IF_ROOM) == SHOW_AS_ACTION_IF_ROOM;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean requiresActionButton() {
         return (mShowAsAction & SHOW_AS_ACTION_ALWAYS) == SHOW_AS_ACTION_ALWAYS;
     }
@@ -806,6 +815,7 @@ public final class MenuItemImpl implements MenuItem {
         return false;
     }
 
+    @UnsupportedAppUsage
     public void setActionViewExpanded(boolean isExpanded) {
         mIsActionViewExpanded = isExpanded;
         mMenu.onItemsChanged(false);

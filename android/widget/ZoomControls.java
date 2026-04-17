@@ -17,6 +17,7 @@
 package android.widget;
 
 import android.annotation.Widget;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.util.AttributeSet;
 import android.view.LayoutInflater;
@@ -29,11 +30,17 @@ import com.android.internal.R;
 
 /**
  * The {@code ZoomControls} class displays a simple set of controls used for zooming and
- * provides callbacks to register for events. */
+ * provides callbacks to register for events.
+ * @deprecated This functionality and UI is better handled with custom views and layouts
+ * rather than a dedicated zoom-control widget
+ */
+@Deprecated
 @Widget
 public class ZoomControls extends LinearLayout {
 
+    @UnsupportedAppUsage
     private final ZoomButton mZoomIn;
+    @UnsupportedAppUsage
     private final ZoomButton mZoomOut;
         
     public ZoomControls(Context context) {

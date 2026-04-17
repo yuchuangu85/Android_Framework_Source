@@ -27,6 +27,7 @@ import android.graphics.Rect;
  * Drawable subclass that wraps a Picture, allowing the picture to be used
  * wherever a Drawable is supported.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class PictureDrawable extends Drawable {
 
     private Picture mPicture;

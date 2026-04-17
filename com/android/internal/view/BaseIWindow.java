@@ -16,40 +16,61 @@
 
 package com.android.internal.view;
 
-import android.graphics.Rect;
-import android.hardware.input.InputManager;
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
-import android.util.MergedConfiguration;
-import android.view.DisplayCutout;
 import android.view.DragEvent;
-import android.view.IWindow;
+import android.view.IScrollCaptureResponseListener;
 import android.view.IWindowSession;
-import android.view.PointerIcon;
+import android.view.InsetsSourceControl;
+import android.view.InsetsState;
+import android.view.ScrollCaptureResponse;
+import android.view.WindowInsets.Type.InsetsType;
+import android.view.WindowRelayoutResult;
+import android.view.inputmethod.ImeTracker;
 
 import com.android.internal.os.IResultReceiver;
 
-public class BaseIWindow extends IWindow.Stub {
+import java.io.IOException;
+
+public class BaseIWindow extends WindowClientTransactionHandler {
+
+    @UnsupportedAppUsage(maxTargetSdk = android.os.Build.VERSION_CODES.P)
+    public BaseIWindow() {}
+
     private IWindowSession mSession;
-    public int mSeq;
+
+    private int mLastSeqId = -1;
 
     public void setSession(IWindowSession session) {
         mSession = session;
     }
 
     @Override
-    public void resized(Rect frame, Rect overscanInsets, Rect contentInsets, Rect visibleInsets,
-            Rect stableInsets, Rect outsets, boolean reportDraw,
-            MergedConfiguration mergedConfiguration, Rect backDropFrame, boolean forceLayout,
-            boolean alwaysConsumeNavBar, int displayId,
-            DisplayCutout.ParcelableWrapper displayCutout) {
-        if (reportDraw) {
+    public void resized(WindowRelayoutResult layout, boolean reportDraw, boolean forceLayout,
+            int displayId, boolean syncWithBuffers, boolean dragResizing) {
+        if (layout.syncSeqId > mLastSeqId || reportDraw) {
+            mLastSeqId = layout.syncSeqId;
             try {
-                mSession.finishDrawing(this);
+                mSession.finishDrawing(this, null /* postDrawTransaction */, layout.syncSeqId);
             } catch (RemoteException e) {
             }
         }
+    }
+
+    @Override
+    public void insetsControlChanged(InsetsState insetsState,
+            InsetsSourceControl.Array activeControls) {
+    }
+
+    @Override
+    public void showInsets(@InsetsType int types, @Nullable ImeTracker.Token statsToken) {
+    }
+
+    @Override
+    public void hideInsets(@InsetsType int types, @Nullable ImeTracker.Token statsToken) {
     }
 
     @Override
@@ -57,7 +78,7 @@ public class BaseIWindow extends IWindow.Stub {
     }
 
     @Override
-    public void dispatchAppVisibility(boolean visible) {
+    public void dispatchAppVisibility(boolean visible, int seqId) {
     }
 
     @Override
@@ -65,11 +86,14 @@ public class BaseIWindow extends IWindow.Stub {
     }
 
     @Override
-    public void windowFocusChanged(boolean hasFocus, boolean touchEnabled) {
-    }
-
-    @Override
     public void executeCommand(String command, String parameters, ParcelFileDescriptor out) {
+        if (out != null) {
+            try {
+                out.closeWithError("Unsupported command " + command);
+            } catch (IOException e) {
+                // Ignore
+            }
+        }
     }
 
     @Override
@@ -77,13 +101,7 @@ public class BaseIWindow extends IWindow.Stub {
     }
 
     @Override
-    public void dispatchWallpaperOffsets(float x, float y, float xStep, float yStep, boolean sync) {
-        if (sync) {
-            try {
-                mSession.wallpaperOffsetsComplete(asBinder());
-            } catch (RemoteException e) {
-            }
-        }
+    public void dispatchWallpaperOffsets(float x, float y, float xStep, float yStep, float zoom) {
     }
 
     @Override
@@ -97,25 +115,7 @@ public class BaseIWindow extends IWindow.Stub {
     }
 
     @Override
-    public void updatePointerIcon(float x, float y) {
-        InputManager.getInstance().setPointerIconType(PointerIcon.TYPE_NOT_SPECIFIED);
-    }
-
-    @Override
-    public void dispatchSystemUiVisibilityChanged(int seq, int globalUi,
-            int localValue, int localChanges) {
-        mSeq = seq;
-    }
-
-    @Override
-    public void dispatchWallpaperCommand(String action, int x, int y,
-            int z, Bundle extras, boolean sync) {
-        if (sync) {
-            try {
-                mSession.wallpaperCommandComplete(asBinder(), null);
-            } catch (RemoteException e) {
-            }
-        }
+    public void dispatchWallpaperCommand(String action, int x, int y, int z, Bundle extras) {
     }
 
     @Override
@@ -127,6 +127,30 @@ public class BaseIWindow extends IWindow.Stub {
     }
 
     @Override
-    public void dispatchPointerCaptureChanged(boolean hasCapture) {
+    public void requestScrollCapture(IScrollCaptureResponseListener listener) {
+        try {
+            listener.onScrollCaptureResponse(
+                    new ScrollCaptureResponse.Builder().setDescription("Not Implemented").build());
+
+        } catch (RemoteException ex) {
+            // ignore
+        }
+    }
+
+    @Override
+    public void dumpWindow(ParcelFileDescriptor pfd) {
+
+    }
+
+    @Override
+    public void requestHardwareRendererOutputDisabled(boolean disabled) {
+    }
+
+    @Override
+    public void requestViewAnimationsDisabled(boolean disabled) {
+    }
+
+    @Override
+    public void dispatchScrollToTop(int x) {
     }
 }

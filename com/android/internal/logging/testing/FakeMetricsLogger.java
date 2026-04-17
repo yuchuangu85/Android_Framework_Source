@@ -12,12 +12,13 @@ import java.util.Queue;
  *
  * @hide.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class FakeMetricsLogger extends MetricsLogger {
     private Queue<LogMaker> logs = new LinkedList<>();
 
     @Override
-    protected void saveLog(Object[] rep) {
-        logs.offer(new LogMaker(rep));
+    protected void saveLog(LogMaker log) {
+        logs.offer(log);
     }
 
     public Queue<LogMaker> getLogs() {

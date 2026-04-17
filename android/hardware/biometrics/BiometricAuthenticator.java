@@ -16,11 +16,13 @@
 
 package android.hardware.biometrics;
 
-import android.annotation.CallbackExecutor;
-import android.annotation.NonNull;
+import android.annotation.IntDef;
+import android.hardware.biometrics.BiometricPrompt.AuthenticationResultType;
 import android.os.CancellationSignal;
 import android.os.Parcelable;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.concurrent.Executor;
 
 /**
@@ -30,10 +32,100 @@ import java.util.concurrent.Executor;
 public interface BiometricAuthenticator {
 
     /**
+     * No biometric methods or nothing has been enrolled.
+     * Move/expose these in BiometricPrompt if we ever want to allow applications to "denylist"
+     * modalities when calling authenticate().
+     * @hide
+     */
+    int TYPE_NONE = 0;
+
+    /**
+     * Constant representing credential (PIN, pattern, or password).
+     * @hide
+     */
+    int TYPE_CREDENTIAL = 1 << 0;
+
+    /**
+     * Constant representing fingerprint.
+     * @hide
+     */
+    int TYPE_FINGERPRINT = 1 << 1;
+
+    /**
+     * Constant representing iris.
+     * @hide
+     */
+    int TYPE_IRIS = 1 << 2;
+
+    /**
+     * Constant representing face.
+     * @hide
+     */
+    int TYPE_FACE = 1 << 3;
+
+    /**
+     * @hide
+     */
+    int TYPE_ANY_BIOMETRIC = TYPE_FINGERPRINT | TYPE_IRIS | TYPE_FACE;
+
+    @IntDef(flag = true, value = {
+            TYPE_NONE,
+            TYPE_CREDENTIAL,
+            TYPE_FINGERPRINT,
+            TYPE_IRIS,
+            TYPE_FACE
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    @interface Modality {}
+
+    /**
      * Container for biometric data
      * @hide
      */
-    abstract class BiometricIdentifier implements Parcelable {}
+    abstract class Identifier implements Parcelable {
+        private CharSequence mName;
+        private int mBiometricId;
+        private long mDeviceId; // physical device this is associated with
+
+        public Identifier() {}
+
+        public Identifier(CharSequence name, int biometricId, long deviceId) {
+            mName = name;
+            mBiometricId = biometricId;
+            mDeviceId = deviceId;
+        }
+
+        /**
+         * Gets the human-readable name for the given biometric.
+         * @return name given to the biometric
+         */
+        public CharSequence getName() {
+            return mName;
+        }
+
+        /**
+         * Gets the device-specific biometric id.  Used by Settings to map a name to a specific
+         * biometric template.
+         */
+        public int getBiometricId() {
+            return mBiometricId;
+        }
+
+        /**
+         * Device this biometric belongs to.
+         */
+        public long getDeviceId() {
+            return mDeviceId;
+        }
+
+        public void setName(CharSequence name) {
+            mName = name;
+        }
+
+        public void setDeviceId(long deviceId) {
+            mDeviceId = deviceId;
+        }
+    }
 
     /**
      * Container for callback data from {@link BiometricAuthenticator#authenticate(
@@ -42,8 +134,9 @@ public interface BiometricAuthenticator {
      * AuthenticationCallback)}
      */
     class AuthenticationResult {
-        private BiometricIdentifier mIdentifier;
+        private Identifier mIdentifier;
         private CryptoObject mCryptoObject;
+        private @AuthenticationResultType int mAuthenticationType;
         private int mUserId;
 
         /**
@@ -54,24 +147,38 @@ public interface BiometricAuthenticator {
         /**
          * Authentication result
          * @param crypto
+         * @param authenticationType
          * @param identifier
          * @param userId
          * @hide
          */
-        public AuthenticationResult(CryptoObject crypto, BiometricIdentifier identifier,
+        public AuthenticationResult(CryptoObject crypto,
+                @AuthenticationResultType int authenticationType, Identifier identifier,
                 int userId) {
             mCryptoObject = crypto;
+            mAuthenticationType = authenticationType;
             mIdentifier = identifier;
             mUserId = userId;
         }
 
         /**
-         * Obtain the crypto object associated with this transaction
-         * @return crypto object provided to {@link BiometricAuthenticator#authenticate(
-         * CryptoObject, CancellationSignal, Executor, AuthenticationCallback)}
+         * Provides the crypto object associated with this transaction.
+         * @return The crypto object provided to {@link BiometricPrompt#authenticate(
+         * BiometricPrompt.CryptoObject, CancellationSignal, Executor,
+         * BiometricPrompt.AuthenticationCallback)}
          */
         public CryptoObject getCryptoObject() {
             return mCryptoObject;
+        }
+
+        /**
+         * Provides the type of authentication (e.g. device credential or biometric) that was
+         * requested from and successfully provided by the user.
+         *
+         * @return An integer value representing the authentication method used.
+         */
+        public @AuthenticationResultType int getAuthenticationType() {
+            return mAuthenticationType;
         }
 
         /**
@@ -80,7 +187,7 @@ public interface BiometricAuthenticator {
          * operations.
          * @hide
          */
-        public BiometricIdentifier getId() {
+        public Identifier getId() {
             return mIdentifier;
         }
 
@@ -118,12 +225,6 @@ public interface BiometricAuthenticator {
         public void onAuthenticationHelp(int helpCode, CharSequence helpString) {}
 
         /**
-         * Called when a biometric is recognized.
-         * @param result An object containing authentication-related data
-         */
-        public void onAuthenticationSucceeded(AuthenticationResult result) {}
-
-        /**
          * Called when a biometric is valid but not recognized.
          */
         public void onAuthenticationFailed() {}
@@ -133,52 +234,5 @@ public interface BiometricAuthenticator {
          * @hide
          */
         public void onAuthenticationAcquired(int acquireInfo) {}
-    };
-
-    /**
-     * This call warms up the hardware and starts scanning for valid biometrics. It terminates
-     * when {@link AuthenticationCallback#onAuthenticationError(int,
-     * CharSequence)} is called or when {@link AuthenticationCallback#onAuthenticationSucceeded(
-     * AuthenticationResult)} is called, at which point the crypto object becomes invalid. This
-     * operation can be canceled by using the provided cancel object. The application wil receive
-     * authentication errors through {@link AuthenticationCallback}. Calling
-     * {@link BiometricAuthenticator#authenticate(CryptoObject, CancellationSignal, Executor,
-     * AuthenticationCallback)} while an existing authentication attempt is occurring will stop
-     * the previous client and start a new authentication. The interrupted client will receive a
-     * cancelled notification through {@link AuthenticationCallback#onAuthenticationError(int,
-     * CharSequence)}.
-     *
-     * @throws IllegalArgumentException If any of the arguments are null
-     *
-     * @param crypto Object associated with the call
-     * @param cancel An object that can be used to cancel authentication
-     * @param executor An executor to handle callback events
-     * @param callback An object to receive authentication events
-     */
-    void authenticate(@NonNull CryptoObject crypto,
-            @NonNull CancellationSignal cancel,
-            @NonNull @CallbackExecutor Executor executor,
-            @NonNull AuthenticationCallback callback);
-
-    /**
-     * This call warms up the hardware and starts scanning for valid biometrics. It terminates
-     * when {@link AuthenticationCallback#onAuthenticationError(int,
-     * CharSequence)} is called or when {@link AuthenticationCallback#onAuthenticationSucceeded(
-     * AuthenticationResult)} is called. This operation can be canceled by using the provided cancel
-     * object. The application wil receive authentication errors through
-     * {@link AuthenticationCallback}. Calling {@link BiometricAuthenticator#authenticate(
-     * CryptoObject, CancellationSignal, Executor, AuthenticationCallback)} while an existing
-     * authentication attempt is occurring will stop the previous client and start a new
-     * authentication. The interrupted client will receive a cancelled notification through
-     * {@link AuthenticationCallback#onAuthenticationError(int, CharSequence)}.
-     *
-     * @throws IllegalArgumentException If any of the arguments are null
-     *
-     * @param cancel An object that can be used to cancel authentication
-     * @param executor An executor to handle callback events
-     * @param callback An object to receive authentication events
-     */
-    void authenticate(@NonNull CancellationSignal cancel,
-            @NonNull @CallbackExecutor Executor executor,
-            @NonNull AuthenticationCallback callback);
+    }
 }

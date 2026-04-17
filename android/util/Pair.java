@@ -16,6 +16,8 @@
 
 package android.util;
 
+import android.annotation.Nullable;
+
 import java.util.Objects;
 
 /**
@@ -23,6 +25,7 @@ import java.util.Objects;
  * implementation of equals(), returning true if equals() is true on each of the contained
  * objects.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class Pair<F, S> {
     public final F first;
     public final S second;
@@ -47,7 +50,7 @@ public class Pair<F, S> {
      *         equal
      */
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (!(o instanceof Pair)) {
             return false;
         }

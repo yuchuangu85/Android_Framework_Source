@@ -16,15 +16,12 @@
 package android.accounts;
 
 import android.app.Activity;
-import android.app.ActivityManager;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
-import android.os.IBinder;
 import android.os.Parcelable;
-import android.os.RemoteException;
 import android.os.Process;
 import android.os.UserHandle;
 import android.util.Log;
@@ -36,6 +33,7 @@ import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
+
 import com.android.internal.R;
 
 import java.util.HashMap;
@@ -59,9 +57,12 @@ public class ChooseAccountActivity extends Activity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getWindow().addSystemFlags(
+                android.view.WindowManager.LayoutParams
+                        .SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS);
         mAccounts = getIntent().getParcelableArrayExtra(AccountManager.KEY_ACCOUNTS);
         mAccountManagerResponse =
-                getIntent().getParcelableExtra(AccountManager.KEY_ACCOUNT_MANAGER_RESPONSE);
+                getIntent().getParcelableExtra(AccountManager.KEY_ACCOUNT_MANAGER_RESPONSE, android.accounts.AccountManagerResponse.class);
 
         // KEY_ACCOUNTS is a required parameter
         if (mAccounts == null) {
@@ -70,15 +71,8 @@ public class ChooseAccountActivity extends Activity {
             return;
         }
 
-        try {
-            IBinder activityToken = getActivityToken();
-            mCallingUid = ActivityManager.getService().getLaunchedFromUid(activityToken);
-            mCallingPackage = ActivityManager.getService().getLaunchedFromPackage(
-                    activityToken);
-        } catch (RemoteException re) {
-            // Couldn't figure out caller details
-            Log.w(getClass().getSimpleName(), "Unable to get caller identity \n" + re);
-        }
+        mCallingUid = getLaunchedFromUid();
+        mCallingPackage = getLaunchedFromPackage();
 
         if (UserHandle.isSameApp(mCallingUid, Process.SYSTEM_UID) &&
             getIntent().getStringExtra(AccountManager.KEY_ANDROID_PACKAGE_NAME) != null) {
@@ -154,7 +148,7 @@ public class ChooseAccountActivity extends Activity {
             am.setAccountVisibility(account, mCallingPackage,
                 AccountManager.VISIBILITY_USER_MANAGED_VISIBLE);
         }
-        Log.d(TAG, "selected account " + account);
+        Log.d(TAG, "selected account " + account.toSafeString());
         Bundle bundle = new Bundle();
         bundle.putString(AccountManager.KEY_ACCOUNT_NAME, account.name);
         bundle.putString(AccountManager.KEY_ACCOUNT_TYPE, account.type);

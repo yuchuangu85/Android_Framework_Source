@@ -21,6 +21,7 @@ package android.text;
  * markup objects can be attached and detached.
  * For mutable text, see {@link SpannableStringBuilder}.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class SpannableString
 extends SpannableStringInternal
 implements CharSequence, GetChars, Spannable

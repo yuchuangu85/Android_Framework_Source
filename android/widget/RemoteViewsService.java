@@ -18,7 +18,9 @@ package android.widget;
 
 import android.app.Service;
 import android.content.Intent;
+import android.content.Intent.FilterComparison;
 import android.os.IBinder;
+import android.os.Parcel;
 
 import com.android.internal.widget.IRemoteViewsFactory;
 
@@ -38,8 +40,8 @@ public abstract class RemoteViewsService extends Service {
     // reclaimed), the references to the factories that are created need to be stored and used when
     // the service is restarted (in response to user input for example).  When the process is
     // destroyed, so is this static cache of RemoteViewsFactories.
-    private static final HashMap<Intent.FilterComparison, RemoteViewsFactory> sRemoteViewFactories =
-            new HashMap<Intent.FilterComparison, RemoteViewsFactory>();
+    private static final HashMap<FilterComparison, RemoteViewsFactoryAdapter> sFactoriesCache =
+            new HashMap<>();
     private static final Object sLock = new Object();
 
     /**
@@ -123,6 +125,53 @@ public abstract class RemoteViewsService extends Service {
          * @return True if the same id always refers to the same object.
          */
         public boolean hasStableIds();
+
+        /**
+         * @hide
+         */
+        default RemoteViews.RemoteCollectionItems getRemoteCollectionItems(int capSize,
+                int capBitmapSize) {
+            Parcel capSizeTestParcel = Parcel.obtain();
+            // restore allowSquashing to reduce the noise in error messages
+            boolean prevAllowSquashing = capSizeTestParcel.allowSquashing();
+
+            try {
+                RemoteViews.RemoteCollectionItems.Builder itemsBuilder =
+                        new RemoteViews.RemoteCollectionItems.Builder();
+                RemoteViews.BitmapCache testBitmapCache = null;
+
+                itemsBuilder.setHasStableIds(hasStableIds());
+                final int numOfEntries = getCount();
+
+                for (int i = 0; i < numOfEntries; i++) {
+                    final long currentItemId = getItemId(i);
+                    final RemoteViews currentView = getViewAt(i);
+                    if (currentView == null) {
+                        itemsBuilder.setHasLegacyNullItems(true);
+                        break;
+                    }
+                    currentView.writeToParcel(capSizeTestParcel, 0);
+                    if (capSizeTestParcel.dataSize() > capSize) {
+                        break;
+                    }
+                    if (testBitmapCache == null) {
+                        testBitmapCache = new RemoteViews.BitmapCache(currentView.getBitmapCache());
+                    } else {
+                        testBitmapCache.mergeWithCache(currentView.getBitmapCache());
+                    }
+                    if (testBitmapCache.getBitmapMemory() >= capBitmapSize) {
+                        break;
+                    }
+
+                    itemsBuilder.addItem(currentItemId, currentView);
+                }
+                return itemsBuilder.build();
+            } finally {
+                capSizeTestParcel.restoreAllowSquashing(prevAllowSquashing);
+                // Recycle the parcel
+                capSizeTestParcel.recycle();
+            }
+        }
     }
 
     /**
@@ -130,9 +179,9 @@ public abstract class RemoteViewsService extends Service {
      * public RemoteViewsFactory interface.
      */
     private static class RemoteViewsFactoryAdapter extends IRemoteViewsFactory.Stub {
-        public RemoteViewsFactoryAdapter(RemoteViewsFactory factory, boolean isCreated) {
+        RemoteViewsFactoryAdapter(RemoteViewsFactory factory) {
             mFactory = factory;
-            mIsCreated = isCreated;
+            mIsDataUpdatePending = true;
         }
         public synchronized boolean isCreated() {
             return mIsCreated;
@@ -163,7 +212,7 @@ public abstract class RemoteViewsService extends Service {
             try {
                 rv = mFactory.getViewAt(position);
                 if (rv != null) {
-                    rv.setIsWidgetCollectionChild(true);
+                    rv.addFlags(RemoteViews.FLAG_WIDGET_IS_COLLECTION_CHILD);
                 }
             } catch (Exception ex) {
                 Thread t = Thread.currentThread();
@@ -212,41 +261,55 @@ public abstract class RemoteViewsService extends Service {
             return hasStableIds;
         }
         public void onDestroy(Intent intent) {
+            RemoteViewsFactoryAdapter adapter;
             synchronized (sLock) {
-                Intent.FilterComparison fc = new Intent.FilterComparison(intent);
-                if (RemoteViewsService.sRemoteViewFactories.containsKey(fc)) {
-                    RemoteViewsFactory factory = RemoteViewsService.sRemoteViewFactories.get(fc);
-                    try {
-                        factory.onDestroy();
-                    } catch (Exception ex) {
-                        Thread t = Thread.currentThread();
-                        Thread.getDefaultUncaughtExceptionHandler().uncaughtException(t, ex);
-                    }
-                    RemoteViewsService.sRemoteViewFactories.remove(fc);
+                adapter = sFactoriesCache.remove(new FilterComparison(intent));
+            }
+            if (adapter != null) {
+                try {
+                    adapter.mFactory.onDestroy();
+                } catch (Exception ex) {
+                    Thread t = Thread.currentThread();
+                    Thread.getDefaultUncaughtExceptionHandler().uncaughtException(t, ex);
                 }
             }
         }
 
-        private RemoteViewsFactory mFactory;
+        @Override
+        public RemoteViews.RemoteCollectionItems getRemoteCollectionItems(int capSize,
+                int capBitmapSize, boolean invalidateData) {
+            RemoteViews.RemoteCollectionItems items = new RemoteViews.RemoteCollectionItems
+                    .Builder().build();
+            try {
+                if (mIsDataUpdatePending || invalidateData) {
+                    mFactory.onDataSetChanged();
+                    mIsDataUpdatePending = false;
+                }
+                items = mFactory.getRemoteCollectionItems(capSize, capBitmapSize);
+            } catch (Exception ex) {
+                Thread t = Thread.currentThread();
+                Thread.getDefaultUncaughtExceptionHandler().uncaughtException(t, ex);
+            }
+            return items;
+        }
+
+        private final RemoteViewsFactory mFactory;
         private boolean mIsCreated;
+        private boolean mIsDataUpdatePending;
     }
 
     @Override
     public IBinder onBind(Intent intent) {
         synchronized (sLock) {
-            Intent.FilterComparison fc = new Intent.FilterComparison(intent);
-            RemoteViewsFactory factory = null;
-            boolean isCreated = false;
-            if (!sRemoteViewFactories.containsKey(fc)) {
-                factory = onGetViewFactory(intent);
-                sRemoteViewFactories.put(fc, factory);
-                factory.onCreate();
-                isCreated = false;
-            } else {
-                factory = sRemoteViewFactories.get(fc);
-                isCreated = true;
+            FilterComparison fc = new FilterComparison(intent);
+            RemoteViewsFactoryAdapter factory = sFactoriesCache.get(fc);
+            if (factory == null) {
+                RemoteViewsFactory rvFactory = onGetViewFactory(intent);
+                rvFactory.onCreate();
+                factory = new RemoteViewsFactoryAdapter(rvFactory);
+                sFactoriesCache.put(fc, factory);
             }
-            return new RemoteViewsFactoryAdapter(factory, isCreated);
+            return factory;
         }
     }
 

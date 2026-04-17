@@ -16,6 +16,7 @@
 
 package android.graphics;
 
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class EmbossMaskFilter extends MaskFilter {
     /**
      * Create an emboss maskfilter

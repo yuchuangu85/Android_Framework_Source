@@ -1,29 +1,29 @@
 /*
-* Copyright (C) 2015 Samsung System LSI
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-*      http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ * Copyright (C) 2015 Samsung System LSI
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package android.bluetooth;
 
+import android.annotation.Hide;
+import android.annotation.RequiresNoPermission;
 import android.os.Parcel;
 import android.os.Parcelable;
 
 import java.util.Arrays;
 
-/**
- * Data representation of a Object Push Profile Server side SDP record.
- */
-
-/** @hide */
+/** Data representation of a Object Push Profile Server side SDP record. */
+@Hide
 public class SdpOppOpsRecord implements Parcelable {
 
     private final String mServiceName;
@@ -32,8 +32,8 @@ public class SdpOppOpsRecord implements Parcelable {
     private final int mProfileVersion;
     private final byte[] mFormatsList;
 
-    public SdpOppOpsRecord(String serviceName, int rfcommChannel,
-            int l2capPsm, int version, byte[] formatsList) {
+    public SdpOppOpsRecord(
+            String serviceName, int rfcommChannel, int l2capPsm, int version, byte[] formatsList) {
         super();
         mServiceName = serviceName;
         mRfcommChannel = rfcommChannel;
@@ -42,22 +42,27 @@ public class SdpOppOpsRecord implements Parcelable {
         mFormatsList = formatsList;
     }
 
+    @RequiresNoPermission
     public String getServiceName() {
         return mServiceName;
     }
 
+    @RequiresNoPermission
     public int getRfcommChannel() {
         return mRfcommChannel;
     }
 
+    @RequiresNoPermission
     public int getL2capPsm() {
         return mL2capPsm;
     }
 
+    @RequiresNoPermission
     public int getProfileVersion() {
         return mProfileVersion;
     }
 
+    @RequiresNoPermission
     public byte[] getFormatsList() {
         return mFormatsList;
     }
@@ -88,7 +93,7 @@ public class SdpOppOpsRecord implements Parcelable {
         dest.writeInt(mRfcommChannel);
         dest.writeInt(mL2capPsm);
         dest.writeInt(mProfileVersion);
-        dest.writeString(mServiceName);
+        BluetoothUtils.writeStringToParcel(dest, mServiceName);
         if (mFormatsList != null && mFormatsList.length > 0) {
             dest.writeInt(mFormatsList.length);
             dest.writeByteArray(mFormatsList);
@@ -108,14 +113,14 @@ public class SdpOppOpsRecord implements Parcelable {
         return sb.toString();
     }
 
-    public static final Parcelable.Creator CREATOR = new Parcelable.Creator() {
-        public SdpOppOpsRecord createFromParcel(Parcel in) {
-            return new SdpOppOpsRecord(in);
-        }
+    public static final Parcelable.Creator CREATOR =
+            new Parcelable.Creator() {
+                public SdpOppOpsRecord createFromParcel(Parcel in) {
+                    return new SdpOppOpsRecord(in);
+                }
 
-        public SdpOppOpsRecord[] newArray(int size) {
-            return new SdpOppOpsRecord[size];
-        }
-    };
-
+                public SdpOppOpsRecord[] newArray(int size) {
+                    return new SdpOppOpsRecord[size];
+                }
+            };
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,9 +25,13 @@
 
 package java.security;
 
+import dalvik.annotation.compat.VersionCodes;
+import dalvik.system.VMRuntime;
+
 import java.io.*;
 import java.security.spec.AlgorithmParameterSpec;
 import java.security.spec.InvalidParameterSpecException;
+import java.util.Objects;
 
 import sun.security.jca.Providers;
 
@@ -152,11 +156,6 @@ import sun.security.jca.Providers;
  *   </tbody>
  * </table>
  *
- * These algorithms are described in the <a href=
- * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#AlgorithmParameters">
- * AlgorithmParameters section</a> of the
- * Java Cryptography Architecture Standard Algorithm Name Documentation.
- *
  * @author Jan Luehe
  *
  *
@@ -205,6 +204,7 @@ public class AlgorithmParameters {
         return this.algorithm;
     }
 
+    // Android-changed: javadoc to throw on Android 14 or above.
     /**
      * Returns a parameter object for the specified algorithm.
      *
@@ -222,21 +222,24 @@ public class AlgorithmParameters {
      * parameter encoding.
      *
      * @param algorithm the name of the algorithm requested.
-     * See the AlgorithmParameters section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#AlgorithmParameters">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
      *
-     * @return the new parameter object.
+     * @return the new parameter object
      *
-     * @exception NoSuchAlgorithmException if no Provider supports an
-     *          AlgorithmParametersSpi implementation for the
-     *          specified algorithm.
+     * @throws NoSuchAlgorithmException if no {@code Provider} supports an
+     *         {@code AlgorithmParametersSpi} implementation for the
+     *         specified algorithm
+     *
+     * @throws NullPointerException if {@code algorithm} is {@code null} on Android 14 or above
      *
      * @see Provider
      */
     public static AlgorithmParameters getInstance(String algorithm)
     throws NoSuchAlgorithmException {
+        // Android-changed: To be compat with the older Android, don't throw NPE on Android 13-.
+        // Objects.requireNonNull(algorithm, "null algorithm name");
+        if (VMRuntime.getSdkVersion() >= VersionCodes.UPSIDE_DOWN_CAKE) {
+            Objects.requireNonNull(algorithm, "null algorithm name");
+        }
         try {
             Object[] objs = Security.getImpl(algorithm, "AlgorithmParameters",
                                              (String)null);
@@ -248,6 +251,7 @@ public class AlgorithmParameters {
         }
     }
 
+    // Android-changed: javadoc to throw on Android 14 or above.
     /**
      * Returns a parameter object for the specified algorithm.
      *
@@ -264,24 +268,22 @@ public class AlgorithmParameters {
      * parameter encoding.
      *
      * @param algorithm the name of the algorithm requested.
-     * See the AlgorithmParameters section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#AlgorithmParameters">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
      *
      * @param provider the name of the provider.
      *
-     * @return the new parameter object.
+     * @return the new parameter object
      *
-     * @exception NoSuchAlgorithmException if an AlgorithmParametersSpi
-     *          implementation for the specified algorithm is not
-     *          available from the specified provider.
+     * @throws IllegalArgumentException if the provider name is {@code null}
+     *         or empty
      *
-     * @exception NoSuchProviderException if the specified provider is not
-     *          registered in the security provider list.
+     * @throws NoSuchAlgorithmException if an {@code AlgorithmParametersSpi}
+     *         implementation for the specified algorithm is not
+     *         available from the specified provider
      *
-     * @exception IllegalArgumentException if the provider name is null
-     *          or empty.
+     * @throws NoSuchProviderException if the specified provider is not
+     *         registered in the security provider list
+     *
+     * @throws NullPointerException if {@code algorithm} is {@code null} on Android 14 or above
      *
      * @see Provider
      */
@@ -289,7 +291,12 @@ public class AlgorithmParameters {
                                                   String provider)
         throws NoSuchAlgorithmException, NoSuchProviderException
     {
-        if (provider == null || provider.length() == 0)
+        // Android-changed: To be compat with the older Android, don't throw NPE on Android 13-.
+        // Objects.requireNonNull(algorithm, "null algorithm name");
+        if (VMRuntime.getSdkVersion() >= VersionCodes.UPSIDE_DOWN_CAKE) {
+            Objects.requireNonNull(algorithm, "null algorithm name");
+        }
+        if (provider == null || provider.isEmpty())
             throw new IllegalArgumentException("missing provider");
         // Android-added: Check for Bouncy Castle deprecation
         Providers.checkBouncyCastleDeprecation(provider, "AlgorithmParameters", algorithm);
@@ -300,6 +307,7 @@ public class AlgorithmParameters {
                                        algorithm);
     }
 
+    // Android-changed: javadoc to throw on Android 14 or above.
     /**
      * Returns a parameter object for the specified algorithm.
      *
@@ -313,20 +321,19 @@ public class AlgorithmParameters {
      * parameter encoding.
      *
      * @param algorithm the name of the algorithm requested.
-     * See the AlgorithmParameters section in the <a href=
-     * "{@docRoot}openjdk-redirect.html?v=8&path=/technotes/guides/security/StandardNames.html#AlgorithmParameters">
-     * Java Cryptography Architecture Standard Algorithm Name Documentation</a>
-     * for information about standard algorithm names.
      *
      * @param provider the name of the provider.
      *
-     * @return the new parameter object.
+     * @return the new parameter object
      *
-     * @exception NoSuchAlgorithmException if an AlgorithmParameterGeneratorSpi
-     *          implementation for the specified algorithm is not available
-     *          from the specified Provider object.
+     * @throws IllegalArgumentException if the provider is {@code null}
      *
-     * @exception IllegalArgumentException if the provider is null.
+     * @throws NoSuchAlgorithmException if an
+     *         {@code AlgorithmParameterGeneratorSpi}
+     *         implementation for the specified algorithm is not available
+     *         from the specified {@code Provider} object
+     *
+     * @throws NullPointerException if {@code algorithm} is {@code null} on Android 14 or above
      *
      * @see Provider
      *
@@ -336,6 +343,11 @@ public class AlgorithmParameters {
                                                   Provider provider)
         throws NoSuchAlgorithmException
     {
+        // Android-changed: To be compat with the older Android, don't throw NPE on Android 13-.
+        // Objects.requireNonNull(algorithm, "null algorithm name");
+        if (VMRuntime.getSdkVersion() >= VersionCodes.UPSIDE_DOWN_CAKE) {
+            Objects.requireNonNull(algorithm, "null algorithm name");
+        }
         if (provider == null)
             throw new IllegalArgumentException("missing provider");
         // Android-added: Check for Bouncy Castle deprecation

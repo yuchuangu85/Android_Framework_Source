@@ -26,7 +26,7 @@ public class UncheckedThrow {
      * @param e any instance of a Exception
      */
     public static void throwAnyException(Exception e) {
-        /**
+        /*
          *  Abuse type erasure by making the compiler think we are throwing RuntimeException,
          *  which is unchecked, but then inserting any exception in there.
          */
@@ -38,7 +38,7 @@ public class UncheckedThrow {
      * @param e any instance of a Throwable
      */
     public static void throwAnyException(Throwable e) {
-        /**
+        /*
          *  Abuse type erasure by making the compiler think we are throwing RuntimeException,
          *  which is unchecked, but then inserting any exception in there.
          */

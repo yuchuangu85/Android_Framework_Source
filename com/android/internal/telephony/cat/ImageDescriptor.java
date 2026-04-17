@@ -17,7 +17,7 @@
 package com.android.internal.telephony.cat;
 
 /**
- * {@hide}
+ * @hide
  */
 public class ImageDescriptor {
     // members

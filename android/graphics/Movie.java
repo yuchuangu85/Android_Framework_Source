@@ -16,7 +16,9 @@
 
 package android.graphics;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.res.AssetManager;
+import android.os.Build;
 
 import java.io.FileInputStream;
 import java.io.InputStream;
@@ -24,9 +26,13 @@ import java.io.InputStream;
 /**
  * @deprecated Prefer {@link android.graphics.drawable.AnimatedImageDrawable}.
  */
+@Deprecated
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class Movie {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private long mNativeMovie;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private Movie(long nativeMovie) {
         if (nativeMovie == 0) {
             throw new RuntimeException("native movie creation failed");

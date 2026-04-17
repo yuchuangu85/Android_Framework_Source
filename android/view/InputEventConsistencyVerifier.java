@@ -16,6 +16,7 @@
 
 package android.view;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Build;
 import android.util.Log;
 
@@ -80,7 +81,7 @@ public final class InputEventConsistencyVerifier {
 
     // Bitfield of pointer ids that are currently down.
     // Assumes that the largest possible pointer id is 31, which is potentially subject to change.
-    // (See MAX_POINTER_ID in frameworks/base/include/ui/Input.h)
+    // (See MAX_POINTER_ID in frameworks/native/include/input/input.h)
     private int mTouchEventStreamPointers;
 
     // The device id and source of the current stream of touch events.
@@ -115,6 +116,7 @@ public final class InputEventConsistencyVerifier {
      * @param caller The object to which the verifier is attached.
      * @param flags Flags to the verifier, or 0 if none.
      */
+    @UnsupportedAppUsage
     public InputEventConsistencyVerifier(Object caller, int flags) {
         this(caller, flags, null);
     }
@@ -135,6 +137,7 @@ public final class InputEventConsistencyVerifier {
      * Determines whether the instrumentation should be enabled.
      * @return True if it should be enabled.
      */
+    @UnsupportedAppUsage
     public static boolean isInstrumentationEnabled() {
         return IS_ENG_BUILD;
     }
@@ -177,7 +180,7 @@ public final class InputEventConsistencyVerifier {
             final MotionEvent motionEvent = (MotionEvent)event;
             if (motionEvent.isTouchEvent()) {
                 onTouchEvent(motionEvent, nestingLevel);
-            } else if ((motionEvent.getSource() & InputDevice.SOURCE_CLASS_TRACKBALL) != 0) {
+            } else if (motionEvent.isFromSource(InputDevice.SOURCE_TRACKBALL)) {
                 onTrackballEvent(motionEvent, nestingLevel);
             } else {
                 onGenericMotionEvent(motionEvent, nestingLevel);
@@ -265,8 +268,10 @@ public final class InputEventConsistencyVerifier {
             ensureMetaStateIsNormalized(event.getMetaState());
 
             final int action = event.getAction();
-            final int source = event.getSource();
-            if ((source & InputDevice.SOURCE_CLASS_TRACKBALL) != 0) {
+            // Other events can be classed as "trackball" events, such as captured mouse events
+            // (with SOURCE_MOUSE_RELATIVE). This validation code was only written for actual
+            // trackball events, so skip it for those newer usages.
+            if (event.isFromSource(InputDevice.SOURCE_TRACKBALL)) {
                 switch (action) {
                     case MotionEvent.ACTION_DOWN:
                         if (mTrackballDown && !mTrackballUnhandled) {
@@ -302,8 +307,6 @@ public final class InputEventConsistencyVerifier {
                 } else if (!mTrackballDown && event.getPressure() != 0) {
                     problem("Trackball is up but pressure is not equal to 0.");
                 }
-            } else {
-                problem("Source was not SOURCE_CLASS_TRACKBALL.");
             }
         } finally {
             finishEvent();
@@ -319,6 +322,7 @@ public final class InputEventConsistencyVerifier {
      * where a subclass dispatching method delegates to its superclass's dispatching method
      * and both dispatching methods call into the consistency verifier.
      */
+    @UnsupportedAppUsage
     public void onTouchEvent(MotionEvent event, int nestingLevel) {
         if (!startEvent(event, nestingLevel, EVENT_TYPE_TOUCH)) {
             return;
@@ -579,6 +583,7 @@ public final class InputEventConsistencyVerifier {
      * where a subclass dispatching method delegates to its superclass's dispatching method
      * and both dispatching methods call into the consistency verifier.
      */
+    @UnsupportedAppUsage
     public void onUnhandledEvent(InputEvent event, int nestingLevel) {
         if (nestingLevel != mLastNestingLevel) {
             return;
@@ -716,7 +721,7 @@ public final class InputEventConsistencyVerifier {
 
     private static void appendEvent(StringBuilder message, int index,
             InputEvent event, boolean unhandled) {
-        message.append(index).append(": sent at ").append(event.getEventTimeNano());
+        message.append(index).append(": sent at ").append(event.getEventTimeNanos());
         message.append(", ");
         if (unhandled) {
             message.append("(unhandled) ");

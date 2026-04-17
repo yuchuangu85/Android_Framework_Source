@@ -16,6 +16,9 @@
 
 package android.net.wifi.hotspot2.pps;
 
+import static android.net.wifi.hotspot2.PasspointConfiguration.MAX_NUMBER_OF_ENTRIES;
+import static android.net.wifi.hotspot2.PasspointConfiguration.MAX_STRING_LENGTH;
+
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
@@ -269,17 +272,25 @@ public final class Policy implements Parcelable {
          */
         public boolean validate() {
             if (TextUtils.isEmpty(mFqdn)) {
-                Log.d(TAG, "Missing FQDN");
+                Log.e(TAG, "Missing FQDN");
+                return false;
+            }
+            if (mFqdn.getBytes(StandardCharsets.UTF_8).length > MAX_STRING_LENGTH) {
+                Log.e(TAG, "FQDN is too long");
                 return false;
             }
             if (TextUtils.isEmpty(mCountries)) {
-                Log.d(TAG, "Missing countries");
+                Log.e(TAG, "Missing countries");
+                return false;
+            }
+            if (mCountries.getBytes(StandardCharsets.UTF_8).length > MAX_STRING_LENGTH) {
+                Log.e(TAG, "country is too long");
                 return false;
             }
             return true;
         }
 
-        public static final Creator<RoamingPartner> CREATOR =
+        public static final @android.annotation.NonNull Creator<RoamingPartner> CREATOR =
             new Creator<RoamingPartner>() {
                 @Override
                 public RoamingPartner createFromParcel(Parcel in) {
@@ -397,9 +408,9 @@ public final class Policy implements Parcelable {
     @Override
     public int hashCode() {
         return Objects.hash(mMinHomeDownlinkBandwidth, mMinHomeUplinkBandwidth,
-                mMinRoamingDownlinkBandwidth, mMinRoamingUplinkBandwidth, mExcludedSsidList,
-                mRequiredProtoPortMap, mMaximumBssLoadValue, mPreferredRoamingPartnerList,
-                mPolicyUpdate);
+                mMinRoamingDownlinkBandwidth, mMinRoamingUplinkBandwidth,
+                Arrays.hashCode(mExcludedSsidList), mRequiredProtoPortMap, mMaximumBssLoadValue,
+                mPreferredRoamingPartnerList, mPolicyUpdate);
     }
 
     @Override
@@ -412,7 +423,8 @@ public final class Policy implements Parcelable {
                 .append("\n");
         builder.append("MinRoamingUplinkBandwidth: ").append(mMinRoamingUplinkBandwidth)
                 .append("\n");
-        builder.append("ExcludedSSIDList: ").append(mExcludedSsidList).append("\n");
+        builder.append("ExcludedSSIDList: ").append(Arrays.toString(mExcludedSsidList))
+                .append("\n");
         builder.append("RequiredProtoPortMap: ").append(mRequiredProtoPortMap).append("\n");
         builder.append("MaximumBSSLoadValue: ").append(mMaximumBssLoadValue).append("\n");
         builder.append("PreferredRoamingPartnerList: ").append(mPreferredRoamingPartnerList)
@@ -449,7 +461,7 @@ public final class Policy implements Parcelable {
             }
             for (String ssid : mExcludedSsidList) {
                 if (ssid.getBytes(StandardCharsets.UTF_8).length > MAX_SSID_BYTES) {
-                    Log.d(TAG, "Invalid SSID: " + ssid);
+                    Log.e(TAG, "Invalid SSID: " + ssid);
                     return false;
                 }
             }
@@ -457,15 +469,24 @@ public final class Policy implements Parcelable {
         // Validate required protocol to port map.
         if (mRequiredProtoPortMap != null) {
             for (Map.Entry<Integer, String> entry : mRequiredProtoPortMap.entrySet()) {
+                int protocol = entry.getKey();
+                if (protocol < 0 || protocol > 255) {
+                    Log.e(TAG, "Invalid IP protocol: " + protocol);
+                    return false;
+                }
                 String portNumber = entry.getValue();
                 if (portNumber.getBytes(StandardCharsets.UTF_8).length > MAX_PORT_STRING_BYTES) {
-                    Log.d(TAG, "PortNumber string bytes exceeded the max: " + portNumber);
+                    Log.e(TAG, "PortNumber string bytes exceeded the max: " + portNumber);
                     return false;
                 }
             }
         }
         // Validate preferred roaming partner list.
         if (mPreferredRoamingPartnerList != null) {
+            if (mPreferredRoamingPartnerList.size() > MAX_NUMBER_OF_ENTRIES) {
+                Log.e(TAG, "Number of the Preferred Roaming Partner exceed the limit");
+                return false;
+            }
             for (RoamingPartner partner : mPreferredRoamingPartnerList) {
                 if (!partner.validate()) {
                     return false;
@@ -475,7 +496,7 @@ public final class Policy implements Parcelable {
         return true;
     }
 
-    public static final Creator<Policy> CREATOR =
+    public static final @android.annotation.NonNull Creator<Policy> CREATOR =
         new Creator<Policy>() {
             @Override
             public Policy createFromParcel(Parcel in) {

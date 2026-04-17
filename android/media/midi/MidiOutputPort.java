@@ -31,6 +31,7 @@ import java.io.Closeable;
 import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * This class is used for receiving data from a port on a MIDI device
@@ -46,6 +47,7 @@ public final class MidiOutputPort extends MidiSender implements Closeable {
 
     private final CloseGuard mGuard = CloseGuard.get();
     private boolean mIsClosed;
+    private AtomicInteger mTotalBytes = new AtomicInteger();
 
     // This thread reads MIDI events from a socket and distributes them to the list of
     // MidiReceivers attached to this device.
@@ -59,6 +61,8 @@ public final class MidiOutputPort extends MidiSender implements Closeable {
                     // read next event
                     int count = mInputStream.read(buffer);
                     if (count < 0) {
+                        // This is the exit condition as read() returning <0 indicates
+                        // that the pipe has been closed.
                         break;
                         // FIXME - inform receivers here?
                     }
@@ -81,10 +85,16 @@ public final class MidiOutputPort extends MidiSender implements Closeable {
                             Log.e(TAG, "Unknown packet type " + packetType);
                             break;
                     }
-                }
+                    mTotalBytes.addAndGet(count);
+                } // while (true)
             } catch (IOException e) {
                 // FIXME report I/O failure?
-                Log.e(TAG, "read failed", e);
+                // TODO: The comment above about the exit condition is not currently working
+                // as intended. The read from the closed pipe is throwing an error rather than
+                // returning <0, so this becomes (probably) not an error, but the exit case.
+                // This warrants further investigation;
+                // Silence the (probably) spurious error message.
+                // Log.e(TAG, "read failed", e);
             } finally {
                 IoUtils.closeQuietly(mInputStream);
             }
@@ -155,5 +165,13 @@ public final class MidiOutputPort extends MidiSender implements Closeable {
         } finally {
             super.finalize();
         }
+    }
+
+    /**
+     * Pulls total number of bytes and sets to zero. This allows multiple callers.
+     * @hide
+     */
+    public int pullTotalBytesCount() {
+        return mTotalBytes.getAndSet(0);
     }
 }

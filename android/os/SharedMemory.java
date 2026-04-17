@@ -16,8 +16,10 @@
 
 package android.os;
 
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -26,6 +28,7 @@ import dalvik.system.VMRuntime;
 
 import java.io.Closeable;
 import java.io.FileDescriptor;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.DirectByteBuffer;
 import java.nio.NioUtils;
@@ -61,7 +64,7 @@ public final class SharedMemory implements Parcelable, Closeable {
 
         mMemoryRegistration = new MemoryRegistration(mSize);
         mCleaner = Cleaner.create(mFileDescriptor,
-                new Closer(mFileDescriptor, mMemoryRegistration));
+                new Closer(mFileDescriptor.getInt$(), mMemoryRegistration));
     }
 
     /**
@@ -89,6 +92,26 @@ public final class SharedMemory implements Parcelable, Closeable {
         if (!mFileDescriptor.valid()) {
             throw new IllegalStateException("SharedMemory is closed");
         }
+    }
+
+    /**
+     * Creates an instance from existing shared memory passed as {@link ParcelFileDescriptor}.
+     *
+     * <p> The {@code fd} should be a shared memory created from
+       {@code SharedMemory or ASharedMemory}. This can be useful when shared memory is passed as
+       file descriptor through JNI or binder service implemented in cpp.
+     * <p> Note that newly created {@code SharedMemory} takes ownership of passed {@code fd} and
+     * the original {@code fd} becomes detached (Check {@link ParcelFileDescriptor#detachFd()}).
+     * If the caller wants to use the file descriptor after the call, the caller should duplicate
+     * the file descriptor (Check {@link ParcelFileDescriptor#dup()}) and pass the duped version
+     * instead.
+     *
+     * @param fd File descriptor of shared memory passed as {@link ParcelFileDescriptor}.
+     */
+    public static @NonNull SharedMemory fromFileDescriptor(@NonNull ParcelFileDescriptor fd) {
+        FileDescriptor f = new FileDescriptor();
+        f.setInt$(fd.detachFd());
+        return new SharedMemory(f);
     }
 
     private static final int PROT_MASK = OsConstants.PROT_READ | OsConstants.PROT_WRITE
@@ -133,6 +156,35 @@ public final class SharedMemory implements Parcelable, Closeable {
     }
 
     /**
+     * Returns whether any future mappings of this SharedMemory region will be read-only. Note that
+     * existing writable mappings of this region may exist, and that the region being read only
+     * also does not say anything about its executable state.
+
+     * @return true if the shared memory region is read-only, false otherwise.
+     * @throws IllegalStateException if the shared memory is closed or could not be examined.
+     */
+    @FlaggedApi(com.android.libcore.Flags.FLAG_ENABLE_PCC_FRAMEWORK_SUPPORT)
+    public boolean isRegionReadOnly() {
+        checkOpen();
+        try {
+            int seals = Os.fcntlInt(mFileDescriptor, OsConstants.F_GET_SEALS, 0);
+            if (seals >= 0) {
+                return (seals & (OsConstants.F_SEAL_WRITE | OsConstants.F_SEAL_FUTURE_WRITE)) != 0;
+            }
+        } catch (ErrnoException e) {
+            // Ignore and try fallback
+        }
+
+        try {
+            int prot = Os.ioctlRet(mFileDescriptor, OsConstants.ASHMEM_GET_PROT_MASK);
+            return (prot & OsConstants.PROT_WRITE) == 0;
+        } catch (ErrnoException e) {
+            throw new IllegalStateException(
+                    "SharedMemory could not be examined for read only status", e);
+        }
+    }
+
+    /**
      * Returns the backing {@link FileDescriptor} for this SharedMemory object. The SharedMemory
      * instance retains ownership of the FileDescriptor.
      *
@@ -156,6 +208,7 @@ public final class SharedMemory implements Parcelable, Closeable {
      *
      * @hide Exposed for native ASharedMemory_dupFromJava()
      */
+    @UnsupportedAppUsage(trackingBug = 171971817)
     public int getFd() {
         return mFileDescriptor.getInt$();
     }
@@ -253,6 +306,7 @@ public final class SharedMemory implements Parcelable, Closeable {
      */
     @Override
     public void close() {
+        mFileDescriptor.setInt$(-1);
         if (mCleaner != null) {
             mCleaner.clean();
             mCleaner = null;
@@ -270,7 +324,21 @@ public final class SharedMemory implements Parcelable, Closeable {
         dest.writeFileDescriptor(mFileDescriptor);
     }
 
-    public static final Parcelable.Creator<SharedMemory> CREATOR =
+    /**
+     * Returns a dup'd ParcelFileDescriptor from the SharedMemory FileDescriptor.
+     * This obeys standard POSIX semantics, where the
+     * new file descriptor shared state such as file position with the
+     * original file descriptor.
+     * TODO: propose this method as a public or system API for next release to achieve parity with
+     *  NDK ASharedMemory_dupFromJava.
+     *
+     * @hide
+     */
+    public ParcelFileDescriptor getFdDup() throws IOException {
+        return ParcelFileDescriptor.dup(mFileDescriptor);
+    }
+
+    public static final @android.annotation.NonNull Parcelable.Creator<SharedMemory> CREATOR =
             new Parcelable.Creator<SharedMemory>() {
         @Override
         public SharedMemory createFromParcel(Parcel source) {
@@ -288,10 +356,10 @@ public final class SharedMemory implements Parcelable, Closeable {
      * Cleaner that closes the FD
      */
     private static final class Closer implements Runnable {
-        private FileDescriptor mFd;
+        private int mFd;
         private MemoryRegistration mMemoryReference;
 
-        private Closer(FileDescriptor fd, MemoryRegistration memoryReference) {
+        private Closer(int fd, MemoryRegistration memoryReference) {
             mFd = fd;
             mMemoryReference = memoryReference;
         }
@@ -299,7 +367,9 @@ public final class SharedMemory implements Parcelable, Closeable {
         @Override
         public void run() {
             try {
-                Os.close(mFd);
+                FileDescriptor fd = new FileDescriptor();
+                fd.setInt$(mFd);
+                Os.close(fd);
             } catch (ErrnoException e) { /* swallow error */ }
             mMemoryReference.release();
             mMemoryReference = null;
@@ -339,6 +409,14 @@ public final class SharedMemory implements Parcelable, Closeable {
         private int mReferenceCount;
 
         private MemoryRegistration(int size) {
+            // Round up to the nearest page size
+            final int PAGE_SIZE = OsConstants._SC_PAGE_SIZE;
+            if (PAGE_SIZE > 0) {
+                final int remainder = size % PAGE_SIZE;
+                if (remainder != 0) {
+                    size += PAGE_SIZE - remainder;
+                }
+            }
             mSize = size;
             mReferenceCount = 1;
             VMRuntime.getRuntime().registerNativeAllocation(mSize);

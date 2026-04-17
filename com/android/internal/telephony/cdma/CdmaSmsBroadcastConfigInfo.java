@@ -17,6 +17,8 @@
 
 package com.android.internal.telephony.cdma;
 
+import java.util.Objects;
+
 /**
  * CdmaSmsBroadcastConfigInfo defines one configuration of Cdma Broadcast
  * Message to be received by the ME
@@ -83,5 +85,23 @@ public class CdmaSmsBroadcastConfigInfo {
         return "CdmaSmsBroadcastConfigInfo: Id [" +
             mFromServiceCategory + ", " + mToServiceCategory + "] " +
             (isSelected() ? "ENABLED" : "DISABLED");
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(mFromServiceCategory, mToServiceCategory, mLanguage, mSelected);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (!(obj instanceof CdmaSmsBroadcastConfigInfo)) {
+            return false;
+        }
+
+        CdmaSmsBroadcastConfigInfo other = (CdmaSmsBroadcastConfigInfo) obj;
+
+        return mFromServiceCategory == other.mFromServiceCategory
+                && mToServiceCategory == other.mToServiceCategory
+                && mLanguage == other.mLanguage && mSelected == other.mSelected;
     }
 }

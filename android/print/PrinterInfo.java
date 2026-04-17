@@ -17,6 +17,7 @@
 package android.print;
 
 import android.annotation.DrawableRes;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -31,6 +32,7 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.print.flags.Flags;
 import android.service.print.PrinterInfoProto;
 import android.text.TextUtils;
 
@@ -38,6 +40,7 @@ import com.android.internal.util.Preconditions;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.Objects;
 
 /**
  * This class represents the description of a printer. Instances of
@@ -85,6 +88,9 @@ public final class PrinterInfo implements Parcelable {
     /** Intent that launches the activity showing more information about the printer. */
     private final @Nullable PendingIntent mInfoIntent;
 
+    /** Intent that launches the activity showing a setup screen for the printer. */
+    private final @Nullable PendingIntent mSetupIntent;
+
     private final @NonNull String mName;
 
     private final @Status int mStatus;
@@ -93,9 +99,16 @@ public final class PrinterInfo implements Parcelable {
 
     private final @Nullable PrinterCapabilitiesInfo mCapabilities;
 
-    private PrinterInfo(@NonNull PrinterId printerId, @NonNull String name, @Status int status,
-            int iconResourceId, boolean hasCustomPrinterIcon, String description,
-            PendingIntent infoIntent, PrinterCapabilitiesInfo capabilities,
+    private PrinterInfo(
+            @NonNull PrinterId printerId,
+            @NonNull String name,
+            @Status int status,
+            int iconResourceId,
+            boolean hasCustomPrinterIcon,
+            String description,
+            PendingIntent infoIntent,
+            PendingIntent setupIntent,
+            PrinterCapabilitiesInfo capabilities,
             int customPrinterIconGen) {
         mId = printerId;
         mName = name;
@@ -104,6 +117,7 @@ public final class PrinterInfo implements Parcelable {
         mHasCustomPrinterIcon = hasCustomPrinterIcon;
         mDescription = description;
         mInfoIntent = infoIntent;
+        mSetupIntent = Flags.enableSetupActivity() ? setupIntent : null;
         mCapabilities = capabilities;
         mCustomPrinterIconGen = customPrinterIconGen;
     }
@@ -212,11 +226,27 @@ public final class PrinterInfo implements Parcelable {
      * printer.
      *
      * @return the {@link PendingIntent} that launches the activity showing more information about
-     *         the printer or null if it is not configured
+     *     the printer or null if it is not configured
      * @hide
      */
     public @Nullable PendingIntent getInfoIntent() {
         return mInfoIntent;
+    }
+
+    /**
+     * Get the {@link PendingIntent} that launches the activity for completing printer setup.
+     *
+     * @return the {@link PendingIntent} that launches the activity for completing printer setup or
+     *     null if it is not configured
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_SETUP_ACTIVITY)
+    public @Nullable PendingIntent getSetupIntent() {
+        // Even though this has the obvious and trivial implementation, this function is
+        // intentionally marked @hide because only the framework should consume this Intent.  Other
+        // apps that get a copy of this PrinterInfo through other APIs should not be able to launch
+        // the printer setup screen.
+        return mSetupIntent;
     }
 
     /**
@@ -270,15 +300,20 @@ public final class PrinterInfo implements Parcelable {
     private PrinterInfo(Parcel parcel) {
         // mName can be null due to unchecked set in Builder.setName and status can be invalid
         // due to unchecked set in Builder.setStatus, hence we can only check mId for a valid state
-        mId = checkPrinterId((PrinterId) parcel.readParcelable(null));
+        mId = checkPrinterId((PrinterId) parcel.readParcelable(null, android.print.PrinterId.class));
         mName = checkName(parcel.readString());
         mStatus = checkStatus(parcel.readInt());
         mDescription = parcel.readString();
-        mCapabilities = parcel.readParcelable(null);
+        mCapabilities = parcel.readParcelable(null, android.print.PrinterCapabilitiesInfo.class);
         mIconResourceId = parcel.readInt();
         mHasCustomPrinterIcon = parcel.readByte() != 0;
         mCustomPrinterIconGen = parcel.readInt();
-        mInfoIntent = parcel.readParcelable(null);
+        mInfoIntent = parcel.readParcelable(null, android.app.PendingIntent.class);
+        if (Flags.enableSetupActivity()) {
+            mSetupIntent = parcel.readTypedObject(android.app.PendingIntent.CREATOR);
+        } else {
+            mSetupIntent = null;
+        }
     }
 
     @Override
@@ -297,6 +332,9 @@ public final class PrinterInfo implements Parcelable {
         parcel.writeByte((byte) (mHasCustomPrinterIcon ? 1 : 0));
         parcel.writeInt(mCustomPrinterIconGen);
         parcel.writeParcelable(mInfoIntent, flags);
+        if (Flags.enableSetupActivity()) {
+            parcel.writeTypedObject(mSetupIntent, flags);
+        }
     }
 
     @Override
@@ -312,6 +350,9 @@ public final class PrinterInfo implements Parcelable {
         result = prime * result + (mHasCustomPrinterIcon ? 1 : 0);
         result = prime * result + mCustomPrinterIconGen;
         result = prime * result + ((mInfoIntent != null) ? mInfoIntent.hashCode() : 0);
+        if (Flags.enableSetupActivity()) {
+            result = prime * result + ((mSetupIntent != null) ? mSetupIntent.hashCode() : 0);
+        }
         return result;
     }
 
@@ -333,11 +374,7 @@ public final class PrinterInfo implements Parcelable {
         if (!TextUtils.equals(mDescription, other.mDescription)) {
             return false;
         }
-        if (mCapabilities == null) {
-            if (other.mCapabilities != null) {
-                return false;
-            }
-        } else if (!mCapabilities.equals(other.mCapabilities)) {
+        if (!Objects.equals(mCapabilities, other.mCapabilities)) {
             return false;
         }
         if (mIconResourceId != other.mIconResourceId) {
@@ -349,18 +386,19 @@ public final class PrinterInfo implements Parcelable {
         if (mCustomPrinterIconGen != other.mCustomPrinterIconGen) {
             return false;
         }
-        if (mInfoIntent == null) {
-            if (other.mInfoIntent != null) {
+        if (!Objects.equals(mInfoIntent, other.mInfoIntent)) {
+            return false;
+        }
+        if (Flags.enableSetupActivity()) {
+            if (!Objects.equals(mSetupIntent, other.mSetupIntent)) {
                 return false;
             }
-        } else if (!mInfoIntent.equals(other.mInfoIntent)) {
-            return false;
         }
         return true;
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) {
             return true;
         }
@@ -393,6 +431,9 @@ public final class PrinterInfo implements Parcelable {
         builder.append(", hasCustomPrinterIcon=").append(mHasCustomPrinterIcon);
         builder.append(", customPrinterIconGen=").append(mCustomPrinterIconGen);
         builder.append(", infoIntent=").append(mInfoIntent);
+        if (Flags.enableSetupActivity()) {
+            builder.append(", setupIntent=").append(mSetupIntent);
+        }
         builder.append("\"}");
         return builder.toString();
     }
@@ -408,6 +449,7 @@ public final class PrinterInfo implements Parcelable {
         private boolean mHasCustomPrinterIcon;
         private String mDescription;
         private PendingIntent mInfoIntent;
+        private PendingIntent mSetupIntent;
         private PrinterCapabilitiesInfo mCapabilities;
         private int mCustomPrinterIconGen;
 
@@ -439,6 +481,7 @@ public final class PrinterInfo implements Parcelable {
             mHasCustomPrinterIcon = other.mHasCustomPrinterIcon;
             mDescription = other.mDescription;
             mInfoIntent = other.mInfoIntent;
+            mSetupIntent = other.mSetupIntent;
             mCapabilities = other.mCapabilities;
             mCustomPrinterIconGen = other.mCustomPrinterIconGen;
         }
@@ -528,6 +571,18 @@ public final class PrinterInfo implements Parcelable {
         }
 
         /**
+         * Sets the {@link PendingIntent} that launches an activity to complete printer setup.
+         *
+         * @param setupIntent the {@link PendingIntent intent}.
+         * @return this builder.
+         */
+        @FlaggedApi(Flags.FLAG_ENABLE_SETUP_ACTIVITY)
+        public @NonNull Builder setSetupIntent(@NonNull PendingIntent setupIntent) {
+            mSetupIntent = Objects.requireNonNull(setupIntent);
+            return this;
+        }
+
+        /**
          * Sets the printer capabilities.
          *
          * @param capabilities The capabilities.
@@ -544,8 +599,16 @@ public final class PrinterInfo implements Parcelable {
          * @return A new {@link PrinterInfo}.
          */
         public @NonNull PrinterInfo build() {
-            return new PrinterInfo(mPrinterId, mName, mStatus, mIconResourceId,
-                    mHasCustomPrinterIcon, mDescription, mInfoIntent, mCapabilities,
+            return new PrinterInfo(
+                    mPrinterId,
+                    mName,
+                    mStatus,
+                    mIconResourceId,
+                    mHasCustomPrinterIcon,
+                    mDescription,
+                    mInfoIntent,
+                    mSetupIntent,
+                    mCapabilities,
                     mCustomPrinterIconGen);
         }
 
@@ -563,7 +626,7 @@ public final class PrinterInfo implements Parcelable {
         }
     }
 
-    public static final Parcelable.Creator<PrinterInfo> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<PrinterInfo> CREATOR =
             new Parcelable.Creator<PrinterInfo>() {
         @Override
         public PrinterInfo createFromParcel(Parcel parcel) {

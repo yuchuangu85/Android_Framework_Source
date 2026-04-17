@@ -21,11 +21,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.IBinder;
-import android.os.RemoteException;
+import android.os.UserHandle;
 import android.telephony.ims.aidl.IImsServiceController;
 import android.telephony.ims.stub.ImsFeatureConfiguration;
 import android.util.Log;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -42,10 +43,16 @@ public class ImsServiceFeatureQueryManager {
         private static final String LOG_TAG = "ImsServiceFeatureQuery";
 
         private final ComponentName mName;
+        private final UserHandle mUser;
         private final String mIntentFilter;
+        // Track the status of whether or not the Service has died in case we need to permanently
+        // unbind (see onNullBinding below).
+        private boolean mIsServiceConnectionDead = false;
 
-        ImsServiceFeatureQuery(ComponentName name, String intentFilter) {
+
+        ImsServiceFeatureQuery(ComponentName name, UserHandle user, String intentFilter) {
             mName = name;
+            mUser = user;
             mIntentFilter = intentFilter;
         }
 
@@ -58,7 +65,8 @@ public class ImsServiceFeatureQueryManager {
             Intent imsServiceIntent = new Intent(mIntentFilter).setComponent(mName);
             int serviceFlags = Context.BIND_AUTO_CREATE | Context.BIND_FOREGROUND_SERVICE
                     | Context.BIND_IMPORTANT;
-            boolean bindStarted = mContext.bindService(imsServiceIntent, this, serviceFlags);
+            boolean bindStarted = mContext.bindServiceAsUser(imsServiceIntent, this,
+                    serviceFlags, mUser);
             if (!bindStarted) {
                 // Docs say to unbind if this fails.
                 cleanup();
@@ -72,8 +80,9 @@ public class ImsServiceFeatureQueryManager {
             if (service != null) {
                 queryImsFeatures(IImsServiceController.Stub.asInterface(service));
             } else {
-                Log.w(LOG_TAG, "onServiceConnected: " + name + " binder null, cleaning up.");
+                Log.w(LOG_TAG, "onServiceConnected: " + name + " binder null.");
                 cleanup();
+                mListener.onPermanentError(name, mUser);
             }
         }
 
@@ -82,17 +91,44 @@ public class ImsServiceFeatureQueryManager {
             Log.w(LOG_TAG, "onServiceDisconnected for component: " + name);
         }
 
+        @Override
+        public void onBindingDied(ComponentName name) {
+            mIsServiceConnectionDead = true;
+            Log.w(LOG_TAG, "onBindingDied: " + name);
+            cleanup();
+            // retry again!
+            mListener.onError(name);
+        }
+
+        @Override
+        public void onNullBinding(ComponentName name) {
+            Log.w(LOG_TAG, "onNullBinding: " + name);
+            // onNullBinding will happen after onBindingDied. In this case, we should not
+            // permanently unbind and instead let the automatic rebind occur.
+            if (mIsServiceConnectionDead) return;
+            cleanup();
+            mListener.onPermanentError(name, mUser);
+        }
+
         private void queryImsFeatures(IImsServiceController controller) {
             ImsFeatureConfiguration config;
             try {
                 config = controller.querySupportedImsFeatures();
-            } catch (RemoteException e) {
+            } catch (Exception e) {
                 Log.w(LOG_TAG, "queryImsFeatures - error: " + e);
                 cleanup();
+                // Retry again!
                 mListener.onError(mName);
                 return;
             }
-            Set<ImsFeatureConfiguration.FeatureSlotPair> servicePairs = config.getServiceFeatures();
+            Set<ImsFeatureConfiguration.FeatureSlotPair> servicePairs;
+            if (config == null) {
+                // ensure that if the ImsService sent a null config, we return an empty feature
+                // set to the ImsResolver.
+                servicePairs = Collections.emptySet();
+            } else {
+                servicePairs = config.getServiceFeatures();
+            }
             // Complete, remove from active queries and notify.
             cleanup();
             mListener.onComplete(mName, servicePairs);
@@ -118,6 +154,11 @@ public class ImsServiceFeatureQueryManager {
          * Called when a query has failed and should be retried.
          */
         void onError(ComponentName name);
+
+        /**
+         * Called when a query has failed due to a permanent error and should not be retried.
+         */
+        void onPermanentError(ComponentName name, UserHandle user);
     }
 
     // Maps an active ImsService query (by Package Name String) its query.
@@ -134,16 +175,17 @@ public class ImsServiceFeatureQueryManager {
     /**
      * Starts an ImsService feature query for the ComponentName and Intent specified.
      * @param name The ComponentName of the ImsService being queried.
+     * @param user The User associated with the request.
      * @param intentFilter The Intent filter that the ImsService specified.
      * @return true if the query started, false if it was unable to start.
      */
-    public boolean startQuery(ComponentName name, String intentFilter) {
+    public boolean startQuery(ComponentName name, UserHandle user, String intentFilter) {
         synchronized (mLock) {
             if (mActiveQueries.containsKey(name)) {
                 // We already have an active query, wait for it to return.
                 return true;
             }
-            ImsServiceFeatureQuery query = new ImsServiceFeatureQuery(name, intentFilter);
+            ImsServiceFeatureQuery query = new ImsServiceFeatureQuery(name, user, intentFilter);
             mActiveQueries.put(name, query);
             return query.start();
         }

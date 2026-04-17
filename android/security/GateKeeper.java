@@ -16,6 +16,7 @@
 
 package android.security;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.os.RemoteException;
 import android.os.ServiceManager;
@@ -27,7 +28,7 @@ import android.service.gatekeeper.IGateKeeperService;
  *
  * @hide
  */
-public abstract class GateKeeper {
+public final class GateKeeper {
 
     public static final long INVALID_SECURE_USER_ID = 0;
 
@@ -42,9 +43,21 @@ public abstract class GateKeeper {
         return service;
     }
 
+    @UnsupportedAppUsage
     public static long getSecureUserId() throws IllegalStateException {
+        return getSecureUserId(UserHandle.myUserId());
+    }
+
+    /**
+     * Return the secure user id for a given user id
+     * @param userId the user id, e.g. 0
+     * @return the secure user id or {@link GateKeeper#INVALID_SECURE_USER_ID} if no such mapping
+     * for the given user id is found.
+     * @throws IllegalStateException if there is an error retrieving the secure user id
+     */
+    public static long getSecureUserId(int userId) throws IllegalStateException {
         try {
-            return getService().getSecureUserId(UserHandle.myUserId());
+            return getService().getSecureUserId(userId);
         } catch (RemoteException e) {
             throw new IllegalStateException(
                     "Failed to obtain secure user ID from gatekeeper", e);

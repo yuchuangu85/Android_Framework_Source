@@ -22,7 +22,7 @@ import android.util.AndroidException;
 /**
  * Base class for all the exceptions in CAT service.
  *
- * {@hide}
+ * @hide
  */
 class CatException extends AndroidException {
     public CatException() {

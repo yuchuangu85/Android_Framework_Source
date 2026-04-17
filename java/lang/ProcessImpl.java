@@ -39,6 +39,9 @@ import java.lang.ProcessBuilder.Redirect;
  * @since   1.5
  */
 final class ProcessImpl {
+    // Android-changed: Use FileDescriptor.getInt$() instead of fdAccess.get(...).
+    // private static final sun.misc.JavaIOFileDescriptorAccess fdAccess
+    //     = sun.misc.SharedSecrets.getJavaIOFileDescriptorAccess();
 
     private ProcessImpl() {}    // Not instantiable
 
@@ -101,6 +104,8 @@ final class ProcessImpl {
                     std_fds[0] = 0;
                 else {
                     f0 = new FileInputStream(redirects[0].file());
+                    // Android-changed: Use FileDescriptor.getInt$() instead of fdAccess.get(...).
+                    // std_fds[0] = fdAccess.get(f0.getFD());
                     std_fds[0] = f0.getFD().getInt$();
                 }
 
@@ -111,6 +116,8 @@ final class ProcessImpl {
                 else {
                     f1 = new FileOutputStream(redirects[1].file(),
                                               redirects[1].append());
+                    // Android-changed: Use FileDescriptor.getInt$() instead of fdAccess.get(...).
+                    // std_fds[1] = fdAccess.get(f1.getFD());
                     std_fds[1] = f1.getFD().getInt$();
                 }
 
@@ -121,6 +128,8 @@ final class ProcessImpl {
                 else {
                     f2 = new FileOutputStream(redirects[2].file(),
                                               redirects[2].append());
+                    // Android-changed: Use FileDescriptor.getInt$() instead of fdAccess.get(...).
+                    // std_fds[2] = fdAccess.get(f2.getFD());
                     std_fds[2] = f2.getFD().getInt$();
                 }
             }

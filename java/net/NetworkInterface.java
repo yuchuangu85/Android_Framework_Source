@@ -37,7 +37,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
+import android.compat.Compatibility;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
 import android.system.StructIfaddrs;
+import dalvik.annotation.compat.VersionCodes;
 import libcore.io.IoUtils;
 import libcore.io.Libcore;
 import sun.security.action.*;
@@ -47,6 +51,7 @@ import static android.system.OsConstants.*;
 
 // Android-note: NetworkInterface has been rewritten to avoid native code.
 // Fix upstream bug not returning link-down interfaces. http://b/26238832
+// Android-added: Document restrictions for non-system apps. http://b/170188668
 /**
  * This class represents a Network Interface made up of a name,
  * and a list of IP addresses assigned to this interface.
@@ -54,10 +59,33 @@ import static android.system.OsConstants.*;
  * is joined.
  *
  * Interfaces are normally known by names such as "le0".
+ * <p>
+ * <a name="access-restrictions"></a>Note that information about
+ * {@link NetworkInterface}s may be restricted. For example, non-system apps
+ * will only have access to information about {@link NetworkInterface}s that are
+ * associated with an {@link InetAddress}.
  *
  * @since 1.4
  */
 public final class NetworkInterface {
+    // Android-added: Anonymized address for apps targeting old API versions. http://b/170188668
+    /**
+     * If this change is enabled, {@link #getHardwareAddress()} returns null when the hardware
+     * address is <a href="#access-restrictions">inaccessible</a>. If the change is disabled, the
+     * default MAC address (02:00:00:00:00:00) is returned instead.
+     *
+     * @hide
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion=VersionCodes.R)
+    public static final long RETURN_NULL_HARDWARE_ADDRESS = 170188668L;
+    // The default hardware address is a zeroed-out MAC address with only its
+    // locally-administered bit set, returned to apps targeting older API versions if they would
+    // otherwise see a null MAC address.
+    // Matches android.net.wifi.WifiInfo.DEFAULT_MAC_ADDRESS
+    private static final byte[] DEFAULT_MAC_ADDRESS = {
+        0x02, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
     private String name;
     private String displayName;
     private int index;
@@ -265,6 +293,7 @@ public final class NetworkInterface {
         return "".equals(displayName) ? null : displayName;
     }
 
+    // Android-added: Document restrictions for non-system apps. http://b/170188668
     /**
      * Searches for the network interface with the specified name.
      *
@@ -272,8 +301,9 @@ public final class NetworkInterface {
      *          The name of the network interface.
      *
      * @return  A {@code NetworkInterface} with the specified name,
-     *          or {@code null} if there is no network interface
-     *          with the specified name.
+     *          or {@code null} if the network interface with the specified
+     *          name does not exist or <a href="#access-restrictions">can't be
+     *          accessed</a>.
      *
      * @throws  SocketException
      *          If an I/O error occurs.
@@ -295,12 +325,14 @@ public final class NetworkInterface {
         return null;
     }
 
+    // Android-added: Document restrictions for non-system apps. http://b/170188668
     /**
      * Get a network interface given its index.
      *
      * @param index an integer, the index of the interface
      * @return the NetworkInterface obtained from its index, or {@code null} if
-     *         there is no interface with such an index on the system
+     *         an interface with the specified index does not exist or
+     *         <a href="#access-restrictions">can't be accessed</a>.
      * @throws  SocketException  if an I/O error occurs.
      * @throws  IllegalArgumentException if index has a negative value
      * @see #getIndex()
@@ -362,6 +394,8 @@ public final class NetworkInterface {
         return null;
     }
 
+    // Android-added: Document restrictions for non-system apps. http://b/170188668
+    // Android-added: Note about NullPointerException in older versions. http://b/206053582
     /**
      * Returns all the interfaces on this machine. The {@code Enumeration}
      * contains at least one element, possibly representing a loopback
@@ -370,20 +404,46 @@ public final class NetworkInterface {
      *
      * NOTE: can use getNetworkInterfaces()+getInetAddresses()
      *       to obtain all IP addresses for this node
+     * <p>
+     * For non-system apps, this method will only return information for
+     * {@link NetworkInterface}s associated with an {@link InetAddress}.
+     * <p>
+     * ANDROID NOTE: On Android versions before S (API level 31), this method may throw a
+     *               NullPointerException if called in an environment where there is a virtual
+     *               interface without a parent interface present.
      *
      * @return an Enumeration of NetworkInterfaces found on this machine
+     *         that <a href="#access-restrictions">are accessible</a>.
      * @exception  SocketException  if an I/O error occurs.
      */
 
     public static Enumeration<NetworkInterface> getNetworkInterfaces()
         throws SocketException {
         final NetworkInterface[] netifs = getAll();
-
         // Android-changed: Rewrote NetworkInterface on top of Libcore.io.
-        // specified to return null if no network interfaces
+        // // specified to return null if no network interfaces
+        // if (netifs == null)
         if (netifs.length == 0)
             return null;
 
+        // Android-changed: Rewrote NetworkInterface on top of Libcore.io.
+        /*
+        return new Enumeration<NetworkInterface>() {
+            private int i = 0;
+            public NetworkInterface nextElement() {
+                if (netifs != null && i < netifs.length) {
+                    NetworkInterface netif = netifs[i++];
+                    return netif;
+                } else {
+                    throw new NoSuchElementException();
+                }
+            }
+
+            public boolean hasMoreElements() {
+                return (netifs != null && i < netifs.length);
+            }
+        };
+        */
         return Collections.enumeration(Arrays.asList(netifs));
     }
 
@@ -397,6 +457,10 @@ public final class NetworkInterface {
         StructIfaddrs[] ifaddrs;
         try {
             ifaddrs = Libcore.os.getifaddrs();
+            // Defensive check for b/217749090: ifaddrs should never be null.
+            if (ifaddrs == null) {
+                throw new SocketException("Failed to query network interfaces.");
+            }
         } catch (ErrnoException e) {
             throw e.rethrowAsSocketException();
         }
@@ -458,8 +522,11 @@ public final class NetworkInterface {
                 NetworkInterface parent = nis.get(parentName);
 
                 ni.virtual = true;
-                ni.parent = parent;
-                parent.childs.add(ni);
+
+                if (parent != null) {
+                    ni.parent = parent;
+                    parent.childs.add(ni);
+                }
             }
         }
 
@@ -523,6 +590,7 @@ public final class NetworkInterface {
         return (getFlags() & IFF_MULTICAST) != 0;
     }
 
+    // Android-added: Restrictions for non-system apps. http://b/170188668
     /**
      * Returns the hardware address (usually MAC) of the interface if it
      * has one and if it can be accessed given the current privileges.
@@ -532,7 +600,10 @@ public final class NetworkInterface {
      * @return  a byte array containing the address, or {@code null} if
      *          the address doesn't exist, is not accessible or a security
      *          manager is set and the caller does not have the permission
-     *          NetPermission("getNetworkInformation")
+     *          NetPermission("getNetworkInformation"). For example, this
+     *          method will generally return {@code null} when called by
+     *          non-system apps (or 02:00:00:00:00:00 for apps having
+     *          {@code targetSdkVersion < android.os.Build.VERSION_CODES.R}).
      *
      * @exception       SocketException if an I/O error occurs.
      * @since 1.6
@@ -550,6 +621,12 @@ public final class NetworkInterface {
         NetworkInterface ni = getByName(name);
         if (ni == null) {
             throw new SocketException("NetworkInterface doesn't exist anymore");
+        }
+        // Return 02:00:00:00:00:00 for apps having a target SDK version < R if they would have
+        // otherwise gotten a null MAC address (excluding loopback).
+        if (ni.hardwareAddr == null && !"lo".equals(name)
+                && !Compatibility.isChangeEnabled(RETURN_NULL_HARDWARE_ADDRESS)) {
+            return DEFAULT_MAC_ADDRESS.clone();
         }
         return ni.hardwareAddr;
         // END Android-changed: Fix upstream not returning link-down interfaces. http://b/26238832

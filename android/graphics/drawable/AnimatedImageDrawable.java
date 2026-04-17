@@ -37,6 +37,7 @@ import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.View;
 
+import com.android.graphics.hwui.flags.Flags;
 import com.android.internal.R;
 
 import dalvik.annotation.optimization.FastNative;
@@ -48,6 +49,7 @@ import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 
 /**
@@ -290,8 +292,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
      */
     public AnimatedImageDrawable(long nativeImageDecoder,
             @Nullable ImageDecoder decoder, int width, int height,
-            int srcDensity, int dstDensity, Rect cropRect,
-            InputStream inputStream, AssetFileDescriptor afd)
+            long colorSpaceHandle, boolean extended, int srcDensity, int dstDensity,
+            Rect cropRect, InputStream inputStream, AssetFileDescriptor afd)
             throws IOException {
         width = Bitmap.scaleFromDensity(width, srcDensity, dstDensity);
         height = Bitmap.scaleFromDensity(height, srcDensity, dstDensity);
@@ -308,11 +310,11 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
             mIntrinsicHeight = cropRect.height();
         }
 
-        mState = new State(nCreate(nativeImageDecoder, decoder, width, height, cropRect),
-                inputStream, afd);
+        mState = new State(nCreate(nativeImageDecoder, decoder, width, height, colorSpaceHandle,
+                    extended, cropRect), inputStream, afd);
 
         final long nativeSize = nNativeByteSize(mState.mNativePtr);
-        NativeAllocationRegistry registry = new NativeAllocationRegistry(
+        NativeAllocationRegistry registry = NativeAllocationRegistry.createMalloced(
                 AnimatedImageDrawable.class.getClassLoader(), nGetNativeFinalizer(), nativeSize);
         registry.registerNativeAllocation(mState, mState.mNativePtr);
     }
@@ -461,6 +463,10 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
             throw new IllegalStateException("called start on empty AnimatedImageDrawable");
         }
 
+        if (Flags.animatedImageFrameRateHint() && Looper.myLooper() != null) {
+            nSetOnFrameRateHintListener(mState.mNativePtr, new WeakReference<>(this));
+        }
+
         if (nStart(mState.mNativePtr)) {
             mStarting = true;
             invalidateSelf();
@@ -481,6 +487,9 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
         if (nStop(mState.mNativePtr)) {
             postOnAnimationEnd();
         }
+        if (Flags.animatedImageFrameRateHint() && Looper.myLooper() != null) {
+            nSetOnFrameRateHintListener(mState.mNativePtr, null);
+        }
     }
 
     // Animatable2 overrides
@@ -494,7 +503,7 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
 
         if (mAnimationCallbacks == null) {
             mAnimationCallbacks = new ArrayList<Animatable2.AnimationCallback>();
-            nSetOnAnimationEndListener(mState.mNativePtr, this);
+            nSetOnAnimationEndListener(mState.mNativePtr, new WeakReference<>(this));
         }
 
         if (!mAnimationCallbacks.contains(callback)) {
@@ -522,6 +531,35 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
             mAnimationCallbacks = null;
             nSetOnAnimationEndListener(mState.mNativePtr, null);
         }
+    }
+
+    @Override
+    public void setFilterBitmap(boolean filterBitmap) {
+        if (!Flags.animatedImageDrawableFilterBitmap()) {
+            super.setFilterBitmap(filterBitmap);
+            return;
+        }
+        if (mState.mNativePtr == 0) {
+            throw new IllegalStateException(
+              "called setFilterBitmap on empty AnimatedImageDrawable"
+            );
+        }
+        if (nSetFilterBitmap(mState.mNativePtr, filterBitmap)) {
+            invalidateSelf();
+        }
+    }
+
+    @Override
+    public boolean isFilterBitmap() {
+        if (!Flags.animatedImageDrawableFilterBitmap()) {
+            return super.isFilterBitmap();
+        }
+        if (mState.mNativePtr == 0) {
+            throw new IllegalStateException(
+                "called isFilterBitmap on empty AnimatedImageDrawable"
+            );
+        }
+        return nGetFilterBitmap(mState.mNativePtr);
     }
 
     private void postOnAnimationStart() {
@@ -562,6 +600,13 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
      *  callback, so no need to post.
      */
     @SuppressWarnings("unused")
+    private static void callOnAnimationEnd(WeakReference<AnimatedImageDrawable> weakDrawable) {
+        AnimatedImageDrawable drawable = weakDrawable.get();
+        if (drawable != null) {
+            drawable.onAnimationEnd();
+        }
+    }
+
     private void onAnimationEnd() {
         if (mAnimationCallbacks != null) {
             for (Animatable2.AnimationCallback callback : mAnimationCallbacks) {
@@ -570,10 +615,34 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
         }
     }
 
+    @SuppressWarnings("unused")
+    // This method is called from native code (see AnimatedImageDrawable.cpp)
+    private static void callOnFrameRateHint(WeakReference<AnimatedImageDrawable> weakDrawable,
+            float fps) {
+
+        if (!Flags.animatedImageFrameRateHint()) {
+            return;
+        }
+        AnimatedImageDrawable drawable = weakDrawable.get();
+        if (drawable != null) {
+            final Callback cb = drawable.getCallback();
+            if (cb != null) {
+                cb.onFrameRateHint(drawable, fps);
+            }
+        }
+    }
+
+    @Override
+    protected void onBoundsChange(Rect bounds) {
+        if (mState.mNativePtr != 0) {
+            nSetBounds(mState.mNativePtr, bounds);
+        }
+    }
+
 
     private static native long nCreate(long nativeImageDecoder,
-            @Nullable ImageDecoder decoder, int width, int height, Rect cropRect)
-        throws IOException;
+            @Nullable ImageDecoder decoder, int width, int height, long colorSpaceHandle,
+            boolean extended, Rect cropRect) throws IOException;
     @FastNative
     private static native long nGetNativeFinalizer();
     private static native long nDraw(long nativePtr, long canvasNativePtr);
@@ -596,9 +665,17 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
     private static native void nSetRepeatCount(long nativePtr, int repeatCount);
     // Pass the drawable down to native so it can call onAnimationEnd.
     private static native void nSetOnAnimationEndListener(long nativePtr,
-            @Nullable AnimatedImageDrawable drawable);
+            @Nullable WeakReference<AnimatedImageDrawable> drawable);
+    private static native void nSetOnFrameRateHintListener(long nativePtr,
+            @Nullable WeakReference<AnimatedImageDrawable> drawable);
     @FastNative
     private static native long nNativeByteSize(long nativePtr);
     @FastNative
     private static native void nSetMirrored(long nativePtr, boolean mirror);
+    @FastNative
+    private static native void nSetBounds(long nativePtr, Rect rect);
+    @FastNative
+    private static native boolean nSetFilterBitmap(long nativePtr, boolean filterBitmap);
+    @FastNative
+    private static native boolean nGetFilterBitmap(long nativePtr);
 }

@@ -19,6 +19,11 @@ package android.telephony;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import com.android.internal.telephony.uicc.IccUtils;
+
+import java.util.Arrays;
+import java.util.Objects;
+
 /**
  * Contains Carrier-specific (and opaque) Protocol configuration Option
  * Data.  In general this is only passed on to carrier-specific applications
@@ -69,7 +74,7 @@ public class PcoData implements Parcelable {
      *
      * @hide
      */
-    public static final Parcelable.Creator<PcoData> CREATOR = new Parcelable.Creator() {
+    public static final @android.annotation.NonNull Parcelable.Creator<PcoData> CREATOR = new Parcelable.Creator() {
         public PcoData createFromParcel(Parcel in) {
             return new PcoData(in);
         }
@@ -81,7 +86,25 @@ public class PcoData implements Parcelable {
 
     @Override
     public String toString() {
-        return "PcoData(" + cid + ", " + bearerProto + ", " + pcoId + ", contents[" +
-                contents.length + "])";
+        return "PcoData(" + cid + ", " + bearerProto + ", " + pcoId + " "
+                + IccUtils.bytesToHexString(contents) + ")";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        PcoData pcoData = (PcoData) o;
+        return cid == pcoData.cid
+                && pcoId == pcoData.pcoId
+                && Objects.equals(bearerProto, pcoData.bearerProto)
+                && Arrays.equals(contents, pcoData.contents);
+    }
+
+    @Override
+    public int hashCode() {
+        int result = Objects.hash(cid, bearerProto, pcoId);
+        result = 31 * result + Arrays.hashCode(contents);
+        return result;
     }
 }

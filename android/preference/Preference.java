@@ -21,11 +21,13 @@ import android.annotation.DrawableRes;
 import android.annotation.LayoutRes;
 import android.annotation.Nullable;
 import android.annotation.StringRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.TypedArray;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -84,7 +86,14 @@ import java.util.Set;
  * @attr ref android.R.styleable#Preference_recycleEnabled
  * @attr ref android.R.styleable#Preference_singleLineTitle
  * @attr ref android.R.styleable#Preference_iconSpaceReserved
+ *
+ * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+ *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+ *      Preference Library</a> for consistent behavior across all devices. For more information on
+ *      using the AndroidX Preference Library see
+ *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
  */
+@Deprecated
 public class Preference implements Comparable<Preference> {
     /**
      * Specify for {@link #setOrder(int)} if a specific order is not required.
@@ -116,6 +125,7 @@ public class Preference implements Comparable<Preference> {
     private int mOrder = DEFAULT_ORDER;
     private CharSequence mTitle;
     private int mTitleRes;
+    @UnsupportedAppUsage
     private CharSequence mSummary;
     /**
      * mIconResId is overridden by mIcon, if mIcon is specified.
@@ -144,7 +154,9 @@ public class Preference implements Comparable<Preference> {
      */
     private boolean mShouldDisableView = true;
 
+    @UnsupportedAppUsage
     private int mLayoutResId = com.android.internal.R.layout.preference;
+    @UnsupportedAppUsage
     private int mWidgetLayoutResId;
 
     private OnPreferenceChangeInternalListener mListener;
@@ -160,7 +172,14 @@ public class Preference implements Comparable<Preference> {
      * {@link Preference} has been changed by the user and is
      * about to be set and/or persisted.  This gives the client a chance
      * to prevent setting and/or persisting the value.
+     *
+     * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+     *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+     *      Preference Library</a> for consistent behavior across all devices.
+     *      For more information on using the AndroidX Preference Library see
+     *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
      */
+    @Deprecated
     public interface OnPreferenceChangeListener {
         /**
          * Called when a Preference has been changed by the user. This is
@@ -177,7 +196,14 @@ public class Preference implements Comparable<Preference> {
     /**
      * Interface definition for a callback to be invoked when a {@link Preference} is
      * clicked.
+     *
+     * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+     *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+     *      Preference Library</a> for consistent behavior across all devices.
+     *      For more information on using the AndroidX Preference Library see
+     *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
      */
+    @Deprecated
     public interface OnPreferenceClickListener {
         /**
          * Called when a Preference has been clicked.
@@ -974,6 +1000,7 @@ public class Preference implements Comparable<Preference> {
      *
      * @return A unique ID for this Preference.
      */
+    @UnsupportedAppUsage
     long getId() {
         return mId;
     }
@@ -1126,6 +1153,7 @@ public class Preference implements Comparable<Preference> {
      *            processing). May be {@code null}.
      * @hide
      */
+    @UnsupportedAppUsage
     public void performClick(PreferenceScreen preferenceScreen) {
 
         if (!isEnabled()) {
@@ -1161,6 +1189,7 @@ public class Preference implements Comparable<Preference> {
      * @return True if the Preference handled the key. Returns false by default.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     public boolean onKey(View v, int keyCode, KeyEvent event) {
         return false;
     }
@@ -1281,6 +1310,7 @@ public class Preference implements Comparable<Preference> {
      * @param listener The listener.
      * @see #notifyChanged()
      */
+    @UnsupportedAppUsage
     final void setOnPreferenceChangeInternalListener(OnPreferenceChangeInternalListener listener) {
         mListener = listener;
     }
@@ -1399,6 +1429,7 @@ public class Preference implements Comparable<Preference> {
      * @param dependent The dependent Preference that will be enabled/disabled
      *            according to the state of this Preference.
      */
+    @UnsupportedAppUsage
     private void registerDependent(Preference dependent) {
         if (mDependents == null) {
             mDependents = new ArrayList<Preference>();
@@ -2060,7 +2091,14 @@ public class Preference implements Comparable<Preference> {
 
     /**
      * A base class for managing the instance state of a {@link Preference}.
+     *
+     * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+     *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+     *      Preference Library</a> for consistent behavior across all devices.
+     *      For more information on using the AndroidX Preference Library see
+     *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
      */
+    @Deprecated
     public static class BaseSavedState extends AbsSavedState {
         public BaseSavedState(Parcel source) {
             super(source);
@@ -2070,7 +2108,7 @@ public class Preference implements Comparable<Preference> {
             super(superState);
         }
 
-        public static final Parcelable.Creator<BaseSavedState> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<BaseSavedState> CREATOR =
                 new Parcelable.Creator<BaseSavedState>() {
                     public BaseSavedState createFromParcel(Parcel in) {
                         return new BaseSavedState(in);

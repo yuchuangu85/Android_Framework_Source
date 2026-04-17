@@ -19,6 +19,7 @@ package android.util;
 /**
  * Base class for all unchecked exceptions thrown by the Android frameworks.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class AndroidRuntimeException extends RuntimeException {
     public AndroidRuntimeException() {
     }
@@ -34,5 +35,4 @@ public class AndroidRuntimeException extends RuntimeException {
     public AndroidRuntimeException(Exception cause) {
         super(cause);
     }
-};
-
+}

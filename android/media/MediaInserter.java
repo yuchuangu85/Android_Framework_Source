@@ -16,6 +16,7 @@
 
 package android.media;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentProviderClient;
 import android.content.ContentValues;
 import android.net.Uri;
@@ -29,7 +30,7 @@ import java.util.List;
  * A MediaScanner helper class which enables us to do lazy insertion on the
  * given provider. This class manages buffers internally and flushes when they
  * are full. Note that you should call flushAll() after using this class.
- * {@hide}
+ * @hide
  */
 public class MediaInserter {
     private final HashMap<Uri, List<ContentValues>> mRowMap =
@@ -67,6 +68,7 @@ public class MediaInserter {
         }
     }
 
+    @UnsupportedAppUsage
     public void flushAll() throws RemoteException {
         flushAllPriority();
         for (Uri tableUri : mRowMap.keySet()){

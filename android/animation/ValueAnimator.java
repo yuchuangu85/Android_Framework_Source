@@ -17,9 +17,16 @@
 package android.animation;
 
 import android.annotation.CallSuper;
+import android.annotation.FloatRange;
 import android.annotation.IntDef;
+import android.annotation.MainThread;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Looper;
+import android.os.SystemProperties;
 import android.os.Trace;
 import android.util.AndroidRuntimeException;
 import android.util.Log;
@@ -30,8 +37,10 @@ import android.view.animation.LinearInterpolator;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 
 /**
  * This class provides a simple timing engine for running animations
@@ -71,11 +80,23 @@ import java.util.HashMap;
 public class ValueAnimator extends Animator implements AnimationHandler.AnimationFrameCallback {
     private static final String TAG = "ValueAnimator";
     private static final boolean DEBUG = false;
+    private static final boolean TRACE_ANIMATION_FRACTION = SystemProperties.getBoolean(
+            "persist.debug.animator.trace_fraction", false);
 
     /**
      * Internal constants
      */
+
+    /**
+     * System-wide animation scale.
+     *
+     * <p>To check whether animations are enabled system-wise use {@link #areAnimatorsEnabled()}.
+     */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     private static float sDurationScale = 1.0f;
+
+    private static final ArrayList<WeakReference<DurationScaleChangeListener>>
+            sDurationScaleChangeListeners = new ArrayList<>();
 
     /**
      * Internal variables
@@ -88,24 +109,8 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
      * The first time that the animation's animateFrame() method is called. This time is used to
      * determine elapsed time (and therefore the elapsed fraction) in subsequent calls
      * to animateFrame().
-     *
-     * Whenever mStartTime is set, you must also update mStartTimeCommitted.
      */
     long mStartTime = -1;
-
-    /**
-     * When true, the start time has been firmly committed as a chosen reference point in
-     * time by which the progress of the animation will be evaluated.  When false, the
-     * start time may be updated when the first animation frame is committed so as
-     * to compensate for jank that may have occurred between when the start time was
-     * initialized and when the frame was actually drawn.
-     *
-     * This flag is generally set to false during the first frame of the animation
-     * when the animation playing state transitions from STOPPED to RUNNING or
-     * resumes after having been paused.  This flag is set to true when the start time
-     * is firmly committed and should not be further compensated for jank.
-     */
-    boolean mStartTimeCommitted;
 
     /**
      * Set when setCurrentPlayTime() is called. If negative, animation is not currently seeked
@@ -178,13 +183,6 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
     private boolean mStarted = false;
 
     /**
-     * Tracks whether we've notified listeners of the onAnimationStart() event. This can be
-     * complex to keep track of since we notify listeners at different times depending on
-     * startDelay and whether start() was called before end().
-     */
-    private boolean mStartListenersCalled = false;
-
-    /**
      * Flag that denotes whether the animation is set up and ready to go. Used to
      * set up animation that has not yet been started.
      */
@@ -200,6 +198,7 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
     //
 
     // How long the animation should last in ms
+    @UnsupportedAppUsage
     private long mDuration = 300;
 
     // The amount of time in ms to delay starting the animation after start() is called. Note
@@ -259,6 +258,11 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
     private float mDurationScale = -1f;
 
     /**
+     * Animation handler used to schedule updates for this animation.
+     */
+    private AnimationHandler mAnimationHandler;
+
+    /**
      * Public constants
      */
 
@@ -286,17 +290,92 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
     /**
      * @hide
      */
+    @UnsupportedAppUsage
     @TestApi
-    public static void setDurationScale(float durationScale) {
+    @MainThread
+    public static void setDurationScale(@FloatRange(from = 0) float durationScale) {
         sDurationScale = durationScale;
+        List<WeakReference<DurationScaleChangeListener>> listenerCopy;
+
+        synchronized (sDurationScaleChangeListeners) {
+            listenerCopy = new ArrayList<>(sDurationScaleChangeListeners);
+        }
+
+        int listenersSize = listenerCopy.size();
+        for (int i = 0; i < listenersSize; i++) {
+            final DurationScaleChangeListener listener = listenerCopy.get(i).get();
+            if (listener != null) {
+                listener.onChanged(durationScale);
+            }
+        }
     }
 
     /**
-     * @hide
+     * Returns the system-wide scaling factor for Animator-based animations.
+     *
+     * This affects both the start delay and duration of all such animations. Setting to 0 will
+     * cause animations to end immediately. The default value is 1.0f.
+     *
+     * @return the duration scale.
      */
-    @TestApi
+    @FloatRange(from = 0)
     public static float getDurationScale() {
         return sDurationScale;
+    }
+
+    /**
+     * Registers a {@link DurationScaleChangeListener}
+     *
+     * This listens for changes to the system-wide scaling factor for Animator-based animations.
+     * Listeners will be called on the main thread.
+     *
+     * @param listener the listener to register.
+     * @return true if the listener was registered.
+     */
+    public static boolean registerDurationScaleChangeListener(
+            @NonNull DurationScaleChangeListener listener) {
+        int posToReplace = -1;
+        synchronized (sDurationScaleChangeListeners) {
+            for (int i = 0; i < sDurationScaleChangeListeners.size(); i++) {
+                final WeakReference<DurationScaleChangeListener> ref =
+                        sDurationScaleChangeListeners.get(i);
+                if (ref.get() == null) {
+                    if (posToReplace == -1) {
+                        posToReplace = i;
+                    }
+                } else if (ref.get() == listener) {
+                    return false;
+                }
+            }
+            if (posToReplace != -1) {
+                sDurationScaleChangeListeners.set(posToReplace, new WeakReference<>(listener));
+                return true;
+            } else {
+                return sDurationScaleChangeListeners.add(new WeakReference<>(listener));
+            }
+        }
+    }
+
+    /**
+     * Unregisters a DurationScaleChangeListener.
+     *
+     * @see #registerDurationScaleChangeListener(DurationScaleChangeListener)
+     * @param listener the listener to unregister.
+     * @return true if the listener was unregistered.
+     */
+    public static boolean unregisterDurationScaleChangeListener(
+            @NonNull DurationScaleChangeListener listener) {
+        synchronized (sDurationScaleChangeListeners) {
+            WeakReference<DurationScaleChangeListener> listenerRefToRemove = null;
+            for (WeakReference<DurationScaleChangeListener> listenerRef :
+                    sDurationScaleChangeListeners) {
+                if (listenerRef.get() == listener) {
+                    listenerRefToRemove = listenerRef;
+                    break;
+                }
+            }
+            return sDurationScaleChangeListeners.remove(listenerRefToRemove);
+        }
     }
 
     /**
@@ -523,7 +602,7 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
     public void setValues(PropertyValuesHolder... values) {
         int numValues = values.length;
         mValues = values;
-        mValuesMap = new HashMap<String, PropertyValuesHolder>(numValues);
+        mValuesMap = new HashMap<>(numValues);
         for (int i = 0; i < numValues; ++i) {
             PropertyValuesHolder valuesHolder = values[i];
             mValuesMap.put(valuesHolder.getPropertyName(), valuesHolder);
@@ -557,9 +636,11 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
     @CallSuper
     void initAnimation() {
         if (!mInitialized) {
-            int numValues = mValues.length;
-            for (int i = 0; i < numValues; ++i) {
-                mValues[i].init();
+            if (mValues != null) {
+                int numValues = mValues.length;
+                for (int i = 0; i < numValues; ++i) {
+                    mValues[i].init();
+                }
             }
             mInitialized = true;
         }
@@ -657,7 +738,6 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
     public void setCurrentFraction(float fraction) {
         initAnimation();
         fraction = clampFraction(fraction);
-        mStartTimeCommitted = true; // do not allow start time to be compensated for jank
         if (isPulsingInternal()) {
             long seekTime = (long) (getScaledDuration() * fraction);
             long currentTime = AnimationUtils.currentAnimationTimeMillis();
@@ -1004,18 +1084,6 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
         }
     }
 
-    private void notifyStartListeners() {
-        if (mListeners != null && !mStartListenersCalled) {
-            ArrayList<AnimatorListener> tmpListeners =
-                    (ArrayList<AnimatorListener>) mListeners.clone();
-            int numListeners = tmpListeners.size();
-            for (int i = 0; i < numListeners; ++i) {
-                tmpListeners.get(i).onAnimationStart(this, mReversing);
-            }
-        }
-        mStartListenersCalled = true;
-    }
-
     /**
      * Start the animation playing. This version of start() takes a boolean flag that indicates
      * whether the animation should play in reverse. The flag is usually false, but may be set
@@ -1097,25 +1165,26 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
         // If end has already been requested, through a previous end() or cancel() call, no-op
         // until animation starts again.
         if (mAnimationEndRequested) {
+            if (consumePendingEndListeners(false /* notifyListeners */)) {
+                if (mRunning) {
+                    notifyListeners(AnimatorCaller.ON_CANCEL, false /* isReversing */);
+                }
+                completeEndAnimation(false /* isReversing */, "notifyAnimEndByCancel");
+            }
             return;
         }
 
         // Only cancel if the animation is actually running or has been started and is about
         // to run
         // Only notify listeners if the animator has actually started
-        if ((mStarted || mRunning) && mListeners != null) {
+        if ((mStarted || mRunning || mStartListenersCalled) && mListeners != null) {
             if (!mRunning) {
                 // If it's not yet running, then start listeners weren't called. Call them now.
-                notifyStartListeners();
+                notifyStartListeners(mReversing);
             }
-            ArrayList<AnimatorListener> tmpListeners =
-                    (ArrayList<AnimatorListener>) mListeners.clone();
-            for (AnimatorListener listener : tmpListeners) {
-                listener.onAnimationCancel(this);
-            }
+            notifyListeners(AnimatorCaller.ON_CANCEL, false);
         }
         endAnimation();
-
     }
 
     @Override
@@ -1131,6 +1200,10 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
             initAnimation();
         }
         animateValue(shouldPlayBackward(mRepeatCount, mReversing) ? 0f : 1f);
+        if (mAnimationEndRequested) {
+            consumePendingEndListeners(true /* notifyListeners */);
+            return;
+        }
         endAnimation();
     }
 
@@ -1183,7 +1256,6 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
             long currentPlayTime = currentTime - mStartTime;
             long timeLeft = getScaledDuration() - currentPlayTime;
             mStartTime = currentTime - timeLeft;
-            mStartTimeCommitted = true; // do not allow start time to be compensated for jank
             mReversing = !mReversing;
         } else if (mStarted) {
             mReversing = !mReversing;
@@ -1201,14 +1273,20 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
         return true;
     }
 
+    private void endAnimation() {
+        endAnimation(false /* fromLastFrame */);
+    }
+
     /**
      * Called internally to end an animation by removing it from the animations list. Must be
      * called on the UI thread.
      */
-    private void endAnimation() {
+    private void endAnimation(boolean fromLastFrame) {
         if (mAnimationEndRequested) {
             return;
         }
+        final boolean postNotifyEndListener = sPostNotifyEndListenerEnabled && mListeners != null
+                && fromLastFrame && getScaledDuration() > 0;
         removeAnimationCallback();
 
         mAnimationEndRequested = true;
@@ -1216,28 +1294,30 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
         boolean notify = (mStarted || mRunning) && mListeners != null;
         if (notify && !mRunning) {
             // If it's not yet running, then start listeners weren't called. Call them now.
-            notifyStartListeners();
+            notifyStartListeners(mReversing);
         }
-        mRunning = false;
-        mStarted = false;
-        mStartListenersCalled = false;
         mLastFrameTime = -1;
         mFirstFrameTime = -1;
         mStartTime = -1;
-        if (notify && mListeners != null) {
-            ArrayList<AnimatorListener> tmpListeners =
-                    (ArrayList<AnimatorListener>) mListeners.clone();
-            int numListeners = tmpListeners.size();
-            for (int i = 0; i < numListeners; ++i) {
-                tmpListeners.get(i).onAnimationEnd(this, mReversing);
-            }
-        }
-        // mReversing needs to be reset *after* notifying the listeners for the end callbacks.
-        mReversing = false;
+        // If postNotifyEndListener is false (most cases), then it is the same as calling
+        // completeEndAnimation directly.
+        notifyEndListenersFromEndAnimation(mReversing, postNotifyEndListener);
         if (Trace.isTagEnabled(Trace.TRACE_TAG_VIEW)) {
             Trace.asyncTraceEnd(Trace.TRACE_TAG_VIEW, getNameForTrace(),
                     System.identityHashCode(this));
         }
+    }
+
+    @Override
+    void completeEndAnimation(boolean isReversing, String notifyListenerTraceName) {
+        // The mRunning and mStarted are reset here because isStarted() and isRunning()
+        // can be true before notifying the end listeners. When notifying the end listeners,
+        // isStarted() and isRunning() should be false.
+        mRunning = false;
+        mStarted = false;
+        super.completeEndAnimation(isReversing, notifyListenerTraceName);
+        // mReversing needs to be reset *after* notifying the listeners for the end callbacks.
+        mReversing = false;
     }
 
     /**
@@ -1258,9 +1338,8 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
         } else {
             mOverallFraction = 0f;
         }
-        if (mListeners != null) {
-            notifyStartListeners();
-        }
+
+        notifyStartListeners(mReversing);
     }
 
     /**
@@ -1277,24 +1356,6 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
      */
     String getNameForTrace() {
         return "animator";
-    }
-
-    /**
-     * Applies an adjustment to the animation to compensate for jank between when
-     * the animation first ran and when the frame was drawn.
-     * @hide
-     */
-    public void commitAnimationFrame(long frameTime) {
-        if (!mStartTimeCommitted) {
-            mStartTimeCommitted = true;
-            long adjustment = frameTime - mLastFrameTime;
-            if (adjustment > 0) {
-                mStartTime += adjustment;
-                if (DEBUG) {
-                    Log.d(TAG, "Adjusted start time by " + adjustment + " ms: " + toString());
-                }
-            }
-        }
     }
 
     /**
@@ -1324,12 +1385,7 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
                 done = true;
             } else if (newIteration && !lastIterationFinished) {
                 // Time to repeat
-                if (mListeners != null) {
-                    int numListeners = mListeners.size();
-                    for (int i = 0; i < numListeners; ++i) {
-                        mListeners.get(i).onAnimationRepeat(this);
-                    }
-                }
+                notifyListeners(AnimatorCaller.ON_REPEAT, false);
             } else if (lastIterationFinished) {
                 done = true;
             }
@@ -1351,38 +1407,64 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
      * will be called.
      */
     @Override
-    void animateBasedOnPlayTime(long currentPlayTime, long lastPlayTime, boolean inReverse) {
-        if (currentPlayTime < 0 || lastPlayTime < 0) {
+    void animateValuesInRange(long currentPlayTime, long lastPlayTime) {
+        if (currentPlayTime < 0 || lastPlayTime < -1) {
             throw new UnsupportedOperationException("Error: Play time should never be negative.");
         }
 
         initAnimation();
+        long duration = getTotalDuration();
+        if (lastPlayTime < 0 || (lastPlayTime == 0 && currentPlayTime > 0)) {
+            notifyStartListeners(false);
+        } else if (lastPlayTime > duration
+                || (lastPlayTime == duration && currentPlayTime < duration)
+        ) {
+            notifyStartListeners(true);
+        }
+        if (duration >= 0) {
+            lastPlayTime = Math.min(duration, lastPlayTime);
+        }
+        lastPlayTime -= mStartDelay;
+        currentPlayTime -= mStartDelay;
+
         // Check whether repeat callback is needed only when repeat count is non-zero
         if (mRepeatCount > 0) {
-            int iteration = (int) (currentPlayTime / mDuration);
-            int lastIteration = (int) (lastPlayTime / mDuration);
+            int iteration = Math.max(0, (int) (currentPlayTime / mDuration));
+            int lastIteration = Math.max(0, (int) (lastPlayTime / mDuration));
 
             // Clamp iteration to [0, mRepeatCount]
             iteration = Math.min(iteration, mRepeatCount);
             lastIteration = Math.min(lastIteration, mRepeatCount);
 
             if (iteration != lastIteration) {
-                if (mListeners != null) {
-                    int numListeners = mListeners.size();
-                    for (int i = 0; i < numListeners; ++i) {
-                        mListeners.get(i).onAnimationRepeat(this);
-                    }
-                }
+                notifyListeners(AnimatorCaller.ON_REPEAT, false);
             }
         }
 
-        if (mRepeatCount != INFINITE && currentPlayTime >= (mRepeatCount + 1) * mDuration) {
-            skipToEndValue(inReverse);
+        if (mRepeatCount != INFINITE && currentPlayTime > (mRepeatCount + 1) * mDuration) {
+            throw new IllegalStateException("Can't animate a value outside of the duration");
         } else {
             // Find the current fraction:
-            float fraction = currentPlayTime / (float) mDuration;
-            fraction = getCurrentIterationFraction(fraction, inReverse);
+            float fraction = Math.max(0, currentPlayTime) / (float) mDuration;
+            fraction = getCurrentIterationFraction(fraction, false);
             animateValue(fraction);
+        }
+    }
+
+    @Override
+    void animateSkipToEnds(long currentPlayTime, long lastPlayTime) {
+        boolean inReverse = currentPlayTime < lastPlayTime;
+        boolean doSkip;
+        if (currentPlayTime <= 0 && lastPlayTime > 0) {
+            doSkip = true;
+        } else {
+            long duration = getTotalDuration();
+            doSkip = duration >= 0 && currentPlayTime >= duration && lastPlayTime < duration;
+        }
+        if (doSkip) {
+            notifyStartListeners(inReverse);
+            skipToEndValue(inReverse);
+            notifyEndListeners(inReverse);
         }
     }
 
@@ -1460,7 +1542,6 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
                 mStartTime = frameTime - seekTime;
                 mSeekFraction = -1;
             }
-            mStartTimeCommitted = false; // allow start time to be compensated for jank
         }
         mLastFrameTime = frameTime;
         // The frame time might be before the start time during the first frame of
@@ -1471,7 +1552,7 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
         boolean finished = animateBasedOnTime(currentTime);
 
         if (finished) {
-            endAnimation();
+            endAnimation(true /* fromLastFrame */);
         }
         return finished;
     }
@@ -1488,13 +1569,6 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
             return false;
         }
         return doAnimationFrame(frameTime);
-    }
-
-    private void addOneShotCommitCallback() {
-        if (!mSelfPulse) {
-            return;
-        }
-        getAnimationHandler().addOneShotCommitCallback(this);
     }
 
     private void removeAnimationCallback() {
@@ -1534,18 +1608,23 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
      * @param fraction The elapsed fraction of the animation.
      */
     @CallSuper
+    @UnsupportedAppUsage
     void animateValue(float fraction) {
+        if (TRACE_ANIMATION_FRACTION) {
+            Trace.traceCounter(Trace.TRACE_TAG_VIEW, getNameForTrace() + hashCode(),
+                    (int) (fraction * 1000));
+        }
+        if (mValues == null) {
+            return;
+        }
         fraction = mInterpolator.getInterpolation(fraction);
         mCurrentFraction = fraction;
         int numValues = mValues.length;
         for (int i = 0; i < numValues; ++i) {
             mValues[i].calculateValue(fraction);
         }
-        if (mUpdateListeners != null) {
-            int numListeners = mUpdateListeners.size();
-            for (int i = 0; i < numListeners; ++i) {
-                mUpdateListeners.get(i).onAnimationUpdate(this);
-            }
+        if (mSeekFraction >= 0 || mStartListenersCalled) {
+            callOnList(mUpdateListeners, AnimatorCaller.ON_UPDATE, this, false);
         }
     }
 
@@ -1562,9 +1641,7 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
         anim.mRunning = false;
         anim.mPaused = false;
         anim.mResumed = false;
-        anim.mStartListenersCalled = false;
         anim.mStartTime = -1;
-        anim.mStartTimeCommitted = false;
         anim.mAnimationEndRequested = false;
         anim.mPauseTime = -1;
         anim.mLastFrameTime = -1;
@@ -1600,7 +1677,7 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
          *
          * @param animation The animation which was repeated.
          */
-        void onAnimationUpdate(ValueAnimator animation);
+        void onAnimationUpdate(@NonNull ValueAnimator animation);
 
     }
 
@@ -1671,6 +1748,29 @@ public class ValueAnimator extends Animator implements AnimationHandler.Animatio
      * @hide
      */
     public AnimationHandler getAnimationHandler() {
-        return AnimationHandler.getInstance();
+        return mAnimationHandler != null ? mAnimationHandler : AnimationHandler.getInstance();
+    }
+
+    /**
+     * Sets the animation handler used to schedule updates for this animator or {@code null} to use
+     * the default handler.
+     * @hide
+     */
+    public void setAnimationHandler(@Nullable AnimationHandler animationHandler) {
+        mAnimationHandler = animationHandler;
+    }
+
+    /**
+     * Listener interface for the system-wide scaling factor for Animator-based animations.
+     *
+     * @see #registerDurationScaleChangeListener(DurationScaleChangeListener)
+     * @see #unregisterDurationScaleChangeListener(DurationScaleChangeListener)
+     */
+    public interface DurationScaleChangeListener {
+        /**
+         * Called when the duration scale changes.
+         * @param scale the duration scale
+         */
+        void onChanged(@FloatRange(from = 0) float scale);
     }
 }

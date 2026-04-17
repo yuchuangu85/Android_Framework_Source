@@ -22,4 +22,5 @@ package android.text.style;
  * this interface.  This interface also includes {@link UpdateAppearance}
  * since such a change implicitly also impacts the appearance.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface UpdateLayout extends UpdateAppearance { }

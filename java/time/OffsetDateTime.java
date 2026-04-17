@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -93,7 +93,6 @@ import java.time.zone.ZoneRules;
 import java.util.Comparator;
 import java.util.Objects;
 
-// Android-changed: removed ValueBased paragraph.
 /**
  * A date-time with an offset from UTC/Greenwich in the ISO-8601 calendar system,
  * such as {@code 2007-12-03T10:15:30+01:00}.
@@ -101,7 +100,7 @@ import java.util.Objects;
  * {@code OffsetDateTime} is an immutable representation of a date-time with an offset.
  * This class stores all date and time fields, to a precision of nanoseconds,
  * as well as the offset from UTC/Greenwich. For example, the value
- * "2nd October 2007 at 13:45.30.123456789 +02:00" can be stored in an {@code OffsetDateTime}.
+ * "2nd October 2007 at 13:45:30.123456789 +02:00" can be stored in an {@code OffsetDateTime}.
  * <p>
  * {@code OffsetDateTime}, {@link java.time.ZonedDateTime} and {@link java.time.Instant} all store an instant
  * on the time-line to nanosecond precision.
@@ -113,12 +112,20 @@ import java.util.Objects;
  * It is intended that {@code ZonedDateTime} or {@code Instant} is used to model data
  * in simpler applications. This class may be used when modeling date-time concepts in
  * more detail, or when communicating to a database or in a network protocol.
+ * <p>
+ * This is a <a href="{@docRoot}/java.base/java/lang/doc-files/ValueBased.html">value-based<>
+ * class; programmers should treat instances that are
+ * {@linkplain #equals(Object) equal} as interchangeable and should not
+ * use instances for synchronization, or unpredictable behavior may
+ * occur. For example, in a future release, synchronization may fail.
+ * The {@code equals} method should be used for comparisons.
  *
  * @implSpec
  * This class is immutable and thread-safe.
  *
  * @since 1.8
  */
+@jdk.internal.ValueBased
 public final class OffsetDateTime
         implements Temporal, TemporalAdjuster, Comparable<OffsetDateTime>, Serializable {
 
@@ -178,6 +185,7 @@ public final class OffsetDateTime
     /**
      * Serialization version.
      */
+    @java.io.Serial
     private static final long serialVersionUID = 2287754244819255394L;
 
     /**
@@ -570,7 +578,7 @@ public final class OffsetDateTime
      * The {@link #isSupported(TemporalField) supported fields} will return valid
      * values based on this date-time, except {@code NANO_OF_DAY}, {@code MICRO_OF_DAY},
      * {@code EPOCH_DAY}, {@code PROLEPTIC_MONTH} and {@code INSTANT_SECONDS} which are too
-     * large to fit in an {@code int} and throw a {@code DateTimeException}.
+     * large to fit in an {@code int} and throw an {@code UnsupportedTemporalTypeException}.
      * All other {@code ChronoField} instances will throw an {@code UnsupportedTemporalTypeException}.
      * <p>
      * If the field is not a {@code ChronoField}, then the result of this method
@@ -588,8 +596,8 @@ public final class OffsetDateTime
      */
     @Override
     public int get(TemporalField field) {
-        if (field instanceof ChronoField) {
-            switch ((ChronoField) field) {
+        if (field instanceof ChronoField chronoField) {
+            switch (chronoField) {
                 case INSTANT_SECONDS:
                     throw new UnsupportedTemporalTypeException("Invalid field 'InstantSeconds' for get() method, use getLong() instead");
                 case OFFSET_SECONDS:
@@ -625,8 +633,8 @@ public final class OffsetDateTime
      */
     @Override
     public long getLong(TemporalField field) {
-        if (field instanceof ChronoField) {
-            switch ((ChronoField) field) {
+        if (field instanceof ChronoField chronoField) {
+            switch (chronoField) {
                 case INSTANT_SECONDS: return toEpochSecond();
                 case OFFSET_SECONDS: return getOffset().getTotalSeconds();
             }
@@ -959,12 +967,11 @@ public final class OffsetDateTime
      */
     @Override
     public OffsetDateTime with(TemporalField field, long newValue) {
-        if (field instanceof ChronoField) {
-            ChronoField f = (ChronoField) field;
-            switch (f) {
+        if (field instanceof ChronoField chronoField) {
+            switch (chronoField) {
                 case INSTANT_SECONDS: return ofInstant(Instant.ofEpochSecond(newValue, getNano()), offset);
                 case OFFSET_SECONDS: {
-                    return with(dateTime, ZoneOffset.ofTotalSeconds(f.checkValidIntValue(newValue)));
+                    return with(dateTime, ZoneOffset.ofTotalSeconds(chronoField.checkValidIntValue(newValue)));
                 }
             }
             return with(dateTime.with(field, newValue), offset);
@@ -1387,8 +1394,8 @@ public final class OffsetDateTime
      * </ol>
      * <p>
      * For example, 2008-02-29 (leap year) minus one year would result in the
-     * invalid date 2009-02-29 (standard year). Instead of returning an invalid
-     * result, the last valid day of the month, 2009-02-28, is selected instead.
+     * invalid date 2007-02-29 (standard year). Instead of returning an invalid
+     * result, the last valid day of the month, 2007-02-28, is selected instead.
      * <p>
      * This instance is immutable and unaffected by this method call.
      *
@@ -1411,8 +1418,8 @@ public final class OffsetDateTime
      * </ol>
      * <p>
      * For example, 2007-03-31 minus one month would result in the invalid date
-     * 2007-04-31. Instead of returning an invalid result, the last valid day
-     * of the month, 2007-04-30, is selected instead.
+     * 2007-02-31. Instead of returning an invalid result, the last valid day
+     * of the month, 2007-02-28, is selected instead.
      * <p>
      * This instance is immutable and unaffected by this method call.
      *
@@ -1431,7 +1438,7 @@ public final class OffsetDateTime
      * the month and year fields as necessary to ensure the result remains valid.
      * The result is only invalid if the maximum/minimum year is exceeded.
      * <p>
-     * For example, 2008-12-31 minus one week would result in 2009-01-07.
+     * For example, 2009-01-07 minus one week would result in 2008-12-31.
      * <p>
      * This instance is immutable and unaffected by this method call.
      *
@@ -1450,7 +1457,7 @@ public final class OffsetDateTime
      * month and year fields as necessary to ensure the result remains valid.
      * The result is only invalid if the maximum/minimum year is exceeded.
      * <p>
-     * For example, 2008-12-31 minus one day would result in 2009-01-01.
+     * For example, 2009-01-01 minus one day would result in 2008-12-31.
      * <p>
      * This instance is immutable and unaffected by this method call.
      *
@@ -1648,8 +1655,14 @@ public final class OffsetDateTime
     public long until(Temporal endExclusive, TemporalUnit unit) {
         OffsetDateTime end = OffsetDateTime.from(endExclusive);
         if (unit instanceof ChronoUnit) {
-            end = end.withOffsetSameInstant(offset);
-            return dateTime.until(end.dateTime, unit);
+            OffsetDateTime start = this;
+            try {
+                end = end.withOffsetSameInstant(offset);
+            } catch (DateTimeException ex) {
+                // end may be out of valid range. Adjust to end's offset.
+                start = withOffsetSameInstant(end.offset);
+            }
+            return start.dateTime.until(end.dateTime, unit);
         }
         return unit.between(this, end);
     }
@@ -1867,11 +1880,9 @@ public final class OffsetDateTime
         if (this == obj) {
             return true;
         }
-        if (obj instanceof OffsetDateTime) {
-            OffsetDateTime other = (OffsetDateTime) obj;
-            return dateTime.equals(other.dateTime) && offset.equals(other.offset);
-        }
-        return false;
+        return (obj instanceof OffsetDateTime other)
+                && dateTime.equals(other.dateTime)
+                && offset.equals(other.offset);
     }
 
     /**
@@ -1909,16 +1920,17 @@ public final class OffsetDateTime
     //-----------------------------------------------------------------------
     /**
      * Writes the object using a
-     * <a href="../../serialized-form.html#java.time.Ser">dedicated serialized form</a>.
+     * <a href="{@docRoot}/serialized-form.html#java.time.Ser">dedicated serialized form</a>.
      * @serialData
      * <pre>
      *  out.writeByte(10);  // identifies an OffsetDateTime
-     *  // the <a href="../../serialized-form.html#java.time.LocalDateTime">datetime</a> excluding the one byte header
-     *  // the <a href="../../serialized-form.html#java.time.ZoneOffset">offset</a> excluding the one byte header
+     *  // the <a href="{@docRoot}/serialized-form.html#java.time.LocalDateTime">datetime</a> excluding the one byte header
+     *  // the <a href="{@docRoot}/serialized-form.html#java.time.ZoneOffset">offset</a> excluding the one byte header
      * </pre>
      *
      * @return the instance of {@code Ser}, not null
      */
+    @java.io.Serial
     private Object writeReplace() {
         return new Ser(Ser.OFFSET_DATE_TIME_TYPE, this);
     }
@@ -1929,6 +1941,7 @@ public final class OffsetDateTime
      * @param s the stream to read
      * @throws InvalidObjectException always
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s) throws InvalidObjectException {
         throw new InvalidObjectException("Deserialization via serialization delegate");
     }

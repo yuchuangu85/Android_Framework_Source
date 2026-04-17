@@ -19,29 +19,38 @@ package android.content.res;
 import android.annotation.ColorInt;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo.Config;
 import android.content.res.Resources.Theme;
 import android.graphics.Color;
-
-import com.android.internal.R;
-import com.android.internal.util.ArrayUtils;
-import com.android.internal.util.GrowingArrayUtils;
-
-import org.xmlpull.v1.XmlPullParser;
-import org.xmlpull.v1.XmlPullParserException;
-
+import android.os.Build;
+import android.os.Parcel;
+import android.os.Parcelable;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.MathUtils;
 import android.util.SparseArray;
 import android.util.StateSet;
 import android.util.Xml;
-import android.os.Parcel;
-import android.os.Parcelable;
+import android.util.proto.ProtoInputStream;
+import android.util.proto.ProtoOutputStream;
+import android.util.proto.ProtoUtils;
+
+import com.android.internal.R;
+import com.android.internal.graphics.ColorUtils;
+import com.android.internal.graphics.cam.Cam;
+import com.android.internal.util.ArrayUtils;
+import com.android.internal.util.GrowingArrayUtils;
+
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.IOException;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  *
@@ -111,6 +120,18 @@ import java.util.Arrays;
  *         android:color="?android:attr/colorAccent"
  *         android:alpha="0.5" /&gt;
  * </pre>
+ * <p>
+ * Starting with API 31, items may optionally define an {@link android.R.attr#lStar android:lStar}
+ * attribute to modify the base color's perceptual luminance. This attribute takes either a
+ * floating-point value between 0 and 100 or a theme attribute that resolves as such. The item's
+ * overall color is calculated by converting the base color to an accessibility friendly color space
+ * and setting its L* to the value specified on the {@code lStar} attribute. For
+ * example, the following item represents the theme's accent color at 50% perceptual luminance:
+ * <pre>
+ * &lt;item android:state_enabled="false"
+ *         android:color="?android:attr/colorAccent"
+ *         android:lStar="50" /&gt;
+ * </pre>
  *
  * <a name="DeveloperGuide"></a>
  * <h3>Developer guide</h3>
@@ -121,7 +142,9 @@ import java.util.Arrays;
  *
  * @attr ref android.R.styleable#ColorStateListItem_alpha
  * @attr ref android.R.styleable#ColorStateListItem_color
+ * @attr ref android.R.styleable#ColorStateListItem_lStar
  */
+@RavenwoodKeepWholeClass
 public class ColorStateList extends ComplexColor implements Parcelable {
     private static final String TAG = "ColorStateList";
 
@@ -132,16 +155,21 @@ public class ColorStateList extends ComplexColor implements Parcelable {
     private static final SparseArray<WeakReference<ColorStateList>> sCache = new SparseArray<>();
 
     /** Lazily-created factory for this color state list. */
+    @UnsupportedAppUsage
     private ColorStateListFactory mFactory;
 
     private int[][] mThemeAttrs;
     private @Config int mChangingConfigurations;
 
+    @UnsupportedAppUsage
     private int[][] mStateSpecs;
+    @UnsupportedAppUsage
     private int[] mColors;
+    @UnsupportedAppUsage
     private int mDefaultColor;
     private boolean mIsOpaque;
 
+    @UnsupportedAppUsage
     private ColorStateList() {
         // Not publicly instantiable.
     }
@@ -177,7 +205,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
             // Prune the cache before adding new items.
             final int N = sCache.size();
             for (int i = N - 1; i >= 0; i--) {
-                if (sCache.valueAt(i).get() == null) {
+                if (sCache.valueAt(i).refersTo(null)) {
                     sCache.removeAt(i);
                 }
             }
@@ -295,6 +323,24 @@ public class ColorStateList extends ComplexColor implements Parcelable {
     }
 
     /**
+     * Creates a new ColorStateList that has the same states and colors as this
+     * one but where each color has the specified perceived luminosity value (0-100).
+     *
+     * @param lStar Target perceptual luminance (0-100).
+     * @return A new color state list.
+     */
+    @NonNull
+    public ColorStateList withLStar(float lStar) {
+        final int[] colors = new int[mColors.length];
+        final int len = colors.length;
+        for (int i = 0; i < len; i++) {
+            colors[i] = modulateColor(mColors[i], 1.0f /* alphaMod */, lStar);
+        }
+
+        return new ColorStateList(mStateSpecs, colors);
+    }
+
+    /**
      * Fill in this object based on the contents of an XML "selector" element.
      */
     private void inflate(@NonNull Resources r, @NonNull XmlPullParser parser,
@@ -326,6 +372,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
             final int[] themeAttrs = a.extractThemeAttrs();
             final int baseColor = a.getColor(R.styleable.ColorStateListItem_color, Color.MAGENTA);
             final float alphaMod = a.getFloat(R.styleable.ColorStateListItem_alpha, 1.0f);
+            final float lStar = a.getFloat(R.styleable.ColorStateListItem_lStar, -1.0f);
 
             changingConfigurations |= a.getChangingConfigurations();
 
@@ -337,6 +384,10 @@ public class ColorStateList extends ComplexColor implements Parcelable {
             int[] stateSpec = new int[numAttrs];
             for (int i = 0; i < numAttrs; i++) {
                 final int stateResId = attrs.getAttributeNameResource(i);
+                if (stateResId == R.attr.lStar) {
+                    // Non-finalized resource ids cannot be used in switch statements.
+                    continue;
+                }
                 switch (stateResId) {
                     case R.attr.color:
                     case R.attr.alpha:
@@ -349,10 +400,11 @@ public class ColorStateList extends ComplexColor implements Parcelable {
             }
             stateSpec = StateSet.trimStateSet(stateSpec, j);
 
-            // Apply alpha modulation. If we couldn't resolve the color or
+            // Apply alpha and luma modulation. If we couldn't resolve the color or
             // alpha yet, the default values leave us enough information to
             // modulate again during applyTheme().
-            final int color = modulateColorAlpha(baseColor, alphaMod);
+            final int color = modulateColor(baseColor, alphaMod, lStar);
+
             if (listSize == 0 || stateSpec.length == 0) {
                 defaultColor = color;
             }
@@ -394,6 +446,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
      * @hide only for resource preloading
      */
     @Override
+    @UnsupportedAppUsage
     public boolean canApplyTheme() {
         return mThemeAttrs != null;
     }
@@ -448,7 +501,9 @@ public class ColorStateList extends ComplexColor implements Parcelable {
                         R.styleable.ColorStateListItem_color, mColors[i]);
                 final float alphaMod = a.getFloat(
                         R.styleable.ColorStateListItem_alpha, defaultAlphaMod);
-                mColors[i] = modulateColorAlpha(baseColor, alphaMod);
+                final float lStar = a.getFloat(
+                        R.styleable.ColorStateListItem_lStar, -1.0f);
+                mColors[i] = modulateColor(baseColor, alphaMod, lStar);
 
                 // Account for any configuration changes.
                 mChangingConfigurations |= a.getChangingConfigurations();
@@ -474,6 +529,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
      * @hide only for resource preloading
      */
     @Override
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public ColorStateList obtainForTheme(Theme t) {
         if (t == null || !canApplyTheme()) {
             return this;
@@ -497,13 +553,20 @@ public class ColorStateList extends ComplexColor implements Parcelable {
         return super.getChangingConfigurations() | mChangingConfigurations;
     }
 
-    private int modulateColorAlpha(int baseColor, float alphaMod) {
-        if (alphaMod == 1.0f) {
+    private int modulateColor(int baseColor, float alphaMod, float lStar) {
+        final boolean validLStar = lStar >= 0.0f && lStar <= 100.0f;
+        if (alphaMod == 1.0f && !validLStar) {
             return baseColor;
         }
 
         final int baseAlpha = Color.alpha(baseColor);
         final int alpha = MathUtils.constrain((int) (baseAlpha * alphaMod + 0.5f), 0, 255);
+
+        if (validLStar) {
+            final Cam baseCam = ColorUtils.colorToCAM(baseColor);
+            baseColor = ColorUtils.CAMToColor(baseCam.getHue(), baseCam.getChroma(), lStar);
+        }
+
         return (baseColor & 0xFFFFFF) | (alpha << 24);
     }
 
@@ -579,6 +642,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
      * @return the states in this {@link ColorStateList}
      * @hide
      */
+    @UnsupportedAppUsage
     public int[][] getStates() {
         return mStateSpecs;
     }
@@ -590,6 +654,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
      * @return the colors in this {@link ColorStateList}
      * @hide
      */
+    @UnsupportedAppUsage
     public int[] getColors() {
         return mColors;
     }
@@ -634,6 +699,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
     /**
      * Updates the default color and opacity.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void onColorsChanged() {
         int defaultColor = DEFAULT_COLOR;
         boolean isOpaque = true;
@@ -677,6 +743,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
     private static class ColorStateListFactory extends ConstantState<ComplexColor> {
         private final ColorStateList mSrc;
 
+        @UnsupportedAppUsage
         public ColorStateListFactory(ColorStateList src) {
             mSrc = src;
         }
@@ -715,7 +782,7 @@ public class ColorStateList extends ComplexColor implements Parcelable {
         dest.writeIntArray(mColors);
     }
 
-    public static final Parcelable.Creator<ColorStateList> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<ColorStateList> CREATOR =
             new Parcelable.Creator<ColorStateList>() {
         @Override
         public ColorStateList[] newArray(int size) {
@@ -733,4 +800,61 @@ public class ColorStateList extends ComplexColor implements Parcelable {
             return new ColorStateList(stateSpecs, colors);
         }
     };
+
+    /** @hide */
+    public void writeToProto(ProtoOutputStream out) {
+        for (int[] states : mStateSpecs) {
+            long specToken = out.start(ColorStateListProto.STATE_SPECS);
+            for (int state : states) {
+                out.write(ColorStateListProto.StateSpec.STATE, state);
+            }
+            out.end(specToken);
+        }
+        for (int color : mColors) {
+            out.write(ColorStateListProto.COLORS, color);
+        }
+    }
+
+    /** @hide */
+    public static ColorStateList createFromProto(ProtoInputStream in)
+            throws Exception {
+        List<int[]> stateSpecs = new ArrayList<>();
+        List<Integer> colors = new ArrayList<>();
+
+
+        while (in.nextField() != ProtoInputStream.NO_MORE_FIELDS) {
+            switch (in.getFieldNumber()) {
+                case (int) ColorStateListProto.COLORS:
+                    colors.add(in.readInt(ColorStateListProto.COLORS));
+                    break;
+                case (int) ColorStateListProto.STATE_SPECS:
+                    final long stateToken = in.start(ColorStateListProto.STATE_SPECS);
+                    List<Integer> states = new ArrayList<>();
+                    while (in.nextField() != ProtoInputStream.NO_MORE_FIELDS) {
+                        switch (in.getFieldNumber()) {
+                            case (int) ColorStateListProto.StateSpec.STATE:
+                                states.add(in.readInt(ColorStateListProto.StateSpec.STATE));
+                                break;
+                            default:
+                                Log.w(TAG, "Unhandled field while reading Icon proto!\n"
+                                        + ProtoUtils.currentFieldToString(in));
+                        }
+                    }
+                    int[] statesArray = new int[states.size()];
+                    Arrays.setAll(statesArray, states::get);
+                    stateSpecs.add(statesArray);
+                    in.end(stateToken);
+                    break;
+                default:
+                    Log.w(TAG, "Unhandled field while reading Icon proto!\n"
+                            + ProtoUtils.currentFieldToString(in));
+            }
+        }
+
+        int[][] stateSpecsArray = new int[stateSpecs.size()][];
+        Arrays.setAll(stateSpecsArray, stateSpecs::get);
+        int[] colorsArray = new int[colors.size()];
+        Arrays.setAll(colorsArray, colors::get);
+        return new ColorStateList(stateSpecsArray, colorsArray);
+    }
 }

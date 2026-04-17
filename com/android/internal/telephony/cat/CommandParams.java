@@ -16,21 +16,26 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Bitmap;
+import android.os.Build;
 
 /**
  * Container class for proactive command parameters.
- *
+ * @hide
  */
-class CommandParams {
+public class CommandParams {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     CommandDetails mCmdDet;
     // Variable to track if an optional icon load has failed.
     boolean mLoadIconFailed = false;
 
-    CommandParams(CommandDetails cmdDet) {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public CommandParams(CommandDetails cmdDet) {
         mCmdDet = cmdDet;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     AppInterface.CommandType getCommandType() {
         return AppInterface.CommandType.fromInt(mCmdDet.typeOfCommand);
     }
@@ -44,8 +49,10 @@ class CommandParams {
 }
 
 class DisplayTextParams extends CommandParams {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     TextMessage mTextMsg;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     DisplayTextParams(CommandDetails cmdDet, TextMessage textMsg) {
         super(cmdDet);
         mTextMsg = textMsg;
@@ -63,6 +70,23 @@ class DisplayTextParams extends CommandParams {
     @Override
     public String toString() {
         return "TextMessage=" + mTextMsg + " " + super.toString();
+    }
+}
+
+/**
+ * Container class for SEND USSD proactive command.
+ */
+class SendUssdParams extends CommandParams {
+    public TextMessage mTextMsg;
+    public String mUssdString;
+    public byte mCodingScheme;
+
+    SendUssdParams(
+            CommandDetails cmdDet, TextMessage textMsg, String ussdString, byte codingScheme) {
+        super(cmdDet);
+        mTextMsg = textMsg;
+        mUssdString = ussdString;
+        mCodingScheme = codingScheme;
     }
 }
 
@@ -106,6 +130,7 @@ class PlayToneParams extends CommandParams {
     TextMessage mTextMsg;
     ToneSettings mSettings;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     PlayToneParams(CommandDetails cmdDet, TextMessage textMsg,
             Tone tone, Duration duration, boolean vibrate) {
         super(cmdDet);
@@ -123,15 +148,29 @@ class PlayToneParams extends CommandParams {
     }
 }
 
+/**
+ * Container class for SET UP CALL proactive command.
+ */
 class CallSetupParams extends CommandParams {
     TextMessage mConfirmMsg;
     TextMessage mCallMsg;
+    String mAddress;
+    Duration mDuration;
 
     CallSetupParams(CommandDetails cmdDet, TextMessage confirmMsg,
             TextMessage callMsg) {
         super(cmdDet);
         mConfirmMsg = confirmMsg;
         mCallMsg = callMsg;
+    }
+
+    CallSetupParams(CommandDetails cmdDet, TextMessage confirmMsg,
+            TextMessage callMsg, String address, Duration duration) {
+        super(cmdDet);
+        mConfirmMsg = confirmMsg;
+        mCallMsg = callMsg;
+        mAddress = address;
+        mDuration = duration;
     }
 
     @Override
@@ -163,6 +202,7 @@ class SelectItemParams extends CommandParams {
     Menu mMenu = null;
     boolean mLoadTitleIcon = false;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     SelectItemParams(CommandDetails cmdDet, Menu menu, boolean loadTitleIcon) {
         super(cmdDet);
         mMenu = menu;
@@ -192,6 +232,7 @@ class SelectItemParams extends CommandParams {
 class GetInputParams extends CommandParams {
     Input mInput = null;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     GetInputParams(CommandDetails cmdDet, Input input) {
         super(cmdDet);
         mInput = input;

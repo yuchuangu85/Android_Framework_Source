@@ -16,9 +16,10 @@
 
 package com.android.ims.internal.uce.common;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.util.Log;
 
 
 /** Simple object wrapper for a long type.
@@ -32,6 +33,7 @@ public class UceLong implements Parcelable {
      * Constructor for the UceLong class.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public UceLong() {
     };
 
@@ -39,6 +41,7 @@ public class UceLong implements Parcelable {
      * Gets the long value.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public long getUceLong() {
         return mUceLong;
     }
@@ -47,6 +50,7 @@ public class UceLong implements Parcelable {
      * Sets the long value.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setUceLong(long uceLong) {
         this.mUceLong = uceLong;
     }
@@ -54,6 +58,7 @@ public class UceLong implements Parcelable {
     /** Get the client ID as integer value.
      *  @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int getClientId() {
         return mClientId;
     }
@@ -62,6 +67,7 @@ public class UceLong implements Parcelable {
      * Set the client ID as integer value.
      * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setClientId(int nClientId) {
         this.mClientId = nClientId;
     }

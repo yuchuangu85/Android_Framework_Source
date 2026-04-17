@@ -20,6 +20,7 @@ import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Network;
 import android.net.Uri;
 
 import java.util.List;
@@ -129,7 +130,8 @@ public interface WebViewFactoryProvider {
      * Gets the TokenBindingService instance for this WebView implementation. The
      * implementation must return the same instance on subsequent calls.
      *
-     * @return the TokenBindingService instance
+     * @deprecated this method only returns {@code null}
+     * @return the TokenBindingService instance (which is always {@code null})
      */
     TokenBindingService getTokenBindingService();
 
@@ -172,6 +174,28 @@ public interface WebViewFactoryProvider {
      * @return the singleton WebViewDatabase instance
      */
     WebViewDatabase getWebViewDatabase(Context context);
+
+    /**
+     * Gets the default PacProcessor instance.
+     * @return the PacProcessor instance
+     */
+    @NonNull
+    default PacProcessor getPacProcessor() {
+        throw new UnsupportedOperationException("Not implemented");
+    }
+
+    /**
+     * Create a new PacProcessor instance.
+     *
+     * @param network a {@link Network} which needs to be associated
+     * with the returned {@link PacProcessor}.
+     * If {@code null} the method returns default {@link PacProcessor}.
+     * @return the {@link PacProcessor} instance associated with {@link Network}.
+     */
+    @NonNull
+    default PacProcessor createPacProcessor() {
+        throw new UnsupportedOperationException("Not implemented");
+    }
 
     /**
      * Gets the classloader used to load internal WebView implementation classes. This interface

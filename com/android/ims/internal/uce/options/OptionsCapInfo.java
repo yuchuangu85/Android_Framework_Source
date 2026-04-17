@@ -15,10 +15,12 @@
  */
 package com.android.ims.internal.uce.options;
 
-import com.android.ims.internal.uce.common.CapInfo;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.util.Log;
+
+import com.android.ims.internal.uce.common.CapInfo;
 
 /** @hide  */
 public class OptionsCapInfo implements Parcelable {
@@ -30,10 +32,12 @@ public class OptionsCapInfo implements Parcelable {
         return new OptionsCapInfo();
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public String getSdp() {
         return mSdp;
     }
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setSdp(String sdp) {
         this.mSdp = sdp;
     }
@@ -41,16 +45,19 @@ public class OptionsCapInfo implements Parcelable {
     /**
      * Constructor for the OptionsCapInfo class.
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public OptionsCapInfo() {
         mCapInfo = new CapInfo();
     };
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public CapInfo getCapInfo() {
         return mCapInfo;
     }
     /**
      * Sets the CapInfo
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public void setCapInfo(CapInfo capInfo) {
         this.mCapInfo = capInfo;
     }
@@ -82,6 +89,6 @@ public class OptionsCapInfo implements Parcelable {
 
     public void readFromParcel(Parcel source) {
         mSdp = source.readString();
-        mCapInfo = source.readParcelable(CapInfo.class.getClassLoader());
+        mCapInfo = source.readParcelable(CapInfo.class.getClassLoader(), com.android.ims.internal.uce.common.CapInfo.class);
     }
 }

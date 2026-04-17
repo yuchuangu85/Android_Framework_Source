@@ -16,10 +16,13 @@
 
 package android.widget;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.PixelFormat;
 import android.media.AudioManager;
+import android.os.Build;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Gravity;
@@ -28,10 +31,13 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewRootImpl;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityManager;
 import android.widget.SeekBar.OnSeekBarChangeListener;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 
 import com.android.internal.policy.PhoneWindow;
 
@@ -68,16 +74,29 @@ import java.util.Locale;
  */
 public class MediaController extends FrameLayout {
 
+    @UnsupportedAppUsage
     private MediaPlayerControl mPlayer;
+    @UnsupportedAppUsage
     private final Context mContext;
+    @UnsupportedAppUsage
     private View mAnchor;
+    @UnsupportedAppUsage
     private View mRoot;
+    @UnsupportedAppUsage
     private WindowManager mWindowManager;
+    @UnsupportedAppUsage
     private Window mWindow;
+    @UnsupportedAppUsage
     private View mDecor;
+    @UnsupportedAppUsage
     private WindowManager.LayoutParams mDecorLayoutParams;
+    @UnsupportedAppUsage
     private ProgressBar mProgress;
-    private TextView mEndTime, mCurrentTime;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+    private TextView mEndTime;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
+    private TextView mCurrentTime;
+    @UnsupportedAppUsage
     private boolean mShowing;
     private boolean mDragging;
     private static final int sDefaultTimeout = 3000;
@@ -87,14 +106,35 @@ public class MediaController extends FrameLayout {
     private View.OnClickListener mNextListener, mPrevListener;
     StringBuilder mFormatBuilder;
     Formatter mFormatter;
+    @UnsupportedAppUsage
     private ImageButton mPauseButton;
+    @UnsupportedAppUsage
     private ImageButton mFfwdButton;
+    @UnsupportedAppUsage
     private ImageButton mRewButton;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private ImageButton mNextButton;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private ImageButton mPrevButton;
     private CharSequence mPlayDescription;
     private CharSequence mPauseDescription;
     private final AccessibilityManager mAccessibilityManager;
+    private boolean mBackCallbackRegistered;
+    /** Handles back invocation */
+    private final OnBackInvokedCallback mBackCallback = this::hide;
+    /** Handles decor view attach state change */
+    private final OnAttachStateChangeListener mAttachStateListener =
+            new OnAttachStateChangeListener() {
+        @Override
+        public void onViewAttachedToWindow(@NonNull View v) {
+            registerOnBackInvokedCallback();
+        }
+
+        @Override
+        public void onViewDetachedFromWindow(@NonNull View v) {
+            unregisterOnBackInvokedCallback();
+        }
+    };
 
     public MediaController(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -131,6 +171,7 @@ public class MediaController extends FrameLayout {
         mWindow.requestFeature(Window.FEATURE_NO_TITLE);
         mDecor = mWindow.getDecorView();
         mDecor.setOnTouchListener(mTouchListener);
+        mDecor.addOnAttachStateChangeListener(mAttachStateListener);
         mWindow.setContentView(this);
         mWindow.setBackgroundDrawableResource(android.R.color.transparent);
 
@@ -177,6 +218,7 @@ public class MediaController extends FrameLayout {
         p.width = mAnchor.getWidth();
         p.x = anchorPos[0] + (mAnchor.getWidth() - p.width) / 2;
         p.y = anchorPos[1] + mAnchor.getHeight() - mDecor.getMeasuredHeight();
+        p.token = mAnchor.getWindowToken();
     }
 
     // This is called whenever mAnchor's layout bound changes
@@ -375,6 +417,7 @@ public class MediaController extends FrameLayout {
             removeCallbacks(mFadeOut);
             postDelayed(mFadeOut, timeout);
         }
+        registerOnBackInvokedCallback();
     }
 
     public boolean isShowing() {
@@ -396,6 +439,7 @@ public class MediaController extends FrameLayout {
                 Log.w("MediaController", "already removed");
             }
             mShowing = false;
+            unregisterOnBackInvokedCallback();
         }
     }
 
@@ -535,6 +579,7 @@ public class MediaController extends FrameLayout {
         }
     };
 
+    @UnsupportedAppUsage
     private void updatePausePlay() {
         if (mRoot == null || mPauseButton == null)
             return;
@@ -568,6 +613,7 @@ public class MediaController extends FrameLayout {
     // The second scenario involves the user operating the scroll ball, in this
     // case there WON'T BE onStartTrackingTouch/onStopTrackingTouch notifications,
     // we will simply apply the updated position without suspending regular updates.
+    @UnsupportedAppUsage
     private final OnSeekBarChangeListener mSeekListener = new OnSeekBarChangeListener() {
         @Override
         public void onStartTrackingTouch(SeekBar bar) {
@@ -641,6 +687,7 @@ public class MediaController extends FrameLayout {
         return MediaController.class.getName();
     }
 
+    @UnsupportedAppUsage
     private final View.OnClickListener mRewListener = new View.OnClickListener() {
         @Override
         public void onClick(View v) {
@@ -653,6 +700,7 @@ public class MediaController extends FrameLayout {
         }
     };
 
+    @UnsupportedAppUsage
     private final View.OnClickListener mFfwdListener = new View.OnClickListener() {
         @Override
         public void onClick(View v) {
@@ -691,6 +739,33 @@ public class MediaController extends FrameLayout {
             if (mPrevButton != null && !mFromXml) {
                 mPrevButton.setVisibility(View.VISIBLE);
             }
+        }
+    }
+
+    private void unregisterOnBackInvokedCallback() {
+        if (!mBackCallbackRegistered) {
+            return;
+        }
+        ViewRootImpl viewRootImpl = mDecor.getViewRootImpl();
+        if (viewRootImpl != null
+                && viewRootImpl.getOnBackInvokedDispatcher().isOnBackInvokedCallbackEnabled()) {
+            viewRootImpl.getOnBackInvokedDispatcher()
+                    .unregisterOnBackInvokedCallback(mBackCallback);
+        }
+        mBackCallbackRegistered = false;
+    }
+
+    private void registerOnBackInvokedCallback() {
+        if (mBackCallbackRegistered) {
+            return;
+        }
+
+        ViewRootImpl viewRootImpl = mDecor.getViewRootImpl();
+        if (viewRootImpl != null
+                && viewRootImpl.getOnBackInvokedDispatcher().isOnBackInvokedCallbackEnabled()) {
+            viewRootImpl.getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT, mBackCallback);
+            mBackCallbackRegistered = true;
         }
     }
 

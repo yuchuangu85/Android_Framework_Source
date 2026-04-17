@@ -16,10 +16,12 @@
 
 package android.media;
 
-import dalvik.system.CloseGuard;
-
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Handler;
 import android.view.Surface;
+
+import dalvik.system.CloseGuard;
 
 /**
  * Listens for Wifi remote display connections managed by the media server.
@@ -88,6 +90,7 @@ public final class RemoteDisplay {
     /**
      * Disconnects the remote display and stops listening for new connections.
      */
+    @UnsupportedAppUsage
     public void dispose() {
         dispose(false);
     }
@@ -125,6 +128,7 @@ public final class RemoteDisplay {
     }
 
     // Called from native.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void notifyDisplayConnected(final Surface surface,
             final int width, final int height, final int flags, final int session) {
         mHandler.post(new Runnable() {
@@ -136,6 +140,7 @@ public final class RemoteDisplay {
     }
 
     // Called from native.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void notifyDisplayDisconnected() {
         mHandler.post(new Runnable() {
             @Override
@@ -146,6 +151,7 @@ public final class RemoteDisplay {
     }
 
     // Called from native.
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void notifyDisplayError(final int error) {
         mHandler.post(new Runnable() {
             @Override

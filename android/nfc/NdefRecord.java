@@ -16,10 +16,14 @@
 
 package android.nfc;
 
+import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.proto.ProtoOutputStream;
 
 import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
@@ -279,6 +283,7 @@ public final class NdefRecord implements Parcelable {
 
     private final short mTnf;
     private final byte[] mType;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final byte[] mId;
     private final byte[] mPayload;
 
@@ -335,7 +340,7 @@ public final class NdefRecord implements Parcelable {
      *
      * @param uri URI to encode.
      * @return an NDEF Record containing the URI
-     * @throws IllegalArugmentException if the uri is empty or invalid
+     * @throws IllegalArgumentException if the uri is empty or invalid
      */
     public static NdefRecord createUri(Uri uri) {
         if (uri == null) throw new NullPointerException("uri is null");
@@ -378,7 +383,7 @@ public final class NdefRecord implements Parcelable {
      *
      * @param uriString string URI to encode.
      * @return an NDEF Record containing the URI
-     * @throws IllegalArugmentException if the uriString is empty or invalid
+     * @throws IllegalArgumentException if the uriString is empty or invalid
      */
     public static NdefRecord createUri(String uriString) {
         return createUri(Uri.parse(uriString));
@@ -405,7 +410,7 @@ public final class NdefRecord implements Parcelable {
      * @param mimeType a valid MIME type
      * @param mimeData MIME data as bytes
      * @return an NDEF Record containing the MIME-typed data
-     * @throws IllegalArugmentException if the mimeType is empty or invalid
+     * @throws IllegalArgumentException if the mimeType is empty or invalid
      *
      */
     public static NdefRecord createMime(String mimeType, byte[] mimeData) {
@@ -452,7 +457,7 @@ public final class NdefRecord implements Parcelable {
      * @param domain domain-name of issuing organization
      * @param type domain-specific type of data
      * @param data payload as bytes
-     * @throws IllegalArugmentException if either domain or type are empty or invalid
+     * @throws IllegalArgumentException if either domain or type are empty or invalid
      */
     public static NdefRecord createExternal(String domain, String type, byte[] data) {
         if (domain == null) throw new NullPointerException("domain is null");
@@ -551,7 +556,7 @@ public final class NdefRecord implements Parcelable {
      * @param id   byte array, containing zero to 255 bytes, or null
      * @param payload byte array, containing zero to (2 ** 32 - 1) bytes,
      *                or null
-     * @throws IllegalArugmentException if a valid record cannot be created
+     * @throws IllegalArgumentException if a valid record cannot be created
      */
     public NdefRecord(short tnf, byte[] type, byte[] id, byte[] payload) {
         /* convert nulls */
@@ -927,7 +932,7 @@ public final class NdefRecord implements Parcelable {
             case TNF_UNCHANGED:
                 return "unexpected TNF_UNCHANGED in first chunk or logical record";
             default:
-                return String.format("unexpected tnf value: 0x%02x", tnf);
+                return String.format("unexpected tnf value=0x%02x", tnf);
         }
     }
 
@@ -990,7 +995,7 @@ public final class NdefRecord implements Parcelable {
         dest.writeByteArray(mPayload);
     }
 
-    public static final Parcelable.Creator<NdefRecord> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<NdefRecord> CREATOR =
             new Parcelable.Creator<NdefRecord>() {
         @Override
         public NdefRecord createFromParcel(Parcel in) {
@@ -1029,7 +1034,7 @@ public final class NdefRecord implements Parcelable {
      * identical tnf, type, id and payload fields.
      */
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) return true;
         if (obj == null) return false;
         if (getClass() != obj.getClass()) return false;
@@ -1047,6 +1052,22 @@ public final class NdefRecord implements Parcelable {
         if (mId.length > 0) b.append(" id=").append(bytesToString(mId));
         if (mPayload.length > 0) b.append(" payload=").append(bytesToString(mPayload));
         return b.toString();
+    }
+
+    /**
+     * Dump debugging information as a NdefRecordProto
+     * @hide
+     *
+     * Note:
+     * See proto definition in frameworks/base/core/proto/android/nfc/ndef.proto
+     * When writing a nested message, must call {@link ProtoOutputStream#start(long)} before and
+     * {@link ProtoOutputStream#end(long)} after.
+     * Never reuse a proto field number. When removing a field, mark it as reserved.
+     */
+    public void dumpDebug(ProtoOutputStream proto) {
+        proto.write(NdefRecordProto.TYPE, mType);
+        proto.write(NdefRecordProto.ID, mId);
+        proto.write(NdefRecordProto.PAYLOAD_BYTES, mPayload.length);
     }
 
     private static StringBuilder bytesToString(byte[] bs) {

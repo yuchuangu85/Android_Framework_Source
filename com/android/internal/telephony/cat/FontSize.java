@@ -20,7 +20,7 @@ package com.android.internal.telephony.cat;
 /**
  * Enumeration for representing text font size.
  *
- * {@hide}
+ * @hide
  */
 public enum FontSize {
     NORMAL(0x0),

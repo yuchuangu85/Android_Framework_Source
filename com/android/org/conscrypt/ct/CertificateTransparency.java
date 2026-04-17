@@ -1,0 +1,101 @@
+/* GENERATED SOURCE. DO NOT MODIFY. */
+/*
+ * Copyright (C) 2024 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.android.org.conscrypt.ct;
+
+import com.android.org.conscrypt.Internal;
+import com.android.org.conscrypt.NetworkSecurityPolicy;
+import com.android.org.conscrypt.Platform;
+import com.android.org.conscrypt.metrics.CertificateTransparencyVerificationReason;
+import com.android.org.conscrypt.metrics.StatsLog;
+
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import java.util.List;
+import java.util.Objects;
+import java.util.function.Supplier;
+
+/**
+ * Certificate Transparency subsystem. The implementation contains references
+ * to its log store, its policy and its verifier.
+ * @hide This class is not part of the Android public SDK API
+ */
+@Internal
+public class CertificateTransparency {
+    private LogStore logStore;
+    private Verifier verifier;
+    private Policy policy;
+    private StatsLog statsLog;
+    private Supplier<NetworkSecurityPolicy> policySupplier;
+
+    public CertificateTransparency(LogStore logStore, Policy policy, Verifier verifier,
+                                   StatsLog statsLog,
+                                   Supplier<NetworkSecurityPolicy> policySupplier) {
+        Objects.requireNonNull(logStore);
+        Objects.requireNonNull(policy);
+        Objects.requireNonNull(verifier);
+        Objects.requireNonNull(statsLog);
+
+        this.logStore = logStore;
+        this.policy = policy;
+        this.verifier = verifier;
+        this.statsLog = statsLog;
+        this.policySupplier = policySupplier;
+    }
+
+    public CertificateTransparencyVerificationReason getVerificationReason(String host) {
+        return policySupplier.get().getCertificateTransparencyVerificationReason(host);
+    }
+
+    public void checkCT(List<X509Certificate> chain, byte[] ocspData, byte[] tlsData, String host)
+            throws CertificateException {
+        if (logStore.getState() != LogStore.State.COMPLIANT) {
+            /* Fail open. For some reason, the LogStore is not usable. It could
+             * be because there is no log list available or that the log list
+             * is too old (according to the policy). */
+            statsLog.reportCTVerificationResult(logStore,
+                                                /* VerificationResult */ null,
+                                                /* PolicyCompliance */ null,
+                                                getVerificationReason(host));
+            return;
+        }
+
+        VerificationResult result;
+        try {
+            result = verifier.verifySignedCertificateTimestamps(chain, tlsData, ocspData);
+        } catch (LogStore.InvalidLogException e) {
+            /* Fail open. While validating an SCT, we found out that some data
+             * in the LogStore is unusable. It is likely that the LogStore is
+             * corrupted. */
+            statsLog.reportCTVerificationResult(logStore,
+                                                /* VerificationResult */ null,
+                                                /* PolicyCompliance */ null,
+                                                getVerificationReason(host));
+            return;
+        }
+
+        X509Certificate leaf = chain.get(0);
+        PolicyCompliance compliance = policy.doesResultConformToPolicy(result, leaf);
+        statsLog.reportCTVerificationResult(logStore, result, compliance,
+                                            getVerificationReason(host));
+        if (compliance != PolicyCompliance.COMPLY) {
+            throw new CertificateException(
+                    "Certificate chain does not conform to required transparency policy: "
+                    + compliance.name());
+        }
+    }
+}

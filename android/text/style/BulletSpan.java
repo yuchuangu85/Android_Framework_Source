@@ -21,10 +21,10 @@ import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.Px;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.graphics.Path;
-import android.graphics.Path.Direction;
+import android.os.Build;
 import android.os.Parcel;
 import android.text.Layout;
 import android.text.ParcelableSpan;
@@ -63,6 +63,7 @@ import android.text.TextUtils;
  * <img src="{@docRoot}reference/android/images/text/style/custombulletspan.png" />
  * <figcaption>Customized BulletSpan.</figcaption>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class BulletSpan implements LeadingMarginSpan, ParcelableSpan {
     // Bullet is slightly bigger to avoid aliasing artifacts on mdpi devices.
     private static final int STANDARD_BULLET_RADIUS = 4;
@@ -70,12 +71,14 @@ public class BulletSpan implements LeadingMarginSpan, ParcelableSpan {
     private static final int STANDARD_COLOR = 0;
 
     @Px
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final int mGapWidth;
     @Px
     private final int mBulletRadius;
-    private Path mBulletPath = null;
     @ColorInt
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final int mColor;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
     private final boolean mWantColor;
 
     /**
@@ -117,7 +120,10 @@ public class BulletSpan implements LeadingMarginSpan, ParcelableSpan {
         this(gapWidth, color, true, bulletRadius);
     }
 
-    private BulletSpan(int gapWidth, @ColorInt int color, boolean wantColor,
+    /**
+     * @hide
+     */
+    public BulletSpan(int gapWidth, @ColorInt int color, boolean wantColor,
             @IntRange(from = 0) int bulletRadius) {
         mGapWidth = gapWidth;
         mBulletRadius = bulletRadius;
@@ -197,6 +203,14 @@ public class BulletSpan implements LeadingMarginSpan, ParcelableSpan {
         return mColor;
     }
 
+    /**
+     * @return true if the bullet should apply the color.
+     * @hide
+     */
+    public boolean getWantColor() {
+        return mWantColor;
+    }
+
     @Override
     public void drawLeadingMargin(@NonNull Canvas canvas, @NonNull Paint paint, int x, int dir,
             int top, int baseline, int bottom,
@@ -224,19 +238,7 @@ public class BulletSpan implements LeadingMarginSpan, ParcelableSpan {
             final float yPosition = (top + bottom) / 2f;
             final float xPosition = x + dir * mBulletRadius;
 
-            if (canvas.isHardwareAccelerated()) {
-                if (mBulletPath == null) {
-                    mBulletPath = new Path();
-                    mBulletPath.addCircle(0.0f, 0.0f, mBulletRadius, Direction.CW);
-                }
-
-                canvas.save();
-                canvas.translate(xPosition, yPosition);
-                canvas.drawPath(mBulletPath, paint);
-                canvas.restore();
-            } else {
-                canvas.drawCircle(xPosition, yPosition, mBulletRadius, paint);
-            }
+            canvas.drawCircle(xPosition, yPosition, mBulletRadius, paint);
 
             if (mWantColor) {
                 paint.setColor(oldcolor);
@@ -244,5 +246,14 @@ public class BulletSpan implements LeadingMarginSpan, ParcelableSpan {
 
             paint.setStyle(style);
         }
+    }
+
+    @Override
+    public String toString() {
+        return "BulletSpan{"
+                + "gapWidth=" + getGapWidth()
+                + ", bulletRadius=" + getBulletRadius()
+                + ", color=" + String.format("%08X", getColor())
+                + '}';
     }
 }

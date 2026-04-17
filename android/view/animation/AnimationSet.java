@@ -21,6 +21,7 @@ import android.content.res.TypedArray;
 import android.graphics.RectF;
 import android.os.Build;
 import android.util.AttributeSet;
+import android.view.WindowInsets;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -363,6 +364,26 @@ public class AnimationSet extends Animation {
      * The transformation of an animation set is the concatenation of all of its
      * component animations.
      *
+     * @see android.view.animation.Animation#getTransformationAt
+     * @hide
+     */
+    @Override
+    public void getTransformationAt(float interpolatedTime, Transformation t) {
+        final Transformation temp = mTempTransformation;
+
+        for (int i = mAnimations.size() - 1; i >= 0; --i) {
+            final Animation a = mAnimations.get(i);
+
+            temp.clear();
+            a.getTransformationAt(interpolatedTime, temp);
+            t.compose(temp);
+        }
+    }
+
+    /**
+     * The transformation of an animation set is the concatenation of all of its
+     * component animations.
+     *
      * @see android.view.animation.Animation#getTransformation
      */
     @Override
@@ -389,16 +410,12 @@ public class AnimationSet extends Animation {
         }
 
         if (started && !mStarted) {
-            if (mListener != null) {
-                mListener.onAnimationStart(this);
-            }
+            dispatchAnimationStart();
             mStarted = true;
         }
 
         if (ended != mEnded) {
-            if (mListener != null) {
-                mListener.onAnimationEnd(this);
-            }
+            dispatchAnimationEnd();
             mEnded = ended;
         }
 
@@ -520,5 +537,16 @@ public class AnimationSet extends Animation {
     @Override
     public boolean willChangeBounds() {
         return (mFlags & PROPERTY_CHANGE_BOUNDS_MASK) == PROPERTY_CHANGE_BOUNDS_MASK;
+    }
+
+    /** @hide */
+    @Override
+    @WindowInsets.Side.InsetsSide
+    public int getExtensionEdges() {
+        int edge = 0x0;
+        for (Animation animation : mAnimations) {
+            edge |= animation.getExtensionEdges();
+        }
+        return edge;
     }
 }

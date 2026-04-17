@@ -16,9 +16,9 @@
 
 package com.android.server;
 
-import android.os.SystemClock;
-
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.ConditionVariable;
+import android.os.SystemClock;
 
 /**
  * Utility class that you can call on with a timeout, and get called back
@@ -120,9 +120,11 @@ abstract class ResettableTimeout
         }
     }
 
+    @UnsupportedAppUsage
     private ConditionVariable mLock = new ConditionVariable();
 
     // turn it off at this time.
+    @UnsupportedAppUsage
     private volatile long mOffAt;
     private volatile boolean mOffCalled;
 

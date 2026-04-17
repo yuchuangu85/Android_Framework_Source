@@ -1,7 +1,7 @@
 package android.net.wimax;
 
 /**
- * {@hide}
+ * @hide
  */
 public class WimaxManagerConstants
 {

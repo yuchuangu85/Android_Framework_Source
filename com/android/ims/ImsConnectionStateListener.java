@@ -17,8 +17,8 @@
 package com.android.ims;
 
 import android.net.Uri;
+import android.telephony.ims.RegistrationManager;
 import android.telephony.ims.ImsReasonInfo;
-import android.telephony.ims.feature.ImsFeature;
 import android.telephony.ims.feature.MmTelFeature;
 import android.telephony.ims.stub.ImsRegistrationImplBase;
 
@@ -28,10 +28,10 @@ import java.util.Arrays;
  * Listener for receiving notifications about changes to the IMS connection.
  * It provides a state of IMS registration between UE and IMS network, the service
  * availability of the local device during IMS registered.
- * @Deprecated Use {@link ImsRegistrationImplBase.Callback} instead.
+ * @Deprecated Use {@link RegistrationManager.RegistrationCallback} instead.
  * @hide
  */
-public class ImsConnectionStateListener extends ImsRegistrationImplBase.Callback {
+public class ImsConnectionStateListener extends RegistrationManager.RegistrationCallback {
 
     @Override
     public final void onRegistered(@ImsRegistrationImplBase.ImsRegistrationTech int imsRadioTech) {
@@ -44,7 +44,7 @@ public class ImsConnectionStateListener extends ImsRegistrationImplBase.Callback
     }
 
     @Override
-    public final void onDeregistered(ImsReasonInfo info) {
+    public final void onUnregistered(ImsReasonInfo info) {
         onImsDisconnected(info);
     }
 
@@ -69,7 +69,7 @@ public class ImsConnectionStateListener extends ImsRegistrationImplBase.Callback
      */
     public void onFeatureCapabilityChangedAdapter(
             @ImsRegistrationImplBase.ImsRegistrationTech int imsRadioTech,
-            ImsFeature.Capabilities c) {
+            MmTelFeature.MmTelCapabilities c) {
         // Size of ImsConfig.FeatureConstants
         int[] enabledCapabilities = new int[6];
         // UNKNOWN means disabled.

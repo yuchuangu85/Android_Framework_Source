@@ -23,6 +23,7 @@ package android.graphics;
  * @removed
  */
 @Deprecated
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class AvoidXfermode extends Xfermode {
 
     // these need to match the enum in AvoidXfermode.h on the native side

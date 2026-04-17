@@ -29,6 +29,7 @@ import java.util.concurrent.RejectedExecutionException;
  *
  * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class HandlerExecutor implements Executor {
     private final Handler mHandler;
 

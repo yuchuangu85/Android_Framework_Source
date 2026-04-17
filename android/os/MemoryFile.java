@@ -16,7 +16,10 @@
 
 package android.os;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.system.ErrnoException;
+
+import dalvik.annotation.optimization.FastNative;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
@@ -40,7 +43,11 @@ public class MemoryFile {
     private static String TAG = "MemoryFile";
 
     // Returns 'true' if purged, 'false' otherwise
+    @FastNative
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static native boolean native_pin(FileDescriptor fd, boolean pin) throws IOException;
+    @FastNative
+    @UnsupportedAppUsage
     private static native int native_get_size(FileDescriptor fd) throws IOException;
 
     private SharedMemory mSharedMemory;
@@ -79,6 +86,7 @@ public class MemoryFile {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     void deactivate() {
         if (mMapping != null) {
             SharedMemory.unmap(mMapping);
@@ -222,6 +230,7 @@ public class MemoryFile {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public FileDescriptor getFileDescriptor() throws IOException {
         return mSharedMemory.getFileDescriptor();
     }
@@ -234,6 +243,7 @@ public class MemoryFile {
      *
      * @hide
      */
+    @UnsupportedAppUsage
     public static int getSize(FileDescriptor fd) throws IOException {
         return native_get_size(fd);
     }

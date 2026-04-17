@@ -528,6 +528,12 @@ public class LogRecord implements java.io.Serializable {
                                 ClassLoader.getSystemClassLoader());
                 resourceBundle = bundle;
             } catch (MissingResourceException ex) {
+                // Android-changed: Fall back to context classloader before giving up.
+                /*
+                // This is not a good place to throw an exception,
+                // so we simply leave the resourceBundle null.
+                resourceBundle = null;
+                */
                 try {
                     resourceBundle = ResourceBundle.getBundle(resourceBundleName, Locale.getDefault(),
                             Thread.currentThread().getContextClassLoader());
@@ -545,16 +551,24 @@ public class LogRecord implements java.io.Serializable {
     // Private method to infer the caller's class and method names
     private void inferCaller() {
         needToInferCaller = false;
-        // Android-changed: Use VMStack.getThreadStackTrace.
+        // BEGIN Android-changed: Use VMStack.getThreadStackTrace.
+        /*
+        JavaLangAccess access = SharedSecrets.getJavaLangAccess();
+        Throwable throwable = new Throwable();
+        int depth = access.getStackTraceDepth(throwable);
+        */
         StackTraceElement[] stack = VMStack.getThreadStackTrace(Thread.currentThread());
         int depth = stack.length;
+        // END Android-changed: Use VMStack.getThreadStackTrace.
 
         boolean lookingForLogger = true;
         for (int ix = 0; ix < depth; ix++) {
             // Calling getStackTraceElement directly prevents the VM
             // from paying the cost of building the entire stack frame.
             //
-            // Android-changed: Use value from getThreadStackTrace.
+            // Android-changed: Use value from previous getThreadStackTrace call.
+            // StackTraceElement frame =
+            //     access.getStackTraceElement(throwable, ix);
             StackTraceElement frame = stack[ix];
             String cname = frame.getClassName();
             boolean isLoggerImpl = isLoggerImplFrame(cname);

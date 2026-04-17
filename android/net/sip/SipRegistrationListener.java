@@ -18,6 +18,8 @@ package android.net.sip;
 
 /**
  * Listener for SIP registration events.
+ * @deprecated {@link android.net.sip.SipManager} and associated classes are no longer supported and
+ * should not be used as the basis of future VOIP apps.
  */
 public interface SipRegistrationListener {
     /**

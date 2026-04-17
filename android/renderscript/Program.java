@@ -17,12 +17,13 @@
 package android.renderscript;
 
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.content.res.Resources;
+import android.util.Log;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
-
-import android.content.res.Resources;
-import android.util.Log;
 
 
 /**
@@ -31,7 +32,11 @@ import android.util.Log;
  * Program is a base class for all the objects that modify
  * various stages of the graphics pipeline
  *
+ * @deprecated Renderscript has been deprecated in API level 31. Please refer to the <a
+ * href="https://developer.android.com/guide/topics/renderscript/migration-guide">migration
+ * guide</a> for the proposed alternatives.
  **/
+@Deprecated
 public class Program extends BaseObj {
     static final int MAX_INPUT = 8;
     static final int MAX_OUTPUT = 8;
@@ -45,6 +50,7 @@ public class Program extends BaseObj {
      *
      **/
     public enum TextureType {
+        @UnsupportedAppUsage
         TEXTURE_2D (0),
         TEXTURE_CUBE (1);
 
@@ -199,20 +205,30 @@ public class Program extends BaseObj {
 
 
     public static class BaseProgramBuilder {
+        @UnsupportedAppUsage
         RenderScript mRS;
+        @UnsupportedAppUsage
         Element mInputs[];
+        @UnsupportedAppUsage
         Element mOutputs[];
+        @UnsupportedAppUsage
         Type mConstants[];
         Type mTextures[];
         TextureType mTextureTypes[];
         String mTextureNames[];
+        @UnsupportedAppUsage
         int mInputCount;
+        @UnsupportedAppUsage
         int mOutputCount;
+        @UnsupportedAppUsage
         int mConstantCount;
+        @UnsupportedAppUsage
         int mTextureCount;
+        @UnsupportedAppUsage
         String mShader;
 
 
+        @UnsupportedAppUsage
         protected BaseProgramBuilder(RenderScript rs) {
             mRS = rs;
             mInputs = new Element[MAX_INPUT];

@@ -15,15 +15,18 @@
  */
 package android.telephony;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.content.pm.PackageInfo;
 import android.content.pm.Signature;
+import android.content.pm.SigningInfo;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
 
 import com.android.internal.telephony.uicc.IccUtils;
+import com.android.telephony.Rlog;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -32,7 +35,10 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -47,7 +53,17 @@ public final class UiccAccessRule implements Parcelable {
 
     private static final int ENCODING_VERSION = 1;
 
-    public static final Creator<UiccAccessRule> CREATOR = new Creator<UiccAccessRule>() {
+    /**
+     * Delimiter used to decode {@link CarrierConfigManager#KEY_CARRIER_CERTIFICATE_STRING_ARRAY}.
+     */
+    private static final String DELIMITER_CERTIFICATE_HASH_PACKAGE_NAMES = ":";
+
+    /**
+     * Delimiter used to decode {@link CarrierConfigManager#KEY_CARRIER_CERTIFICATE_STRING_ARRAY}.
+     */
+    private static final String DELIMITER_INDIVIDUAL_PACKAGE_NAMES = ",";
+
+    public static final @android.annotation.NonNull Creator<UiccAccessRule> CREATOR = new Creator<UiccAccessRule>() {
         @Override
         public UiccAccessRule createFromParcel(Parcel in) {
             return new UiccAccessRule(in);
@@ -93,6 +109,36 @@ public final class UiccAccessRule implements Parcelable {
     }
 
     /**
+     * Decodes {@link CarrierConfigManager#KEY_CARRIER_CERTIFICATE_STRING_ARRAY} values.
+     * @hide
+     */
+    @Nullable
+    public static UiccAccessRule[] decodeRulesFromCarrierConfig(@Nullable String[] certs) {
+        if (certs == null) {
+            return null;
+        }
+        List<UiccAccessRule> carrierConfigAccessRulesArray = new ArrayList();
+        for (String cert : certs) {
+            String[] splitStr = cert.split(DELIMITER_CERTIFICATE_HASH_PACKAGE_NAMES);
+            byte[] certificateHash = IccUtils.hexStringToBytes(splitStr[0]);
+            if (splitStr.length == 1) {
+                // The value is a certificate hash, without any package name
+                carrierConfigAccessRulesArray.add(new UiccAccessRule(certificateHash, null, 0));
+            } else {
+                // The value is composed of the certificate hash followed by at least one
+                // package name
+                String[] packageNames = splitStr[1].split(DELIMITER_INDIVIDUAL_PACKAGE_NAMES);
+                for (String packageName : packageNames) {
+                    carrierConfigAccessRulesArray.add(
+                            new UiccAccessRule(certificateHash, packageName, 0));
+                }
+            }
+        }
+        return carrierConfigAccessRulesArray.toArray(
+            new UiccAccessRule[carrierConfigAccessRulesArray.size()]);
+    }
+
+    /**
      * Decodes a byte array generated with {@link #encodeRules}.
      * @hide
      */
@@ -123,18 +169,21 @@ public final class UiccAccessRule implements Parcelable {
     }
 
     private final byte[] mCertificateHash;
+    private final int mCertificateHashHashCode;
     private final @Nullable String mPackageName;
     // This bit is not currently used, but reserved for future use.
     private final long mAccessType;
 
     public UiccAccessRule(byte[] certificateHash, @Nullable String packageName, long accessType) {
         this.mCertificateHash = certificateHash;
+        this.mCertificateHashHashCode = getCertificateHashHashCode(this.mCertificateHash);
         this.mPackageName = packageName;
         this.mAccessType = accessType;
     }
 
     UiccAccessRule(Parcel in) {
         mCertificateHash = in.createByteArray();
+        mCertificateHashHashCode = getCertificateHashHashCode(mCertificateHash);
         mPackageName = in.readString();
         mAccessType = in.readLong();
     }
@@ -168,17 +217,19 @@ public final class UiccAccessRule implements Parcelable {
      *
      * @param packageInfo package info fetched from
      *     {@link android.content.pm.PackageManager#getPackageInfo}.
-     *     {@link android.content.pm.PackageManager#GET_SIGNATURES} must have been passed in.
+     *     {@link android.content.pm.PackageManager#GET_SIGNING_CERTIFICATES} must have been
+     *         passed in.
      * @return either {@link TelephonyManager#CARRIER_PRIVILEGE_STATUS_HAS_ACCESS} or
      *     {@link TelephonyManager#CARRIER_PRIVILEGE_STATUS_NO_ACCESS}.
      */
     public int getCarrierPrivilegeStatus(PackageInfo packageInfo) {
-        if (packageInfo.signatures == null || packageInfo.signatures.length == 0) {
+        List<Signature> signatures = getSignatures(packageInfo);
+        if (signatures.isEmpty()) {
             throw new IllegalArgumentException(
-                    "Must use GET_SIGNATURES when looking up package info");
+                    "Must use GET_SIGNING_CERTIFICATES when looking up package info");
         }
 
-        for (Signature sig : packageInfo.signatures) {
+        for (Signature sig : signatures) {
             int accessStatus = getCarrierPrivilegeStatus(sig, packageInfo.packageName);
             if (accessStatus != TelephonyManager.CARRIER_PRIVILEGE_STATUS_NO_ACCESS) {
                 return accessStatus;
@@ -197,23 +248,65 @@ public final class UiccAccessRule implements Parcelable {
      *     {@link TelephonyManager#CARRIER_PRIVILEGE_STATUS_NO_ACCESS}.
      */
     public int getCarrierPrivilegeStatus(Signature signature, String packageName) {
-        // SHA-1 is for backward compatible support only, strongly discouraged for new use.
-        byte[] certHash = getCertHash(signature, "SHA-1");
         byte[] certHash256 = getCertHash(signature, "SHA-256");
-        if (matches(certHash, packageName) || matches(certHash256, packageName)) {
+        // Check SHA-256 first as it's the new standard.
+        if (hasMatchingCertificateHashAndPackageName(certHash256, packageName)) {
             return TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS;
+        }
+
+        // Then check SHA-1 for backward compatibility. This should be removed
+        // in the near future when GPD_SPE_068 fully replaces GPD_SPE_013.
+        if (this.mCertificateHash.length == 20) {
+            byte[] certHash = getCertHash(signature, "SHA-1");
+            if (hasMatchingCertificateHashAndPackageName(certHash, packageName)) {
+                return TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS;
+            }
         }
 
         return TelephonyManager.CARRIER_PRIVILEGE_STATUS_NO_ACCESS;
     }
 
-    private boolean matches(byte[] certHash, String packageName) {
+    /**
+     * Returns true if the given certificate and package name match this rule's values.
+     * @hide
+     */
+    public boolean hasMatchingCertificateHashAndPackageName(
+            @Nullable String certHash, @Nullable String packageName) {
+        return hasMatchingCertificateHashAndPackageName(
+                IccUtils.hexStringToBytes(certHash), packageName);
+    }
+
+    /**
+     * Returns true if the given certificate and package name match this rule's values.
+     * @hide
+     */
+    public boolean hasMatchingCertificateHashAndPackageName(
+            @Nullable byte[] certHash, @Nullable String packageName) {
         return certHash != null && Arrays.equals(this.mCertificateHash, certHash) &&
                 (TextUtils.isEmpty(this.mPackageName) || this.mPackageName.equals(packageName));
     }
 
+    /**
+     * Returns true if the given certificate hash hash
+     * and package name both match this rules' values.
+     *
+     * @hide
+     */
+    public boolean hasMatchingCertificateHashHashAndPackageName(
+            int certHashHashCode, String packageName) {
+        return certHashHashCode == this.mCertificateHashHashCode
+                && (TextUtils.isEmpty(this.mPackageName) || this.mPackageName.equals(packageName));
+    }
+
+    /**
+     * @hide
+     */
+    public static int getCertificateHashHashCode(byte[] certHash) {
+        return Arrays.hashCode(certHash);
+    }
+
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) {
             return true;
         }
@@ -236,6 +329,7 @@ public final class UiccAccessRule implements Parcelable {
         return result;
     }
 
+    @NonNull
     @Override
     public String toString() {
         return "cert: " + IccUtils.bytesToHexString(mCertificateHash) + " pkg: " +
@@ -248,9 +342,29 @@ public final class UiccAccessRule implements Parcelable {
     }
 
     /**
-     * Converts a Signature into a Certificate hash usable for comparison.
+     * Gets all of the Signatures from the given PackageInfo.
+     * @hide
      */
-    private static byte[] getCertHash(Signature signature, String algo) {
+    @NonNull
+    public static List<Signature> getSignatures(PackageInfo packageInfo) {
+        Signature[] signatures = packageInfo.signatures;
+        SigningInfo signingInfo = packageInfo.signingInfo;
+
+        if (signingInfo != null) {
+            signatures = signingInfo.getSigningCertificateHistory();
+            if (signingInfo.hasMultipleSigners()) {
+                signatures = signingInfo.getApkContentsSigners();
+            }
+        }
+
+        return (signatures == null) ? Collections.EMPTY_LIST : Arrays.asList(signatures);
+    }
+
+    /**
+     * Converts a Signature into a Certificate hash usable for comparison.
+     * @hide
+     */
+    public static byte[] getCertHash(Signature signature, String algo) {
         try {
             MessageDigest md = MessageDigest.getInstance(algo);
             return md.digest(signature.toByteArray());

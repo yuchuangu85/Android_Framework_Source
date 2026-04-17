@@ -22,6 +22,7 @@ package android.graphics;
  * can disable/enable antialiasing, or change the color for everything this is
  * drawn.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class DrawFilter {
 
     /**

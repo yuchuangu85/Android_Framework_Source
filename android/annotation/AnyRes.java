@@ -30,7 +30,7 @@ import static java.lang.annotation.RetentionPolicy.SOURCE;
  * one of the more specific annotations instead, such as {@link StringRes} or
  * {@link DrawableRes}.
  *
- * {@hide}
+ * @hide
  */
 @Documented
 @Retention(SOURCE)

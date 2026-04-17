@@ -17,19 +17,23 @@
 
 package android.filterfw.geometry;
 
-import java.lang.Math;
+import android.compat.annotation.UnsupportedAppUsage;
 
 /**
  * @hide
  */
 public class Point {
 
+    @UnsupportedAppUsage
     public float x;
+    @UnsupportedAppUsage
     public float y;
 
+    @UnsupportedAppUsage
     public Point() {
     }
 
+    @UnsupportedAppUsage
     public Point(float x, float y) {
         this.x = x;
         this.y = y;

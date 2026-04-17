@@ -207,17 +207,21 @@ class XmlSupport {
                 " versions " + EXTERNAL_XML_VERSION + " or older. You may need" +
                 " to install a newer version of JDK.");
 
+            // BEGIN Android-changed: Filter out non-Element nodes.
+            // Use a selector to skip over CDATA / DATA elements.
+            // The selector is specific to children with tag name "root";
+            // export() always creates exactly one such child.
+            // Element xmlRoot = (Element) doc.getDocumentElement().
+            //                                    getChildNodes().item(0);
             Element xmlRoot = (Element) doc.getDocumentElement();
 
-            // Android-changed: Use a selector to skip over CDATA / DATA elements.
             NodeList elements = xmlRoot.getElementsByTagName("root");
             if (elements == null || elements.getLength() != 1) {
                 throw new InvalidPreferencesFormatException("invalid root node");
             }
 
             xmlRoot = (Element) elements.item(0);
-            // End android changes.
-
+            // END Android-changed: Filter out non-Element nodes.
             Preferences prefsRoot =
                 (xmlRoot.getAttribute("type").equals("user") ?
                             Preferences.userRoot() : Preferences.systemRoot());
@@ -281,28 +285,44 @@ class XmlSupport {
             Transformer t = tf.newTransformer();
             t.setOutputProperty(OutputKeys.DOCTYPE_SYSTEM, doc.getDoctype().getSystemId());
             t.setOutputProperty(OutputKeys.INDENT, "yes");
-
             //Transformer resets the "indent" info if the "result" is a StreamResult with
             //an OutputStream object embedded, creating a Writer object on top of that
             //OutputStream object however works.
             t.transform(new DOMSource(doc),
-                    new StreamResult(new BufferedWriter(new OutputStreamWriter(out, "UTF-8"))));
+                        new StreamResult(new BufferedWriter(new OutputStreamWriter(out, "UTF-8"))));
         } catch(TransformerException e) {
             throw new AssertionError(e);
         }
     }
 
-    private static List<Element> getChildElements(Element node) {
-        NodeList xmlKids = node.getChildNodes();
-        ArrayList<Element> elements = new ArrayList<>(xmlKids.getLength());
-        for (int i = 0; i < xmlKids.getLength(); ++i) {
-            if (xmlKids.item(i) instanceof Element) {
-                elements.add((Element) xmlKids.item(i));
-            }
+    // BEGIN Android-added: Filter out non-Element nodes.
+    static class NodeListAdapter implements NodeList {
+        private final List<? extends Node> delegate;
+
+        public NodeListAdapter(List<? extends Node> delegate) {
+            this.delegate = Objects.requireNonNull(delegate);
         }
 
-        return elements;
+        @Override public Node item(int index) {
+            if (index < 0 || index >= delegate.size()) {
+                return null;
+            }
+            return delegate.get(index);
+        }
+        @Override public int getLength() { return delegate.size(); }
     }
+
+    private static NodeList elementNodesOf(NodeList xmlKids) {
+        List<Element> elements = new ArrayList<>(xmlKids.getLength());
+        for (int i = 0; i < xmlKids.getLength(); ++i) {
+            Node node = xmlKids.item(i);
+            if (node instanceof Element) {
+                elements.add((Element) node);
+            }
+        }
+        return new NodeListAdapter(elements);
+    }
+    // END Android-added: Filter out non-Element nodes.
 
     /**
      * Recursively traverse the specified preferences node and store
@@ -310,9 +330,10 @@ class XmlSupport {
      * preferences tree, as appropriate.
      */
     private static void ImportSubtree(Preferences prefsNode, Element xmlNode) {
-        // Android-changed: filter out non-element nodes.
-        List<Element> xmlKids = getChildElements(xmlNode);
-
+        NodeList xmlKids = xmlNode.getChildNodes();
+        // Android-added: Filter out non-Element nodes.
+        xmlKids = elementNodesOf(xmlKids);
+        int numXmlKids = xmlKids.getLength();
         /*
          * We first lock the node, import its contents and get
          * child nodes. Then we unlock the node and go to children
@@ -327,20 +348,19 @@ class XmlSupport {
                 return;
 
             // Import any preferences at this node
-            // Android
-            Element firstXmlKid = xmlKids.get(0);
+            Element firstXmlKid = (Element) xmlKids.item(0);
             ImportPrefs(prefsNode, firstXmlKid);
-            prefsKids = new Preferences[xmlKids.size() - 1];
+            prefsKids = new Preferences[numXmlKids - 1];
 
             // Get involved children
-            for (int i=1; i < xmlKids.size(); i++) {
-                Element xmlKid = xmlKids.get(i);
+            for (int i=1; i < numXmlKids; i++) {
+                Element xmlKid = (Element) xmlKids.item(i);
                 prefsKids[i-1] = prefsNode.node(xmlKid.getAttribute("name"));
             }
         } // unlocked the node
         // import children
-        for (int i=1; i < xmlKids.size(); i++)
-            ImportSubtree(prefsKids[i-1], xmlKids.get(i));
+        for (int i=1; i < numXmlKids; i++)
+            ImportSubtree(prefsKids[i-1], (Element)xmlKids.item(i));
     }
 
     /**
@@ -349,11 +369,13 @@ class XmlSupport {
      * preferences node.
      */
     private static void ImportPrefs(Preferences prefsNode, Element map) {
-        // Android-changed: Use getChildElements.
-        List<Element> entries = getChildElements(map);
-        for (int i=0, numEntries = entries.size(); i < numEntries; i++) {
-            Element entry = entries.get(i);
-            prefsNode.put(entry.getAttribute("key"), entry.getAttribute("value"));
+        NodeList entries = map.getChildNodes();
+        // Android-added: Filter out non-Element nodes.
+        entries = elementNodesOf(entries);
+        for (int i=0, numEntries = entries.getLength(); i < numEntries; i++) {
+            Element entry = (Element) entries.item(i);
+            prefsNode.put(entry.getAttribute("key"),
+                          entry.getAttribute("value"));
         }
     }
 
@@ -411,12 +433,14 @@ class XmlSupport {
 
             NodeList entries = xmlMap.getChildNodes();
             for (int i=0, numEntries=entries.getLength(); i<numEntries; i++) {
-                // Android-added, android xml serializer generates one-char Text nodes with a single
-                // new-line character between expected Element nodes. openJdk code wasn't
-                // expecting anything else than Element node.
+                // BEGIN Android-added: Filter out non-Element nodes.
+                // Android xml serializer generates one-char Text nodes with a single
+                // new-line character between expected Element nodes. OpenJDK code wasn't
+                // expecting anything else than Element nodes.
                 if (!(entries.item(i) instanceof Element)) {
                     continue;
                 }
+                // END Android-added: Filter out non-Element nodes.
                 Element entry = (Element) entries.item(i);
                 m.put(entry.getAttribute("key"), entry.getAttribute("value"));
             }

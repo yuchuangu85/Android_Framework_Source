@@ -16,6 +16,7 @@
 
 package android.media;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.text.Layout.Alignment;
 import android.text.SpannableStringBuilder;
@@ -44,6 +45,7 @@ public class WebVttRenderer extends SubtitleController.Renderer {
 
     private WebVttRenderingWidget mRenderingWidget;
 
+    @UnsupportedAppUsage
     public WebVttRenderer(Context context) {
         mContext = context;
     }
@@ -243,7 +245,7 @@ class Tokenizer {
                 mHandledLen++;
             if (mHandledLen < mLine.length()) {
                 String[] parts;
-                /**
+                /*
                  * Collect annotations and end-tags to closing >.  Collect tag
                  * name to closing bracket or next white-space.
                  */

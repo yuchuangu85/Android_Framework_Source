@@ -16,6 +16,9 @@
 
 package android.view;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.MessageQueue;
 import android.util.Log;
@@ -23,6 +26,8 @@ import android.util.SparseIntArray;
 
 import dalvik.system.CloseGuard;
 
+import java.io.PrintWriter;
+import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
 
 /**
@@ -36,10 +41,9 @@ public abstract class InputEventReceiver {
 
     private long mReceiverPtr;
 
-    // We keep references to the input channel and message queue objects here so that
-    // they are not GC'd while the native peer of the receiver is using them.
-    private InputChannel mInputChannel;
-    private MessageQueue mMessageQueue;
+    // We keep a reference to the looper object here so that it is not GC'd while the native peer
+    // of the receiver is using it.
+    private Looper mLooper;
 
     // Map from InputEvent sequence numbers to dispatcher sequence numbers.
     private final SparseIntArray mSeqMap = new SparseIntArray();
@@ -48,13 +52,19 @@ public abstract class InputEventReceiver {
             InputChannel inputChannel, MessageQueue messageQueue);
     private static native void nativeDispose(long receiverPtr);
     private static native void nativeFinishInputEvent(long receiverPtr, int seq, boolean handled);
+    private static native boolean nativeProbablyHasInput(long receiverPtr);
     private static native boolean nativeConsumeBatchedInputEvents(long receiverPtr,
             long frameTimeNanos);
+    private static native IBinder nativeGetToken(long receiverPtr);
+    private static native long nativeGetFrameMetricsObserver(long receiverPtr);
+    private static native String nativeDump(long receiverPtr, String prefix);
+
 
     /**
      * Creates an input event receiver bound to the specified input channel.
      *
-     * @param inputChannel The input channel.
+     * @param inputChannel The input channel. This channel will be consumed, so if you want to reuse
+     *                     it, make a copy before passing it to this constructor.
      * @param looper The looper to use when invoking callbacks.
      */
     public InputEventReceiver(InputChannel inputChannel, Looper looper) {
@@ -65,12 +75,11 @@ public abstract class InputEventReceiver {
             throw new IllegalArgumentException("looper must not be null");
         }
 
-        mInputChannel = inputChannel;
-        mMessageQueue = looper.getQueue();
+        mLooper = looper;
         mReceiverPtr = nativeInit(new WeakReference<InputEventReceiver>(this),
-                inputChannel, mMessageQueue);
+                inputChannel, mLooper.getQueue());
 
-        mCloseGuard.open("dispose");
+        mCloseGuard.open("InputEventReceiver.dispose");
     }
 
     @Override
@@ -83,9 +92,31 @@ public abstract class InputEventReceiver {
     }
 
     /**
+     * Checks the receiver for input availability.
+     * May return false negatives.
+     */
+    public boolean probablyHasInput() {
+        if (mReceiverPtr == 0) {
+            return false;
+        }
+        return nativeProbablyHasInput(mReceiverPtr);
+    }
+
+    /**
      * Disposes the receiver.
+     * Must be called on the same Looper thread to which the receiver is attached.
      */
     public void dispose() {
+        if (mLooper == null) {
+            // dispose() should only be called once on each PointerEventDispatcher. For example,
+            // perhaps some code is expecting that the receiver is still alive, so it expects the
+            // events to continue to come in. And another piece of code disposes it. That would
+            // indicate a design problem in the system.
+            throw new IllegalStateException("dispose() called on an already-disposed receiver");
+        }
+        if (Thread.currentThread() != mLooper.getThread()) {
+            throw new IllegalStateException("Must call dispose() on the Looper thread");
+        }
         dispose(false);
     }
 
@@ -101,8 +132,9 @@ public abstract class InputEventReceiver {
             nativeDispose(mReceiverPtr);
             mReceiverPtr = 0;
         }
-        mInputChannel = null;
-        mMessageQueue = null;
+
+        mLooper = null;
+        Reference.reachabilityFence(this);
     }
 
     /**
@@ -111,11 +143,56 @@ public abstract class InputEventReceiver {
      * to indicate whether the event was handled.  No new input events will be received
      * until {@link #finishInputEvent} is called.
      *
-     * @param displayId The display id on which input event triggered.
      * @param event The input event that was received.
      */
-    public void onInputEvent(InputEvent event, int displayId) {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    public void onInputEvent(InputEvent event) {
         finishInputEvent(event, false);
+    }
+
+    /**
+     * Called when a focus event is received.
+     *
+     * @param hasFocus if true, the window associated with this input channel has just received
+     *                 focus
+     *                 if false, the window associated with this input channel has just lost focus
+     */
+    // Called from native code.
+    public void onFocusEvent(boolean hasFocus) {
+    }
+
+    /**
+     * Called when a Pointer Capture event is received.
+     *
+     * @param pointerCaptureEnabled if true, the window associated with this input channel has just
+     *                              received Pointer Capture
+     *                              if false, the window associated with this input channel has just
+     *                              lost Pointer Capture
+     * @see View#requestPointerCapture()
+     * @see View#releasePointerCapture()
+     */
+    // Called from native code.
+    public void onPointerCaptureEvent(boolean pointerCaptureEnabled) {
+    }
+
+    /**
+     * Called when a drag event is received, from native code.
+     *
+     * @param isExiting if false, the window associated with this input channel has just received
+     *                 drag
+     *                 if true, the window associated with this input channel has just lost drag
+     */
+    public void onDragEvent(boolean isExiting, float x, float y, int displayId) {
+    }
+
+    /**
+     * Called when the display for the window associated with the input channel has entered or
+     * exited touch mode.
+     *
+     * @param inTouchMode {@code true} if the display showing the window associated with the
+     *                    input channel entered touch mode or {@code false} if left touch mode
+     */
+    public void onTouchModeChanged(boolean inTouchMode) {
     }
 
     /**
@@ -125,8 +202,9 @@ public abstract class InputEventReceiver {
      * samples until the recipient calls {@link #consumeBatchedInputEvents} or
      * an event is received that ends the batch and causes it to be consumed
      * immediately (such as a pointer up event).
+     * @param source The source of the batched event.
      */
-    public void onBatchedInputEventPending() {
+    public void onBatchedInputEventPending(int source) {
         consumeBatchedInputEvents(-1);
     }
 
@@ -179,21 +257,36 @@ public abstract class InputEventReceiver {
         return false;
     }
 
+    protected final long getNativeFrameMetricsObserver() {
+        return nativeGetFrameMetricsObserver(mReceiverPtr);
+    }
+
+    /**
+     * @return Returns a token to identify the input channel.
+     */
+    public IBinder getToken() {
+        if (mReceiverPtr == 0) {
+            return null;
+        }
+        return nativeGetToken(mReceiverPtr);
+    }
+
     // Called from native code.
     @SuppressWarnings("unused")
-    private void dispatchInputEvent(int seq, InputEvent event, int displayId) {
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    private void dispatchInputEvent(int seq, InputEvent event) {
         mSeqMap.put(event.getSequenceNumber(), seq);
-        onInputEvent(event, displayId);
+        onInputEvent(event);
     }
 
-    // Called from native code.
-    @SuppressWarnings("unused")
-    private void dispatchBatchedInputEventPending() {
-        onBatchedInputEventPending();
-    }
-
-    public static interface Factory {
-        public InputEventReceiver createInputEventReceiver(
-                InputChannel inputChannel, Looper looper);
+    /**
+     * Dump the state of this InputEventReceiver to the writer.
+     * @param prefix the prefix (typically whitespace padding) to append in front of each line
+     * @param writer the writer where the dump should be written
+     */
+    public void dump(String prefix, PrintWriter writer) {
+        writer.println(prefix + getClass().getName());
+        writer.println(prefix + " mSeqMap: " + mSeqMap);
+        writer.println(prefix + " mReceiverPtr:\n" + nativeDump(mReceiverPtr, prefix + "  "));
     }
 }

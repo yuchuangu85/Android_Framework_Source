@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1996, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -56,13 +56,16 @@ import java.util.Properties;
  * @see Key
  *
  * @author Benjamin Renaud
+ * @since 1.1
  *
- * @deprecated This class is no longer used. Its functionality has been
- * replaced by {@code java.security.KeyStore}, the
- * {@code java.security.cert} package, and
- * {@code java.security.Principal}.
+ * @deprecated This class is deprecated and subject to removal in a future
+ *     version of Java SE. It has been replaced by
+ *     {@code java.security.KeyStore}, the {@code java.security.cert} package,
+ *     and {@code java.security.Principal}.
  */
-@Deprecated
+@Deprecated(since="1.2", forRemoval=true)
+// Android-added: Identity is deprecated too, no need to warn here.
+@SuppressWarnings("removal")
 public abstract
 class IdentityScope extends Identity {
 
@@ -75,7 +78,7 @@ class IdentityScope extends Identity {
     private static void initializeSystemScope() {
 
         String classname = AccessController.doPrivileged(
-                                new PrivilegedAction<String>() {
+                                new PrivilegedAction<>() {
             public String run() {
                 return Security.getProperty("system.scope");
             }
@@ -91,8 +94,8 @@ class IdentityScope extends Identity {
                 // Class.forName(classname);
                 scope = (IdentityScope) Class.forName(classname).newInstance();
             } catch (Exception e) {
-                //Security.error("unable to establish a system scope from " +
-                //             classname);
+                System.err.println("unable to establish a system scope from " +
+                        classname);
                 e.printStackTrace();
             }
         }

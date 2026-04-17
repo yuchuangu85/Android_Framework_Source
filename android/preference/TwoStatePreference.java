@@ -17,6 +17,7 @@
 package android.preference;
 
 import android.annotation.StringRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.TypedArray;
@@ -31,7 +32,14 @@ import android.widget.TextView;
  * Common base class for preferences that have two selectable states, persist a
  * boolean value in SharedPreferences, and may have dependent preferences that are
  * enabled/disabled based on the current state.
+ *
+ * @deprecated Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
+ *      <a href="{@docRoot}reference/androidx/preference/package-summary.html">
+ *      Preference Library</a> for consistent behavior across all devices. For more information on
+ *      using the AndroidX Preference Library see
+ *      <a href="{@docRoot}guide/topics/ui/settings.html">Settings</a>.
  */
+@Deprecated
 public abstract class TwoStatePreference extends Preference {
 
     private CharSequence mSummaryOn;
@@ -193,6 +201,7 @@ public abstract class TwoStatePreference extends Preference {
      * Sync a summary view contained within view's subhierarchy with the correct summary text.
      * @param view View where a summary should be located
      */
+    @UnsupportedAppUsage
     void syncSummaryView(View view) {
         // Sync the summary view
         TextView summaryView = (TextView) view.findViewById(com.android.internal.R.id.summary);
@@ -269,7 +278,7 @@ public abstract class TwoStatePreference extends Preference {
             super(superState);
         }
 
-        public static final Parcelable.Creator<SavedState> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<SavedState> CREATOR =
                 new Parcelable.Creator<SavedState>() {
             public SavedState createFromParcel(Parcel in) {
                 return new SavedState(in);

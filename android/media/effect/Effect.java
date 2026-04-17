@@ -80,7 +80,7 @@ public abstract class Effect {
      *
      * @param parameterKey The name of the parameter to adjust.
      * @param value The new value to set the parameter to.
-     * @throws InvalidArgumentException if parameterName is not a recognized name, or the value is
+     * @throws IllegalArgumentException if parameterName is not a recognized name, or the value is
      *         not a valid value for this parameter.
      */
     public abstract void setParameter(String parameterKey, Object value);
@@ -108,4 +108,3 @@ public abstract class Effect {
      */
     public abstract void release();
 }
-

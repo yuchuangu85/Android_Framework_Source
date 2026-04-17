@@ -115,6 +115,7 @@ import java.util.function.LongConsumer;
  * @since 1.8
  * @hide Visible for CTS testing only (OpenJDK8 tests).
  */
+// Android-changed: Made public for CTS tests only.
 public interface Sink<T> extends Consumer<T> {
     /**
      * Resets the sink state to receive a fresh data set.  This must be called
@@ -187,6 +188,7 @@ public interface Sink<T> extends Consumer<T> {
      * {@code accept(int)}, and wires {@code accept(Integer)} to bridge to
      * {@code accept(int)}.
      */
+    @SuppressWarnings("overloads")
     interface OfInt extends Sink<Integer>, IntConsumer {
         @Override
         void accept(int value);
@@ -204,6 +206,7 @@ public interface Sink<T> extends Consumer<T> {
      * {@code accept(long)}, and wires {@code accept(Long)} to bridge to
      * {@code accept(long)}.
      */
+    @SuppressWarnings("overloads")
     interface OfLong extends Sink<Long>, LongConsumer {
         @Override
         void accept(long value);
@@ -221,6 +224,7 @@ public interface Sink<T> extends Consumer<T> {
      * {@code accept(double)}, and wires {@code accept(Double)} to bridge to
      * {@code accept(double)}.
      */
+    @SuppressWarnings("overloads")
     interface OfDouble extends Sink<Double>, DoubleConsumer {
         @Override
         void accept(double value);
@@ -242,7 +246,7 @@ public interface Sink<T> extends Consumer<T> {
      * implementation of the {@code accept()} method must call the correct
      * {@code accept()} method on the downstream {@code Sink}.
      */
-    static abstract class ChainedReference<T, E_OUT> implements Sink<T> {
+    abstract static class ChainedReference<T, E_OUT> implements Sink<T> {
         protected final Sink<? super E_OUT> downstream;
 
         public ChainedReference(Sink<? super E_OUT> downstream) {
@@ -274,7 +278,7 @@ public interface Sink<T> extends Consumer<T> {
      * The implementation of the {@code accept()} method must call the correct
      * {@code accept()} method on the downstream {@code Sink}.
      */
-    static abstract class ChainedInt<E_OUT> implements Sink.OfInt {
+    abstract static class ChainedInt<E_OUT> implements Sink.OfInt {
         protected final Sink<? super E_OUT> downstream;
 
         public ChainedInt(Sink<? super E_OUT> downstream) {
@@ -306,7 +310,7 @@ public interface Sink<T> extends Consumer<T> {
      * The implementation of the {@code accept()} method must call the correct
      * {@code accept()} method on the downstream {@code Sink}.
      */
-    static abstract class ChainedLong<E_OUT> implements Sink.OfLong {
+    abstract static class ChainedLong<E_OUT> implements Sink.OfLong {
         protected final Sink<? super E_OUT> downstream;
 
         public ChainedLong(Sink<? super E_OUT> downstream) {
@@ -338,7 +342,7 @@ public interface Sink<T> extends Consumer<T> {
      * The implementation of the {@code accept()} method must call the correct
      * {@code accept()} method on the downstream {@code Sink}.
      */
-    static abstract class ChainedDouble<E_OUT> implements Sink.OfDouble {
+    abstract static class ChainedDouble<E_OUT> implements Sink.OfDouble {
         protected final Sink<? super E_OUT> downstream;
 
         public ChainedDouble(Sink<? super E_OUT> downstream) {

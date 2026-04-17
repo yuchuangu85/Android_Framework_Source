@@ -20,6 +20,7 @@ package android.graphics;
  * @removed feature is not supported by hw-accerlerated or PDF backends
  */
 @Deprecated
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class LayerRasterizer extends Rasterizer {
     public LayerRasterizer() { }
 

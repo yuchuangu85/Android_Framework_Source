@@ -18,10 +18,12 @@ package com.android.internal.telephony.gsm;
 
 import android.telephony.PhoneNumberUtils;
 
+import java.util.Arrays;
+
 /**
  * Represents a Supplementary Service Notification received from the network.
  *
- * {@hide}
+ * @hide
  */
 public class SuppServiceNotification {
     /** Type of notification: 0 = code1; 1 = code2 */
@@ -200,7 +202,7 @@ public class SuppServiceNotification {
             + (notificationType == 0 ? " originated " : " terminated ")
             + " code: " + code
             + " index: " + index
-            + " history: " + history
+            + " history: " + Arrays.toString(history)
             + " \""
             + PhoneNumberUtils.stringFromStringAndTOA(number, type) + "\" ";
     }

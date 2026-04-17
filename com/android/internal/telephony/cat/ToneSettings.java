@@ -35,8 +35,8 @@ public class ToneSettings implements Parcelable {
     }
 
     private ToneSettings(Parcel in) {
-        duration = in.readParcelable(null);
-        tone = in.readParcelable(null);
+        duration = in.readParcelable(Duration.class.getClassLoader());
+        tone = in.readParcelable(Tone.class.getClassLoader());
         vibrate = in.readInt() == 1;
     }
 

@@ -17,6 +17,8 @@
 package android.service.voice;
 
 import android.Manifest;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.app.AppGlobals;
 import android.content.ComponentName;
 import android.content.pm.PackageManager;
@@ -25,9 +27,11 @@ import android.content.res.Resources;
 import android.content.res.TypedArray;
 import android.content.res.XmlResourceParser;
 import android.os.RemoteException;
+import android.service.voice.flags.Flags;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.Xml;
+
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
@@ -42,29 +46,37 @@ public class VoiceInteractionServiceInfo {
     private ServiceInfo mServiceInfo;
     private String mSessionService;
     private String mRecognitionService;
+    private String mHotwordDetectionService;
+    private String mVisualQueryDetectionService;
     private String mSettingsActivity;
     private boolean mSupportsAssist;
     private boolean mSupportsLaunchFromKeyguard;
     private boolean mSupportsLocalInteraction;
+    private boolean mUsesAssistData;
+    private boolean mUsesAssistScreenshots;
+    private boolean mUsesAssistStructureScreenContent;
 
-    public VoiceInteractionServiceInfo(PackageManager pm, ComponentName comp)
-            throws PackageManager.NameNotFoundException {
-        this(pm, pm.getServiceInfo(comp, PackageManager.GET_META_DATA));
-    }
-
-    public VoiceInteractionServiceInfo(PackageManager pm, ComponentName comp, int userHandle)
+    /**
+     * Loads the service metadata published by the component. Success is indicated by
+     * {@link #getParseError()}.
+     *
+     * @param pm A PackageManager from which the XML can be loaded.
+     * @param comp The {@link VoiceInteractionService} component.
+     */
+    public VoiceInteractionServiceInfo(
+            @NonNull PackageManager pm, @NonNull ComponentName comp, int userHandle)
             throws PackageManager.NameNotFoundException {
         this(pm, getServiceInfoOrThrow(comp, userHandle));
     }
 
-    static ServiceInfo getServiceInfoOrThrow(ComponentName comp, int userHandle)
+    @NonNull
+    private static ServiceInfo getServiceInfoOrThrow(@NonNull ComponentName comp, int userHandle)
             throws PackageManager.NameNotFoundException {
         try {
             ServiceInfo si = AppGlobals.getPackageManager().getServiceInfo(comp,
                     PackageManager.GET_META_DATA
                             | PackageManager.MATCH_DIRECT_BOOT_AWARE
-                            | PackageManager.MATCH_DIRECT_BOOT_UNAWARE
-                            | PackageManager.MATCH_DEBUG_TRIAGED_MISSING,
+                            | PackageManager.MATCH_DIRECT_BOOT_UNAWARE,
                     userHandle);
             if (si != null) {
                 return si;
@@ -74,20 +86,23 @@ public class VoiceInteractionServiceInfo {
         throw new PackageManager.NameNotFoundException(comp.toString());
     }
 
-    public VoiceInteractionServiceInfo(PackageManager pm, ServiceInfo si) {
-        if (si == null) {
-            mParseError = "Service not available";
-            return;
-        }
+    /**
+     * Loads the service metadata published by the component. Success is indicated by
+     * {@link #getParseError()}.
+     *
+     * @param pm A PackageManager from which the XML can be loaded; usually the PackageManager
+     *           from which {@code si} was originally retrieved.
+     * @param si The {@link VoiceInteractionService} info.
+     */
+    public VoiceInteractionServiceInfo(@NonNull PackageManager pm, @NonNull ServiceInfo si) {
         if (!Manifest.permission.BIND_VOICE_INTERACTION.equals(si.permission)) {
             mParseError = "Service does not require permission "
                     + Manifest.permission.BIND_VOICE_INTERACTION;
             return;
         }
 
-        XmlResourceParser parser = null;
-        try {
-            parser = si.loadXmlMetaData(pm, VoiceInteractionService.SERVICE_META_DATA);
+        try (XmlResourceParser parser = si.loadXmlMetaData(pm,
+                VoiceInteractionService.SERVICE_META_DATA)) {
             if (parser == null) {
                 mParseError = "No " + VoiceInteractionService.SERVICE_META_DATA
                         + " meta-data for " + si.packageName;
@@ -125,6 +140,35 @@ public class VoiceInteractionServiceInfo {
                     false);
             mSupportsLocalInteraction = array.getBoolean(com.android.internal.
                     R.styleable.VoiceInteractionService_supportsLocalInteraction, false);
+            mHotwordDetectionService = array.getString(com.android.internal.R.styleable
+                    .VoiceInteractionService_hotwordDetectionService);
+            mVisualQueryDetectionService = array.getString(com.android.internal.R.styleable
+                    .VoiceInteractionService_visualQueryDetectionService);
+
+            // Assistants declare their usage of AssistData via manifest attributes
+            if (Flags.enableAssistResourceAttributes()) {
+                mUsesAssistData =
+                        array.getBoolean(
+                                com.android.internal.R.styleable
+                                        .VoiceInteractionService_usesAssistData,
+                                false);
+                mUsesAssistScreenshots =
+                        array.getBoolean(
+                                com.android.internal.R.styleable
+                                        .VoiceInteractionService_usesAssistScreenshots,
+                                false);
+                mUsesAssistStructureScreenContent =
+                        array.getBoolean(
+                                com.android.internal.R.styleable
+                                        .VoiceInteractionService_usesAssistStructureScreenContent,
+                                false);
+            } else {
+                // The implicit, pre CINNAMON_BUN defaults
+                mUsesAssistData = true;
+                mUsesAssistScreenshots = true;
+                mUsesAssistStructureScreenContent = true;
+            }
+
             array.recycle();
             if (mSessionService == null) {
                 mParseError = "No sessionService specified";
@@ -134,20 +178,10 @@ public class VoiceInteractionServiceInfo {
                 mParseError = "No recognitionService specified";
                 return;
             }
-        } catch (XmlPullParserException e) {
+        } catch (XmlPullParserException | IOException | PackageManager.NameNotFoundException e) {
             mParseError = "Error parsing voice interation service meta-data: " + e;
             Log.w(TAG, "error parsing voice interaction service meta-data", e);
             return;
-        } catch (IOException e) {
-            mParseError = "Error parsing voice interation service meta-data: " + e;
-            Log.w(TAG, "error parsing voice interaction service meta-data", e);
-            return;
-        } catch (PackageManager.NameNotFoundException e) {
-            mParseError = "Error parsing voice interation service meta-data: " + e;
-            Log.w(TAG, "error parsing voice interaction service meta-data", e);
-            return;
-        } finally {
-            if (parser != null) parser.close();
         }
         mServiceInfo = si;
     }
@@ -183,4 +217,53 @@ public class VoiceInteractionServiceInfo {
     public boolean getSupportsLocalInteraction() {
         return mSupportsLocalInteraction;
     }
+
+    @Nullable
+    public String getHotwordDetectionService() {
+        return mHotwordDetectionService;
+    }
+
+    @Nullable
+    public String getVisualQueryDetectionService() {
+        return mVisualQueryDetectionService;
+    }
+
+    /**
+     * Returns whether the service has opted-in to receive assist data.
+     *
+     * <p>If {@link android.os.Build.VERSION_CODES#CINNAMON_BUN} or higher, the service must
+     * explicitly set the {@code R.styleable.VoiceInteractionService_usesAssistData} attribute to
+     * {@code true} to receive this data. For older SDK versions, this is implicitly {@code true}.
+     */
+    public boolean getUsesAssistData() {
+        return mUsesAssistData;
+    }
+
+    /**
+     * Returns whether the service has opted-in to receive screenshots.
+     *
+     * <p>If {@link android.os.Build.VERSION_CODES#CINNAMON_BUN} or higher, the service must
+     * explicitly set the {@code R.styleable.VoiceInteractionService_usesAssistScreenshots}
+     * attribute to {@code true} to receive this data. For older SDK versions, this is implicitly
+     * {@code true}.
+     */
+    public boolean getUsesAssistScreenshots() {
+        return mUsesAssistScreenshots;
+    }
+
+    /**
+     * Returns whether the service has opted-in to receive structured screen content.
+     *
+     * <p>If {@link android.os.Build.VERSION_CODES#CINNAMON_BUN} or higher, the service must
+     * explicitly set the {@code
+     * R.styleable.VoiceInteractionService_usesAssistStructureScreenContent} attribute to {@code
+     * true} to receive this data. For older SDK versions, this is implicitly {@code true}.
+     */
+    public boolean getUsesAssistStructureScreenContent() {
+        return mUsesAssistStructureScreenContent;
+    }
 }
+
+
+
+

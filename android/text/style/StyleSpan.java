@@ -17,8 +17,10 @@
 package android.text.style;
 
 import android.annotation.NonNull;
+import android.content.res.Configuration;
 import android.graphics.Paint;
 import android.graphics.Typeface;
+import android.graphics.fonts.FontStyle;
 import android.os.Parcel;
 import android.text.ParcelableSpan;
 import android.text.TextPaint;
@@ -42,9 +44,11 @@ import android.text.TextUtils;
  * <img src="{@docRoot}reference/android/images/text/style/stylespan.png" />
  * <figcaption>Text styled bold and italic with the <code>StyleSpan</code>.</figcaption>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class StyleSpan extends MetricAffectingSpan implements ParcelableSpan {
 
     private final int mStyle;
+    private final int mFontWeightAdjustment;
 
     /**
      * Creates a {@link StyleSpan} from a style.
@@ -54,7 +58,24 @@ public class StyleSpan extends MetricAffectingSpan implements ParcelableSpan {
      *              in {@link Typeface}.
      */
     public StyleSpan(int style) {
+        this(style, Configuration.FONT_WEIGHT_ADJUSTMENT_UNDEFINED);
+    }
+
+    /**
+     * Creates a {@link StyleSpan} from a style and font weight adjustment.
+     *
+     * @param style An integer constant describing the style for this span. Examples
+     *              include bold, italic, and normal. Values are constants defined
+     *              in {@link Typeface}.
+     * @param fontWeightAdjustment An integer describing the adjustment to be made to the font
+     *              weight. This is added to the value of the current weight returned by
+     *              {@link Typeface#getWeight()}.
+     * @see Configuration#fontWeightAdjustment This is the adjustment in text font weight
+     * that is used to reflect the current user's preference for increasing font weight.
+     */
+    public StyleSpan(@Typeface.Style int style, int fontWeightAdjustment) {
         mStyle = style;
+        mFontWeightAdjustment = fontWeightAdjustment;
     }
 
     /**
@@ -64,6 +85,7 @@ public class StyleSpan extends MetricAffectingSpan implements ParcelableSpan {
      */
     public StyleSpan(@NonNull Parcel src) {
         mStyle = src.readInt();
+        mFontWeightAdjustment = src.readInt();
     }
 
     @Override
@@ -91,6 +113,7 @@ public class StyleSpan extends MetricAffectingSpan implements ParcelableSpan {
     @Override
     public void writeToParcelInternal(@NonNull Parcel dest, int flags) {
         dest.writeInt(mStyle);
+        dest.writeInt(mFontWeightAdjustment);
     }
 
     /**
@@ -100,17 +123,27 @@ public class StyleSpan extends MetricAffectingSpan implements ParcelableSpan {
         return mStyle;
     }
 
+    /**
+     * Returns the font weight adjustment specified by this span.
+     * <p>
+     * This can be {@link Configuration#FONT_WEIGHT_ADJUSTMENT_UNDEFINED}. This is added to the
+     * value of the current weight returned by {@link Typeface#getWeight()}.
+     */
+    public int getFontWeightAdjustment() {
+        return mFontWeightAdjustment;
+    }
+
     @Override
     public void updateDrawState(TextPaint ds) {
-        apply(ds, mStyle);
+        apply(ds, mStyle, mFontWeightAdjustment);
     }
 
     @Override
     public void updateMeasureState(TextPaint paint) {
-        apply(paint, mStyle);
+        apply(paint, mStyle, mFontWeightAdjustment);
     }
 
-    private static void apply(Paint paint, int style) {
+    private static void apply(Paint paint, int style, int fontWeightAdjustment) {
         int oldStyle;
 
         Typeface old = paint.getTypeface();
@@ -129,6 +162,18 @@ public class StyleSpan extends MetricAffectingSpan implements ParcelableSpan {
             tf = Typeface.create(old, want);
         }
 
+        // Base typeface may already be bolded by auto bold. Bold further.
+        if ((style & Typeface.BOLD) != 0) {
+            if (fontWeightAdjustment != 0
+                    && fontWeightAdjustment != Configuration.FONT_WEIGHT_ADJUSTMENT_UNDEFINED) {
+                int newWeight = Math.min(
+                        Math.max(tf.getWeight() + fontWeightAdjustment, FontStyle.FONT_WEIGHT_MIN),
+                        FontStyle.FONT_WEIGHT_MAX);
+                boolean italic = (want & Typeface.ITALIC) != 0;
+                tf = Typeface.create(tf, newWeight, italic);
+            }
+        }
+
         int fake = want & ~tf.getStyle();
 
         if ((fake & Typeface.BOLD) != 0) {
@@ -140,5 +185,13 @@ public class StyleSpan extends MetricAffectingSpan implements ParcelableSpan {
         }
 
         paint.setTypeface(tf);
+    }
+
+    @Override
+    public String toString() {
+        return "StyleSpan{"
+                + "style=" + getStyle()
+                + ", fontWeightAdjustment=" + getFontWeightAdjustment()
+                + '}';
     }
 }

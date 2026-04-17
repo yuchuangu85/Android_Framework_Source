@@ -16,27 +16,30 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+
 
 /**
  * Class for errors in the Result object.
  *
- * {@hide}
+ * @hide
  */
 public class ResultException extends CatException {
     private ResultCode mResult;
     private int mAdditionalInfo;
     private String mExplanation;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public ResultException(ResultCode result) {
         super();
 
-        // ETSI TS 102 223, 8.12 -- For the general results '20', '21', '26',
+        // ETSI TS 102 223, 8.12 -- For the general results '20', '21',
         // '38', '39', '3A', '3C', and '3D', it is mandatory for the terminal
         // to provide a specific cause value as additional information.
         switch (result) {
             case TERMINAL_CRNTLY_UNABLE_TO_PROCESS:    // 0x20
             case NETWORK_CRNTLY_UNABLE_TO_PROCESS:     // 0x21
-            case LAUNCH_BROWSER_ERROR:                 // 0x26
             case MULTI_CARDS_CMD_ERROR:                // 0x38
             case USIM_CALL_CONTROL_PERMANENT:          // 0x39
             case BIP_ERROR:                            // 0x3a

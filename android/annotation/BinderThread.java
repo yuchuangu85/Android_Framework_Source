@@ -35,7 +35,7 @@ import static java.lang.annotation.RetentionPolicy.SOURCE;
  *  public BeamShareData createBeamShareData() { ... }
  * </code></pre>
  *
- * {@hide}
+ * @hide
  */
 @Retention(SOURCE)
 @Target({METHOD,CONSTRUCTOR,TYPE,PARAMETER})

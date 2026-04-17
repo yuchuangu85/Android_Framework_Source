@@ -16,34 +16,52 @@
 
 package android.net;
 
-import android.net.StaticIpConfiguration;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.SuppressLint;
+import android.annotation.SystemApi;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
 import java.util.Objects;
 
 /**
- * A class representing a configured network.
- * @hide
+ * A class representing the IP configuration of a network.
  */
-public class IpConfiguration implements Parcelable {
+public final class IpConfiguration implements Parcelable {
     private static final String TAG = "IpConfiguration";
 
+    // This enum has been used by apps through reflection for many releases.
+    // Therefore they can't just be removed. Duplicating these constants to
+    // give an alternate SystemApi is a worse option than exposing them.
+    /** @hide */
+    @SystemApi
+    @SuppressLint("Enum")
     public enum IpAssignment {
         /* Use statically configured IP settings. Configuration can be accessed
          * with staticIpConfiguration */
         STATIC,
-        /* Use dynamically configured IP settigns */
+        /* Use dynamically configured IP settings */
         DHCP,
         /* no IP details are assigned, this is used to indicate
          * that any existing IP settings should be retained */
         UNASSIGNED
     }
 
+    /** @hide */
     public IpAssignment ipAssignment;
 
+    /** @hide */
     public StaticIpConfiguration staticIpConfiguration;
 
+    // This enum has been used by apps through reflection for many releases.
+    // Therefore they can't just be removed. Duplicating these constants to
+    // give an alternate SystemApi is a worse option than exposing them.
+    /** @hide */
+    @SystemApi
+    @SuppressLint("Enum")
     public enum ProxySettings {
         /* No proxy is to be used. Any existing proxy settings
          * should be cleared. */
@@ -59,8 +77,11 @@ public class IpConfiguration implements Parcelable {
         PAC
     }
 
+    /** @hide */
     public ProxySettings proxySettings;
 
+    /** @hide */
+    @UnsupportedAppUsage
     public ProxyInfo httpProxy;
 
     private void init(IpAssignment ipAssignment,
@@ -75,10 +96,14 @@ public class IpConfiguration implements Parcelable {
                 null : new ProxyInfo(httpProxy);
     }
 
+    /** @hide */
+    @SystemApi
     public IpConfiguration() {
         init(IpAssignment.UNASSIGNED, ProxySettings.UNASSIGNED, null, null);
     }
 
+    /** @hide */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public IpConfiguration(IpAssignment ipAssignment,
                            ProxySettings proxySettings,
                            StaticIpConfiguration staticIpConfiguration,
@@ -86,7 +111,9 @@ public class IpConfiguration implements Parcelable {
         init(ipAssignment, proxySettings, staticIpConfiguration, httpProxy);
     }
 
-    public IpConfiguration(IpConfiguration source) {
+    /** @hide */
+    @SystemApi
+    public IpConfiguration(@NonNull IpConfiguration source) {
         this();
         if (source != null) {
             init(source.ipAssignment, source.proxySettings,
@@ -94,35 +121,59 @@ public class IpConfiguration implements Parcelable {
         }
     }
 
-    public IpAssignment getIpAssignment() {
+    /** @hide */
+    @SystemApi
+    public @NonNull IpAssignment getIpAssignment() {
         return ipAssignment;
     }
 
-    public void setIpAssignment(IpAssignment ipAssignment) {
+    /** @hide */
+    @SystemApi
+    public void setIpAssignment(@NonNull IpAssignment ipAssignment) {
         this.ipAssignment = ipAssignment;
     }
 
-    public StaticIpConfiguration getStaticIpConfiguration() {
+    /**
+     * Get the current static IP configuration (possibly null). Configured via
+     * {@link Builder#setStaticIpConfiguration(StaticIpConfiguration)}.
+     *
+     * @return Current static IP configuration.
+     */
+    public @Nullable StaticIpConfiguration getStaticIpConfiguration() {
         return staticIpConfiguration;
     }
 
-    public void setStaticIpConfiguration(StaticIpConfiguration staticIpConfiguration) {
+    /** @hide */
+    @SystemApi
+    public void setStaticIpConfiguration(@Nullable StaticIpConfiguration staticIpConfiguration) {
         this.staticIpConfiguration = staticIpConfiguration;
     }
 
-    public ProxySettings getProxySettings() {
+    /** @hide */
+    @SystemApi
+    public @NonNull ProxySettings getProxySettings() {
         return proxySettings;
     }
 
-    public void setProxySettings(ProxySettings proxySettings) {
+    /** @hide */
+    @SystemApi
+    public void setProxySettings(@NonNull ProxySettings proxySettings) {
         this.proxySettings = proxySettings;
     }
 
-    public ProxyInfo getHttpProxy() {
+    /**
+     * The proxy configuration of this object.
+     *
+     * @return The proxy information of this object configured via
+     * {@link Builder#setHttpProxy(ProxyInfo)}.
+     */
+    public @Nullable ProxyInfo getHttpProxy() {
         return httpProxy;
     }
 
-    public void setHttpProxy(ProxyInfo httpProxy) {
+    /** @hide */
+    @SystemApi
+    public void setHttpProxy(@Nullable ProxyInfo httpProxy) {
         this.httpProxy = httpProxy;
     }
 
@@ -146,7 +197,7 @@ public class IpConfiguration implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (o == this) {
             return true;
         }
@@ -175,8 +226,8 @@ public class IpConfiguration implements Parcelable {
         return 0;
     }
 
-    /** Implement the Parcelable interface  */
-    public void writeToParcel(Parcel dest, int flags) {
+    /** Implement the Parcelable interface */
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
         dest.writeString(ipAssignment.name());
         dest.writeString(proxySettings.name());
         dest.writeParcelable(staticIpConfiguration, flags);
@@ -184,7 +235,7 @@ public class IpConfiguration implements Parcelable {
     }
 
     /** Implement the Parcelable interface */
-    public static final Creator<IpConfiguration> CREATOR =
+    public static final @NonNull Creator<IpConfiguration> CREATOR =
         new Creator<IpConfiguration>() {
             public IpConfiguration createFromParcel(Parcel in) {
                 IpConfiguration config = new IpConfiguration();
@@ -199,4 +250,56 @@ public class IpConfiguration implements Parcelable {
                 return new IpConfiguration[size];
             }
         };
+
+    /**
+     * Builder used to construct {@link IpConfiguration} objects.
+     */
+    public static final class Builder {
+        private StaticIpConfiguration mStaticIpConfiguration;
+        private ProxyInfo mProxyInfo;
+
+        /**
+         * Set a static IP configuration.
+         *
+         * @param config Static IP configuration.
+         * @return A {@link Builder} object to allow chaining.
+         */
+        public @NonNull Builder setStaticIpConfiguration(@Nullable StaticIpConfiguration config) {
+            mStaticIpConfiguration = config;
+            return this;
+        }
+
+        /**
+         * Set a proxy configuration.
+         *
+         * @param proxyInfo Proxy configuration.
+         * @return A {@link Builder} object to allow chaining.
+         */
+        public @NonNull Builder setHttpProxy(@Nullable ProxyInfo proxyInfo) {
+            mProxyInfo = proxyInfo;
+            return this;
+        }
+
+        /**
+         * Construct an {@link IpConfiguration}.
+         *
+         * @return A new {@link IpConfiguration} object.
+         */
+        public @NonNull IpConfiguration build() {
+            IpConfiguration config = new IpConfiguration();
+            config.setStaticIpConfiguration(mStaticIpConfiguration);
+            config.setIpAssignment(
+                    mStaticIpConfiguration == null ? IpAssignment.DHCP : IpAssignment.STATIC);
+
+            config.setHttpProxy(mProxyInfo);
+            if (mProxyInfo == null) {
+                config.setProxySettings(ProxySettings.NONE);
+            } else {
+                config.setProxySettings(
+                        mProxyInfo.getPacFileUrl() == null ? ProxySettings.STATIC
+                                : ProxySettings.PAC);
+            }
+            return config;
+        }
+    }
 }

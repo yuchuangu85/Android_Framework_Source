@@ -16,6 +16,7 @@
 
 package android.text.style;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.text.ParcelableSpan;
 import android.text.TextUtils;
@@ -27,22 +28,27 @@ import android.text.TextUtils;
  *
  * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class SpellCheckSpan implements ParcelableSpan {
 
     private boolean mSpellCheckInProgress;
 
+    @UnsupportedAppUsage
     public SpellCheckSpan() {
         mSpellCheckInProgress = false;
     }
 
+    @UnsupportedAppUsage
     public SpellCheckSpan(Parcel src) {
         mSpellCheckInProgress = (src.readInt() != 0);
     }
 
+    @UnsupportedAppUsage
     public void setSpellCheckInProgress(boolean inProgress) {
         mSpellCheckInProgress = inProgress;
     }
 
+    @UnsupportedAppUsage
     public boolean isSpellCheckInProgress() {
         return mSpellCheckInProgress;
     }

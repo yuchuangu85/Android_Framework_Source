@@ -31,6 +31,7 @@ import java.util.Locale;
 /**
  * This class accesses a dictionary of corrections to frequent misspellings.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class AutoText {
     // struct trie {
     //     char c;

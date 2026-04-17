@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,7 +28,9 @@ package java.nio.file;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.file.spi.FileSystemProvider;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 /**
  * An object that may be used to locate a file in a file system. It will
@@ -75,7 +77,7 @@ import java.util.Iterator;
  *     BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8);
  * </pre>
  *
- * <a name="interop"></a><h2>Interoperability</h2>
+ * <a id="interop"></a><h2>Interoperability</h2>
  * <p> Paths associated with the default {@link
  * java.nio.file.spi.FileSystemProvider provider} are generally interoperable
  * with the {@link java.io.File java.io.File} class. Paths created by other
@@ -92,12 +94,124 @@ import java.util.Iterator;
  * multiple concurrent threads.
  *
  * @since 1.7
- * @see Paths
  */
 
 public interface Path
     extends Comparable<Path>, Iterable<Path>, Watchable
 {
+    /**
+     * Returns a {@code Path} by converting a path string, or a sequence of
+     * strings that when joined form a path string. If {@code more} does not
+     * specify any elements then the value of the {@code first} parameter is
+     * the path string to convert. If {@code more} specifies one or more
+     * elements then each non-empty string, including {@code first}, is
+     * considered to be a sequence of name elements and is joined to form a
+     * path string. The details as to how the Strings are joined is provider
+     * specific but typically they will be joined using the
+     * {@link FileSystem#getSeparator name-separator} as the separator.
+     * For example, if the name separator is "{@code /}" and
+     * {@code getPath("/foo","bar","gus")} is invoked, then the path string
+     * {@code "/foo/bar/gus"} is converted to a {@code Path}. A {@code Path}
+     * representing an empty path is returned if {@code first} is the empty
+     * string and {@code more} does not contain any non-empty strings.
+     *
+     * <p> The {@code Path} is obtained by invoking the {@link FileSystem#getPath
+     * getPath} method of the {@link FileSystems#getDefault default} {@link
+     * FileSystem}.
+     *
+     * <p> Note that while this method is very convenient, using it will imply
+     * an assumed reference to the default {@code FileSystem} and limit the
+     * utility of the calling code. Hence it should not be used in library code
+     * intended for flexible reuse. A more flexible alternative is to use an
+     * existing {@code Path} instance as an anchor, such as:
+     * <pre>{@code
+     *     Path dir = ...
+     *     Path path = dir.resolve("file");
+     * }</pre>
+     *
+     * @param   first
+     *          the path string or initial part of the path string
+     * @param   more
+     *          additional strings to be joined to form the path string
+     *
+     * @return  the resulting {@code Path}
+     *
+     * @throws  InvalidPathException
+     *          if the path string cannot be converted to a {@code Path}
+     *
+     * @see FileSystem#getPath
+     *
+     * @since 11
+     */
+    public static Path of(String first, String... more) {
+        return FileSystems.getDefault().getPath(first, more);
+    }
+
+    /**
+     * Returns a {@code Path} by converting a URI.
+     *
+     * <p> This method iterates over the {@link FileSystemProvider#installedProviders()
+     * installed} providers to locate the provider that is identified by the
+     * URI {@link URI#getScheme scheme} of the given URI. URI schemes are
+     * compared without regard to case. If the provider is found then its {@link
+     * FileSystemProvider#getPath getPath} method is invoked to convert the
+     * URI.
+     *
+     * <p> In the case of the default provider, identified by the URI scheme
+     * "file", the given URI has a non-empty path component, and undefined query
+     * and fragment components. Whether the authority component may be present
+     * is platform specific. The returned {@code Path} is associated with the
+     * {@link FileSystems#getDefault default} file system.
+     *
+     * <p> The default provider provides a similar <em>round-trip</em> guarantee
+     * to the {@link java.io.File} class. For a given {@code Path} <i>p</i> it
+     * is guaranteed that
+     * <blockquote>{@code
+     * Path.of(}<i>p</i>{@code .}{@link Path#toUri() toUri}{@code ()).equals(}
+     * <i>p</i>{@code .}{@link Path#toAbsolutePath() toAbsolutePath}{@code ())}
+     * </blockquote>
+     * so long as the original {@code Path}, the {@code URI}, and the new {@code
+     * Path} are all created in (possibly different invocations of) the same
+     * Java virtual machine. Whether other providers make any guarantees is
+     * provider specific and therefore unspecified.
+     *
+     * @param   uri
+     *          the URI to convert
+     *
+     * @return  the resulting {@code Path}
+     *
+     * @throws  IllegalArgumentException
+     *          if preconditions on the {@code uri} parameter do not hold. The
+     *          format of the URI is provider specific.
+     * @throws  FileSystemNotFoundException
+     *          The file system, identified by the URI, does not exist and
+     *          cannot be created automatically, or the provider identified by
+     *          the URI's scheme component is not installed
+     * @throws  SecurityException
+     *          if a security manager is installed and it denies an unspecified
+     *          permission to access the file system
+     *
+     * @since 11
+     */
+    public static Path of(URI uri) {
+        String scheme =  uri.getScheme();
+        if (scheme == null)
+            throw new IllegalArgumentException("Missing scheme");
+
+        // check for default provider to avoid loading of installed providers
+        if (scheme.equalsIgnoreCase("file"))
+            return FileSystems.getDefault().provider().getPath(uri);
+
+        // try to find provider
+        for (FileSystemProvider provider: FileSystemProvider.installedProviders()) {
+            if (provider.getScheme().equalsIgnoreCase(scheme)) {
+                return provider.getPath(uri);
+            }
+        }
+
+        throw new FileSystemNotFoundException("Provider \"" + scheme + "\" not installed");
+    }
+
     /**
      * Returns the file system that created this object.
      *
@@ -149,7 +263,7 @@ public interface Path
      * #normalize normalize} method, to eliminate redundant names, for cases where
      * <em>shell-like</em> navigation is required.
      *
-     * <p> If this path has one or more elements, and no root component, then
+     * <p> If this path has more than one element, and no root component, then
      * this method is equivalent to evaluating the expression:
      * <blockquote><pre>
      * subpath(0,&nbsp;getNameCount()-1);
@@ -246,6 +360,12 @@ public interface Path
      * "{@code foo/bar}" starts with "{@code foo}" and "{@code foo/bar}". It
      * does not start with "{@code f}" or "{@code fo}".
      *
+     * @implSpec
+     * The default implementation is equivalent for this path to:
+     * <pre>{@code
+     *     startsWith(getFileSystem().getPath(other));
+     * }</pre>
+     *
      * @param   other
      *          the given path string
      *
@@ -255,7 +375,9 @@ public interface Path
      * @throws  InvalidPathException
      *          If the path string cannot be converted to a Path.
      */
-    boolean startsWith(String other);
+    default boolean startsWith(String other) {
+        return startsWith(getFileSystem().getPath(other));
+    }
 
     /**
      * Tests if this path ends with the given path.
@@ -294,6 +416,12 @@ public interface Path
      * Path}"{@code foo/bar}" with the {@code String} "{@code bar/}" returns
      * {@code true}.
      *
+     * @implSpec
+     * The default implementation is equivalent for this path to:
+     * <pre>{@code
+     *     endsWith(getFileSystem().getPath(other));
+     * }</pre>
+     *
      * @param   other
      *          the given path string
      *
@@ -303,7 +431,9 @@ public interface Path
      * @throws  InvalidPathException
      *          If the path string cannot be converted to a Path.
      */
-    boolean endsWith(String other);
+    default boolean endsWith(String other) {
+        return endsWith(getFileSystem().getPath(other));
+    }
 
     /**
      * Returns a path that is this path with redundant name elements eliminated.
@@ -325,7 +455,7 @@ public interface Path
      *
      * @return  the resulting path or this path if it does not contain
      *          redundant name elements; an empty path is returned if this path
-     *          does have a root component and all name elements are redundant
+     *          does not have a root component and all name elements are redundant
      *
      * @see #getParent
      * @see #toRealPath
@@ -365,6 +495,12 @@ public interface Path
      * invoking this method with the path string "{@code gus}" will result in
      * the {@code Path} "{@code foo/bar/gus}".
      *
+     * @implSpec
+     * The default implementation is equivalent for this path to:
+     * <pre>{@code
+     *     resolve(getFileSystem().getPath(other));
+     * }</pre>
+     *
      * @param   other
      *          the path string to resolve against this path
      *
@@ -375,7 +511,9 @@ public interface Path
      *
      * @see FileSystem#getPath
      */
-    Path resolve(String other);
+    default Path resolve(String other) {
+        return resolve(getFileSystem().getPath(other));
+    }
 
     /**
      * Resolves the given path against this path's {@link #getParent parent}
@@ -389,6 +527,14 @@ public interface Path
      * returns this path's parent, or where this path doesn't have a parent, the
      * empty path.
      *
+     * @implSpec
+     * The default implementation is equivalent for this path to:
+     * <pre>{@code
+     *     (getParent() == null) ? other : getParent().resolve(other);
+     * }</pre>
+     * unless {@code other == null}, in which case a
+     * {@code NullPointerException} is thrown.
+     *
      * @param   other
      *          the path to resolve against this path's parent
      *
@@ -396,12 +542,23 @@ public interface Path
      *
      * @see #resolve(Path)
      */
-    Path resolveSibling(Path other);
+    default Path resolveSibling(Path other) {
+        if (other == null)
+            throw new NullPointerException();
+        Path parent = getParent();
+        return (parent == null) ? other : parent.resolve(other);
+    }
 
     /**
      * Converts a given path string to a {@code Path} and resolves it against
      * this path's {@link #getParent parent} path in exactly the manner
      * specified by the {@link #resolveSibling(Path) resolveSibling} method.
+     *
+     * @implSpec
+     * The default implementation is equivalent for this path to:
+     * <pre>{@code
+     *     resolveSibling(getFileSystem().getPath(other));
+     * }</pre>
      *
      * @param   other
      *          the path string to resolve against this path's parent
@@ -413,7 +570,9 @@ public interface Path
      *
      * @see FileSystem#getPath
      */
-    Path resolveSibling(String other);
+    default Path resolveSibling(String other) {
+        return resolveSibling(getFileSystem().getPath(other));
+    }
 
     /**
      * Constructs a relative path between this path and a given path.
@@ -434,7 +593,8 @@ public interface Path
      * <p> For any two {@link #normalize normalized} paths <i>p</i> and
      * <i>q</i>, where <i>q</i> does not have a root component,
      * <blockquote>
-     *   <i>p</i><tt>.relativize(</tt><i>p</i><tt>.resolve(</tt><i>q</i><tt>)).equals(</tt><i>q</i><tt>)</tt>
+     *   <i>p</i>{@code .relativize(}<i>p</i>
+     *   {@code .resolve(}<i>q</i>{@code )).equals(}<i>q</i>{@code )}
      * </blockquote>
      *
      * <p> When symbolic links are supported, then whether the resulting path,
@@ -479,9 +639,9 @@ public interface Path
      * <p> The default provider provides a similar <em>round-trip</em> guarantee
      * to the {@link java.io.File} class. For a given {@code Path} <i>p</i> it
      * is guaranteed that
-     * <blockquote><tt>
-     * {@link Paths#get(URI) Paths.get}(</tt><i>p</i><tt>.toUri()).equals(</tt><i>p</i>
-     * <tt>.{@link #toAbsolutePath() toAbsolutePath}())</tt>
+     * <blockquote>
+     * {@link Path#of(URI) Path.of}{@code (}<i>p</i>{@code .toUri()).equals(}<i>p</i>
+     * {@code .}{@link #toAbsolutePath() toAbsolutePath}{@code ())}
      * </blockquote>
      * so long as the original {@code Path}, the {@code URI}, and the new {@code
      * Path} are all created in (possibly different invocations of) the same
@@ -590,12 +750,28 @@ public interface Path
      * File} object returned by this method is {@link #equals equal} to the
      * original {@code File}.
      *
+     * @implSpec
+     * The default implementation is equivalent for this path to:
+     * <pre>{@code
+     *     new File(toString());
+     * }</pre>
+     * if the {@code FileSystem} which created this {@code Path} is the default
+     * file system; otherwise an {@code UnsupportedOperationException} is
+     * thrown.
+     *
      * @return  a {@code File} object representing this path
      *
      * @throws  UnsupportedOperationException
      *          if this {@code Path} is not associated with the default provider
      */
-    File toFile();
+    default File toFile() {
+        if (getFileSystem() == FileSystems.getDefault()) {
+            return new File(toString());
+        } else {
+            throw new UnsupportedOperationException("Path not associated with "
+                    + "default file system.");
+        }
+    }
 
     // -- watchable --
 
@@ -681,6 +857,13 @@ public interface Path
      *
      *     WatchKey key = dir.register(watcher, ENTRY_CREATE, ENTRY_DELETE, ENTRY_MODIFY);
      * </pre>
+     *
+     * @implSpec
+     * The default implementation is equivalent for this path to:
+     * <pre>{@code
+     *     register(watcher, events, new WatchEvent.Modifier[0]);
+     * }</pre>
+     *
      * @param   watcher
      *          The watch service to which this object is to be registered
      * @param   events
@@ -706,9 +889,10 @@ public interface Path
      *          method is invoked to check read access to the file.
      */
     @Override
-    WatchKey register(WatchService watcher,
-                      WatchEvent.Kind<?>... events)
-        throws IOException;
+    default WatchKey register(WatchService watcher,
+                      WatchEvent.Kind<?>... events) throws IOException {
+        return register(watcher, events, new WatchEvent.Modifier[0]);
+    }
 
     // -- Iterable --
 
@@ -721,10 +905,36 @@ public interface Path
      * is the name of the file or directory denoted by this path. The {@link
      * #getRoot root} component, if present, is not returned by the iterator.
      *
+     * @implSpec
+     * The default implementation returns an {@code Iterator<Path>} which, for
+     * this path, traverses the {@code Path}s returned by
+     * {@code getName(index)}, where {@code index} ranges from zero to
+     * {@code getNameCount() - 1}, inclusive.
+     *
      * @return  an iterator over the name elements of this path.
      */
     @Override
-    Iterator<Path> iterator();
+    default Iterator<Path> iterator() {
+        return new Iterator<>() {
+            private int i = 0;
+
+            @Override
+            public boolean hasNext() {
+                return (i < getNameCount());
+            }
+
+            @Override
+            public Path next() {
+                if (i < getNameCount()) {
+                    Path result = getName(i);
+                    i++;
+                    return result;
+                } else {
+                    throw new NoSuchElementException();
+                }
+            }
+        };
+    }
 
     // -- compareTo/equals/hashCode --
 

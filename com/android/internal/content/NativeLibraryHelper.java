@@ -25,15 +25,20 @@ import static android.system.OsConstants.S_IRWXU;
 import static android.system.OsConstants.S_IXGRP;
 import static android.system.OsConstants.S_IXOTH;
 
+import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.PackageParser;
-import android.content.pm.PackageParser.Package;
-import android.content.pm.PackageParser.PackageLite;
-import android.content.pm.PackageParser.PackageParserException;
+import android.content.pm.parsing.ApkLiteParseUtils;
+import android.content.pm.parsing.PackageLite;
+import android.content.pm.parsing.result.ParseResult;
+import android.content.pm.parsing.result.ParseTypeImpl;
 import android.os.Build;
+import android.os.IBinder;
 import android.os.SELinux;
-import android.os.SystemProperties;
+import android.os.ServiceManager;
+import android.os.incremental.IIncrementalService;
+import android.os.incremental.IncrementalManager;
+import android.os.incremental.IncrementalStorage;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.Slog;
@@ -45,6 +50,9 @@ import java.io.Closeable;
 import java.io.File;
 import java.io.FileDescriptor;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -59,8 +67,7 @@ public class NativeLibraryHelper {
     public static final String LIB_DIR_NAME = "lib";
     public static final String LIB64_DIR_NAME = "lib64";
 
-    // Special value for {@code PackageParser.Package#cpuAbiOverride} to indicate
-    // that the cpuAbiOverride must be clear.
+    // Special value for indicating that the cpuAbiOverride must be clear.
     public static final String CLEAR_ABI_OVERRIDE = "-";
 
     /**
@@ -74,38 +81,41 @@ public class NativeLibraryHelper {
         private final CloseGuard mGuard = CloseGuard.get();
         private volatile boolean mClosed;
 
+        final String[] apkPaths;
         final long[] apkHandles;
         final boolean multiArch;
         final boolean extractNativeLibs;
         final boolean debuggable;
 
-        public static Handle create(File packageFile) throws IOException {
-            try {
-                final PackageLite lite = PackageParser.parsePackageLite(packageFile, 0);
-                return create(lite);
-            } catch (PackageParserException e) {
-                throw new IOException("Failed to parse package: " + packageFile, e);
-            }
-        }
+        final boolean pageSizeCompatDisabled;
 
-        public static Handle create(Package pkg) throws IOException {
-            return create(pkg.getAllCodePaths(),
-                    (pkg.applicationInfo.flags & ApplicationInfo.FLAG_MULTIARCH) != 0,
-                    (pkg.applicationInfo.flags & ApplicationInfo.FLAG_EXTRACT_NATIVE_LIBS) != 0,
-                    (pkg.applicationInfo.flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
+        public static Handle create(File packageFile) throws IOException {
+            final ParseTypeImpl input = ParseTypeImpl.forDefaultParsing();
+            final ParseResult<PackageLite> ret = ApkLiteParseUtils.parsePackageLite(input.reset(),
+                    packageFile, /* flags */ 0);
+            if (ret.isError()) {
+                throw new IOException("Failed to parse package: " + packageFile,
+                        ret.getException());
+            }
+            return create(ret.getResult());
         }
 
         public static Handle create(PackageLite lite) throws IOException {
-            return create(lite.getAllCodePaths(), lite.multiArch, lite.extractNativeLibs,
-                    lite.debuggable);
+            boolean isPageSizeCompatDisabled = lite.getPageSizeCompat()
+                    == ApplicationInfo.PAGE_SIZE_APP_COMPAT_FLAG_MANIFEST_OVERRIDE_DISABLED;
+            return create(lite.getAllApkPaths(), lite.isMultiArch(), lite.isExtractNativeLibs(),
+                    lite.isDebuggable(), isPageSizeCompatDisabled);
         }
 
-        private static Handle create(List<String> codePaths, boolean multiArch,
-                boolean extractNativeLibs, boolean debuggable) throws IOException {
+        public static Handle create(List<String> codePaths, boolean multiArch,
+                boolean extractNativeLibs, boolean debuggable, boolean isPageSizeCompatDisabled)
+                throws IOException {
             final int size = codePaths.size();
+            final String[] apkPaths = new String[size];
             final long[] apkHandles = new long[size];
             for (int i = 0; i < size; i++) {
                 final String path = codePaths.get(i);
+                apkPaths[i] = path;
                 apkHandles[i] = nativeOpenApk(path);
                 if (apkHandles[i] == 0) {
                     // Unwind everything we've opened so far
@@ -116,26 +126,33 @@ public class NativeLibraryHelper {
                 }
             }
 
-            return new Handle(apkHandles, multiArch, extractNativeLibs, debuggable);
+            return new Handle(apkPaths, apkHandles, multiArch, extractNativeLibs, debuggable,
+                    isPageSizeCompatDisabled);
         }
 
         public static Handle createFd(PackageLite lite, FileDescriptor fd) throws IOException {
             final long[] apkHandles = new long[1];
-            final String path = lite.baseCodePath;
+            final String path = lite.getBaseApkPath();
             apkHandles[0] = nativeOpenApkFd(fd, path);
             if (apkHandles[0] == 0) {
                 throw new IOException("Unable to open APK " + path + " from fd " + fd);
             }
 
-            return new Handle(apkHandles, lite.multiArch, lite.extractNativeLibs, lite.debuggable);
+            boolean isPageSizeCompatDisabled = lite.getPageSizeCompat()
+                    == ApplicationInfo.PAGE_SIZE_APP_COMPAT_FLAG_MANIFEST_OVERRIDE_DISABLED;
+
+            return new Handle(new String[]{path}, apkHandles, lite.isMultiArch(),
+                    lite.isExtractNativeLibs(), lite.isDebuggable(), isPageSizeCompatDisabled);
         }
 
-        Handle(long[] apkHandles, boolean multiArch, boolean extractNativeLibs,
-                boolean debuggable) {
+        Handle(String[] apkPaths, long[] apkHandles, boolean multiArch,
+                boolean extractNativeLibs, boolean debuggable, boolean isPageSizeCompatDisabled) {
+            this.apkPaths = apkPaths;
             this.apkHandles = apkHandles;
             this.multiArch = multiArch;
             this.extractNativeLibs = extractNativeLibs;
             this.debuggable = debuggable;
+            this.pageSizeCompatDisabled = isPageSizeCompatDisabled;
             mGuard.open("close");
         }
 
@@ -167,17 +184,23 @@ public class NativeLibraryHelper {
     private static native long nativeOpenApkFd(FileDescriptor fd, String debugPath);
     private static native void nativeClose(long handle);
 
-    private static native long nativeSumNativeBinaries(long handle, String cpuAbi,
-            boolean debuggable);
+    private static native long nativeSumNativeBinaries(long handle, String cpuAbi);
 
     private native static int nativeCopyNativeBinaries(long handle, String sharedLibraryPath,
-            String abiToCopy, boolean extractNativeLibs, boolean hasNativeBridge,
+            String abiToCopy, boolean extractNativeLibs, boolean debuggable,
+            boolean pageSizeCompatDisabled);
+
+    private static native AlignmentResult nativeCheckAlignment(
+            long handle,
+            String sharedLibraryPath,
+            String abi,
+            boolean extractNativeLibs,
             boolean debuggable);
 
     private static long sumNativeBinaries(Handle handle, String abi) {
         long sum = 0;
         for (long apkHandle : handle.apkHandles) {
-            sum += nativeSumNativeBinaries(apkHandle, abi, handle.debuggable);
+            sum += nativeSumNativeBinaries(apkHandle, abi);
         }
         return sum;
     }
@@ -193,7 +216,7 @@ public class NativeLibraryHelper {
     public static int copyNativeBinaries(Handle handle, File sharedLibraryDir, String abi) {
         for (long apkHandle : handle.apkHandles) {
             int res = nativeCopyNativeBinaries(apkHandle, sharedLibraryDir.getPath(), abi,
-                    handle.extractNativeLibs, HAS_NATIVE_BRIDGE, handle.debuggable);
+                    handle.extractNativeLibs, handle.debuggable, handle.pageSizeCompatDisabled);
             if (res != INSTALL_SUCCEEDED) {
                 return res;
             }
@@ -211,7 +234,7 @@ public class NativeLibraryHelper {
     public static int findSupportedAbi(Handle handle, String[] supportedAbis) {
         int finalRes = NO_NATIVE_LIBRARIES;
         for (long apkHandle : handle.apkHandles) {
-            final int res = nativeFindSupportedAbi(apkHandle, supportedAbis, handle.debuggable);
+            final int res = nativeFindSupportedAbi(apkHandle, supportedAbis);
             if (res == NO_NATIVE_LIBRARIES) {
                 // No native code, keep looking through all APKs.
             } else if (res == INSTALL_FAILED_NO_MATCHING_ABIS) {
@@ -233,8 +256,7 @@ public class NativeLibraryHelper {
         return finalRes;
     }
 
-    private native static int nativeFindSupportedAbi(long handle, String[] supportedAbis,
-            boolean debuggable);
+    private native static int nativeFindSupportedAbi(long handle, String[] supportedAbis);
 
     // Convenience method to call removeNativeBinariesFromDirLI(File)
     public static void removeNativeBinariesLI(String nativeLibraryPath) {
@@ -314,40 +336,60 @@ public class NativeLibraryHelper {
     }
 
     public static int copyNativeBinariesForSupportedAbi(Handle handle, File libraryRoot,
-            String[] abiList, boolean useIsaSubdir) throws IOException {
-        createNativeLibrarySubdir(libraryRoot);
-
+            String[] abiList, boolean useIsaSubdir, boolean isIncremental) throws IOException {
         /*
          * If this is an internal application or our nativeLibraryPath points to
          * the app-lib directory, unpack the libraries if necessary.
          */
         int abi = findSupportedAbi(handle, abiList);
-        if (abi >= 0) {
-            /*
-             * If we have a matching instruction set, construct a subdir under the native
-             * library root that corresponds to this instruction set.
-             */
-            final String instructionSet = VMRuntime.getInstructionSet(abiList[abi]);
-            final File subDir;
-            if (useIsaSubdir) {
-                final File isaSubdir = new File(libraryRoot, instructionSet);
-                createNativeLibrarySubdir(isaSubdir);
-                subDir = isaSubdir;
-            } else {
-                subDir = libraryRoot;
-            }
+        if (abi < 0) {
+            return abi;
+        }
 
-            int copyRet = copyNativeBinaries(handle, subDir, abiList[abi]);
-            if (copyRet != PackageManager.INSTALL_SUCCEEDED) {
-                return copyRet;
+        /*
+         * If we have a matching instruction set, construct a subdir under the native
+         * library root that corresponds to this instruction set.
+         */
+        final String supportedAbi = abiList[abi];
+        final String instructionSet = VMRuntime.getInstructionSet(supportedAbi);
+        final File subDir;
+        if (useIsaSubdir) {
+            subDir = new File(libraryRoot, instructionSet);
+        } else {
+            subDir = libraryRoot;
+        }
+
+        if (isIncremental) {
+            int res =
+                    incrementalConfigureNativeBinariesForSupportedAbi(handle, subDir, supportedAbi);
+            if (res != PackageManager.INSTALL_SUCCEEDED) {
+                // TODO(b/133435829): the caller of this function expects that we return the index
+                // to the supported ABI. However, any non-negative integer can be a valid index.
+                // We should fix this function and make sure it doesn't accidentally return an error
+                // code that can also be a valid index.
+                return res;
             }
+            return abi;
+        }
+
+        // For non-incremental, use regular extraction and copy
+        createNativeLibrarySubdir(libraryRoot);
+        if (subDir != libraryRoot) {
+            createNativeLibrarySubdir(subDir);
+        }
+
+        // Even if extractNativeLibs is false, we still need to check if the native libs in the APK
+        // are valid. This is done in the native code.
+        int copyRet = copyNativeBinaries(handle, subDir, supportedAbi);
+        if (copyRet != PackageManager.INSTALL_SUCCEEDED) {
+            return copyRet;
         }
 
         return abi;
     }
 
     public static int copyNativeBinariesWithOverride(Handle handle, File libraryRoot,
-            String abiOverride) {
+            String abiOverride, boolean isIncremental) {
         try {
             if (handle.multiArch) {
                 // Warn if we've set an abiOverride for multi-lib packages..
@@ -360,7 +402,8 @@ public class NativeLibraryHelper {
                 int copyRet = PackageManager.NO_NATIVE_LIBRARIES;
                 if (Build.SUPPORTED_32_BIT_ABIS.length > 0) {
                     copyRet = copyNativeBinariesForSupportedAbi(handle, libraryRoot,
-                            Build.SUPPORTED_32_BIT_ABIS, true /* use isa specific subdirs */);
+                            Build.SUPPORTED_32_BIT_ABIS, true /* use isa specific subdirs */,
+                            isIncremental);
                     if (copyRet < 0 && copyRet != PackageManager.NO_NATIVE_LIBRARIES &&
                             copyRet != PackageManager.INSTALL_FAILED_NO_MATCHING_ABIS) {
                         Slog.w(TAG, "Failure copying 32 bit native libraries; copyRet=" +copyRet);
@@ -370,7 +413,8 @@ public class NativeLibraryHelper {
 
                 if (Build.SUPPORTED_64_BIT_ABIS.length > 0) {
                     copyRet = copyNativeBinariesForSupportedAbi(handle, libraryRoot,
-                            Build.SUPPORTED_64_BIT_ABIS, true /* use isa specific subdirs */);
+                            Build.SUPPORTED_64_BIT_ABIS, true /* use isa specific subdirs */,
+                            isIncremental);
                     if (copyRet < 0 && copyRet != PackageManager.NO_NATIVE_LIBRARIES &&
                             copyRet != PackageManager.INSTALL_FAILED_NO_MATCHING_ABIS) {
                         Slog.w(TAG, "Failure copying 64 bit native libraries; copyRet=" +copyRet);
@@ -393,7 +437,7 @@ public class NativeLibraryHelper {
                 }
 
                 int copyRet = copyNativeBinariesForSupportedAbi(handle, libraryRoot, abiList,
-                        true /* use isa specific subdirs */);
+                        true /* use isa specific subdirs */, isIncremental);
                 if (copyRet < 0 && copyRet != PackageManager.NO_NATIVE_LIBRARIES) {
                     Slog.w(TAG, "Failure copying native libraries [errorCode=" + copyRet + "]");
                     return copyRet;
@@ -405,6 +449,55 @@ public class NativeLibraryHelper {
             Slog.e(TAG, "Copying native libraries failed", e);
             return PackageManager.INSTALL_FAILED_INTERNAL_ERROR;
         }
+    }
+
+    /**
+     * Checks alignment of APK and native libraries for 16KB device
+     *
+     * @param handle APK file to scan for native libraries
+     * @param libraryRoot directory for libraries
+     * @param abiOverride abiOverride for package
+     * @return {@link AlignmentResult} if successful or null
+     */
+    public static AlignmentResult checkAlignmentForCompatMode(
+            Handle handle,
+            String libraryRoot,
+            boolean nativeLibraryRootRequiresIsa,
+            String abiOverride) {
+        // Keep the code below in sync with copyNativeBinariesForSupportedAbi
+        int abi = findSupportedAbi(handle, Build.SUPPORTED_64_BIT_ABIS);
+        if (abi < 0) {
+            return null;
+        }
+
+        final String supportedAbi = Build.SUPPORTED_64_BIT_ABIS[abi];
+        final String instructionSet = VMRuntime.getInstructionSet(supportedAbi);
+        String subDir = libraryRoot;
+        if (nativeLibraryRootRequiresIsa) {
+            subDir += "/" + instructionSet;
+        }
+
+        int mode = ApplicationInfo.PAGE_SIZE_APP_COMPAT_FLAG_UNDEFINED;
+        List<LibraryAlignmentInfo> unalignedLibraries = new ArrayList<LibraryAlignmentInfo>();
+
+        for (long apkHandle : handle.apkHandles) {
+            AlignmentResult res =
+                    nativeCheckAlignment(
+                            apkHandle,
+                            subDir,
+                            Build.SUPPORTED_64_BIT_ABIS[abi],
+                            handle.extractNativeLibs,
+                            handle.debuggable);
+            if (res == null) {
+                return null;
+            }
+            mode |= res.flags;
+            if (res.unalignedLibraries != null) {
+                Collections.addAll(unalignedLibraries, res.unalignedLibraries);
+            }
+        }
+
+        return new AlignmentResult(mode, unalignedLibraries.toArray(new LibraryAlignmentInfo[0]));
     }
 
     public static long sumNativeBinariesWithOverride(Handle handle, String abiOverride)
@@ -445,11 +538,71 @@ public class NativeLibraryHelper {
         return sum;
     }
 
+    /**
+     * Configure the native library files managed by Incremental Service. Makes sure Incremental
+     * Service will create native library directories and set up native library binary files in the
+     * same structure as they are in non-incremental installations.
+     *
+     * @param handle The Handle object that contains all apk paths.
+     * @param libSubDir The target directory to put the native library files, e.g., lib/ or lib/arm
+     * @param abi The abi that is supported by the current device.
+     * @return Integer code if installation succeeds or fails.
+     */
+    private static int incrementalConfigureNativeBinariesForSupportedAbi(Handle handle,
+            File libSubDir, String abi) {
+        final String[] apkPaths = handle.apkPaths;
+        if (apkPaths == null || apkPaths.length == 0) {
+            Slog.e(TAG, "No apks to extract native libraries from.");
+            return PackageManager.INSTALL_FAILED_INTERNAL_ERROR;
+        }
+
+        final IBinder incrementalService = ServiceManager.getService(Context.INCREMENTAL_SERVICE);
+        if (incrementalService == null) {
+            //TODO(b/133435829): add incremental specific error codes
+            return PackageManager.INSTALL_FAILED_INTERNAL_ERROR;
+        }
+        final IncrementalManager incrementalManager = new IncrementalManager(
+                IIncrementalService.Stub.asInterface(incrementalService));
+        final File apkParent = new File(apkPaths[0]).getParentFile();
+        IncrementalStorage incrementalStorage =
+                incrementalManager.openStorage(apkParent.getAbsolutePath());
+        if (incrementalStorage == null) {
+            Slog.e(TAG, "Failed to find incremental storage");
+            return PackageManager.INSTALL_FAILED_INTERNAL_ERROR;
+        }
+
+        String libRelativeDir = getRelativePath(apkParent, libSubDir);
+        if (libRelativeDir == null) {
+            return PackageManager.INSTALL_FAILED_INTERNAL_ERROR;
+        }
+
+        for (int i = 0; i < apkPaths.length; i++) {
+            if (!incrementalStorage.configureNativeBinaries(apkPaths[i], libRelativeDir, abi,
+                    handle.extractNativeLibs)) {
+                return PackageManager.INSTALL_FAILED_INTERNAL_ERROR;
+            }
+        }
+        return PackageManager.INSTALL_SUCCEEDED;
+    }
+
+    private static String getRelativePath(File base, File target) {
+        try {
+            final Path basePath = base.toPath();
+            final Path targetPath = target.toPath();
+            final Path relativePath = basePath.relativize(targetPath);
+            if (relativePath.toString().isEmpty()) {
+                return "";
+            }
+            return relativePath.toString();
+        } catch (IllegalArgumentException ex) {
+            Slog.e(TAG, "Failed to find relative path between: " + base.getAbsolutePath()
+                    + " and: " + target.getAbsolutePath());
+            return null;
+        }
+    }
+
     // We don't care about the other return values for now.
     private static final int BITCODE_PRESENT = 1;
-
-    private static final boolean HAS_NATIVE_BRIDGE =
-            !"0".equals(SystemProperties.get("ro.dalvik.vm.native.bridge", "0"));
 
     private static native int hasRenderscriptBitcode(long apkHandle);
 
@@ -463,5 +616,20 @@ public class NativeLibraryHelper {
             }
         }
         return false;
+    }
+
+    /**
+     * A container to hold the complete result of a native library alignment check.
+     */
+    public static class AlignmentResult {
+        @ApplicationInfo.PageSizeAppCompatFlags
+        public final int flags;
+        public final LibraryAlignmentInfo[] unalignedLibraries;
+
+        public AlignmentResult(@ApplicationInfo.PageSizeAppCompatFlags int flags,
+                LibraryAlignmentInfo[] unalignedLibraries) {
+            this.flags = flags;
+            this.unalignedLibraries = unalignedLibraries;
+        }
     }
 }

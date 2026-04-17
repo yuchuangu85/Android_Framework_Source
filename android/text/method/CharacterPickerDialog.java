@@ -38,6 +38,7 @@ import com.android.internal.R;
 /**
  * Dialog for choosing accented characters related to a base character.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class CharacterPickerDialog extends Dialog
         implements OnItemClickListener, OnClickListener {
     private View mView;

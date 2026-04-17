@@ -16,7 +16,9 @@
 package android.view.autofill;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.UserIdInt;
+import android.content.AutofillOptions;
 
 /**
  * Autofill Manager local system service interface.
@@ -27,16 +29,30 @@ public abstract class AutofillManagerInternal {
 
     /**
      * Notifies the manager that the back key was pressed.
+     *
+     * @param userId The user id of the key event.
      */
-    public abstract void onBackKeyPressed();
+    public abstract void onBackKeyPressed(@UserIdInt int userId);
 
     /**
-     * Gets whether compatibility mode is enabled for a package
+     * Gets autofill options for a package.
+     *
+     * <p><b>NOTE: </b>this method is called by the {@code ActivityManager} service and hence cannot
+     * hold the main service lock.
      *
      * @param packageName The package for which to query.
      * @param versionCode The package version code.
      * @param userId The user id for which to query.
      */
-    public abstract boolean isCompatibilityModeRequested(@NonNull String packageName,
+    @Nullable
+    public abstract AutofillOptions getAutofillOptions(@NonNull String packageName,
             long versionCode, @UserIdInt int userId);
+
+    /**
+     * Checks whether the given {@code uid} owns the
+     * {@link android.service.autofill.augmented.AugmentedAutofillService} implementation associated
+     * with the given {@code userId}.
+     */
+    public abstract boolean isAugmentedAutofillServiceForUser(@NonNull int callingUid,
+            @UserIdInt int userId);
 }

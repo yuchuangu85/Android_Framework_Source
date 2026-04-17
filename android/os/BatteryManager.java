@@ -16,13 +16,29 @@
 
 package android.os;
 
+import static android.os.Flags.FLAG_STATE_OF_HEALTH_PUBLIC;
+import static android.os.Flags.FLAG_BATTERY_PART_STATUS_API;
+import static android.os.Flags.FLAG_BATTERY_CHARGING_INFO_API;
+import static android.os.Flags.FLAG_BATTERY_MANUFACTURER_DIAGNOSTICS_API;
+
+import android.Manifest.permission;
+import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
+import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
+import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
+import android.annotation.TestApi;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.hardware.health.V1_0.Constants;
 
 import com.android.internal.app.IBatteryStats;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * The BatteryManager class contains strings and constants used for values
@@ -107,37 +123,139 @@ public class BatteryManager {
      * Extra for {@link android.content.Intent#ACTION_BATTERY_CHANGED}:
      * Int value set to nonzero if an unsupported charger is attached
      * to the device.
-     * {@hide}
+     * @hide
      */
+    @UnsupportedAppUsage
     public static final String EXTRA_INVALID_CHARGER = "invalid_charger";
 
     /**
      * Extra for {@link android.content.Intent#ACTION_BATTERY_CHANGED}:
      * Int value set to the maximum charging current supported by the charger in micro amperes.
-     * {@hide}
+     * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final String EXTRA_MAX_CHARGING_CURRENT = "max_charging_current";
 
     /**
      * Extra for {@link android.content.Intent#ACTION_BATTERY_CHANGED}:
      * Int value set to the maximum charging voltage supported by the charger in micro volts.
-     * {@hide}
+     * @hide
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final String EXTRA_MAX_CHARGING_VOLTAGE = "max_charging_voltage";
 
     /**
      * Extra for {@link android.content.Intent#ACTION_BATTERY_CHANGED}:
      * integer containing the charge counter present in the battery.
-     * {@hide}
+     * It shows the available battery power in µAh
+     * @hide
      */
+     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
      public static final String EXTRA_CHARGE_COUNTER = "charge_counter";
 
     /**
      * Extra for {@link android.content.Intent#ACTION_BATTERY_CHANGED}:
      * Current int sequence number of the update.
-     * {@hide}
+     * @hide
      */
     public static final String EXTRA_SEQUENCE = "seq";
+
+    /**
+     * Extra for {@link android.content.Intent#ACTION_BATTERY_CHANGED}:
+     * Int value representing the battery charging cycle count.
+     */
+    public static final String EXTRA_CYCLE_COUNT = "android.os.extra.CYCLE_COUNT";
+
+    /**
+     * Extra for {@link android.content.Intent#ACTION_BATTERY_CHANGED}:
+     * Int value representing the battery charging status.
+     */
+    public static final String EXTRA_CHARGING_STATUS = "android.os.extra.CHARGING_STATUS";
+    // TODO: b/461917615 - add EXTRA_CHARGING_STATUS API constants with clear definitions
+
+    /**
+     * Battery capacity level is unsupported.
+     *
+     * @see #EXTRA_CAPACITY_LEVEL
+     */
+    @FlaggedApi(FLAG_BATTERY_PART_STATUS_API)
+    public static final int BATTERY_CAPACITY_LEVEL_UNSUPPORTED = -1;
+
+    /**
+     * Battery capacity level is unknown.
+     *
+     * @see #EXTRA_CAPACITY_LEVEL
+     */
+    @FlaggedApi(FLAG_BATTERY_PART_STATUS_API)
+    public static final int BATTERY_CAPACITY_LEVEL_UNKNOWN = 0;
+
+    /**
+     * Battery capacity level is critical. The Android framework has been notified to schedule
+     * a shutdown by this value.
+     *
+     * @see #EXTRA_CAPACITY_LEVEL
+     */
+    @FlaggedApi(FLAG_BATTERY_PART_STATUS_API)
+    public static final int BATTERY_CAPACITY_LEVEL_CRITICAL = 1;
+
+    /**
+     * Battery capacity level is low. The Android framework must limit background jobs to avoid
+     * impacting charging speed.
+     *
+     * @see #EXTRA_CAPACITY_LEVEL
+     */
+    @FlaggedApi(FLAG_BATTERY_PART_STATUS_API)
+    public static final int BATTERY_CAPACITY_LEVEL_LOW = 2;
+
+    /**
+     * Battery capacity level is normal. Battery level and charging rates are normal, battery
+     * temperature is within the normal range, and adapter power is enough to charge the battery
+     * at an acceptable rate. The Android framework can run light background tasks without
+     * affecting charging performance severely.
+     *
+     * @see #EXTRA_CAPACITY_LEVEL
+     */
+    @FlaggedApi(FLAG_BATTERY_PART_STATUS_API)
+    public static final int BATTERY_CAPACITY_LEVEL_NORMAL = 3;
+
+    /**
+     * Battery capacity level is high. Battery level is high, battery temperature is within the
+     * normal range, and adapter power is enough to charge the battery at an acceptable rate
+     * while running background loads. The Android framework can run background tasks without
+     * affecting charging or battery performance.
+     *
+     * @see #EXTRA_CAPACITY_LEVEL
+     */
+    @FlaggedApi(FLAG_BATTERY_PART_STATUS_API)
+    public static final int BATTERY_CAPACITY_LEVEL_HIGH = 4;
+
+    /**
+     * Battery capacity level is full. The battery is full, the battery temperature is within the
+     * normal range, and adapter power is enough to sustain running background loads. The Android
+     * framework can run background tasks without affecting the battery level or battery
+     * performance.
+     *
+     * @see #EXTRA_CAPACITY_LEVEL
+     */
+    @FlaggedApi(FLAG_BATTERY_PART_STATUS_API)
+    public static final int BATTERY_CAPACITY_LEVEL_FULL = 5;
+
+    /**
+     * Extra for {@link android.content.Intent#ACTION_BATTERY_CHANGED}:
+     * Int value representing the battery's capacity level. These constants are key indicators of
+     * battery status and system capabilities, guiding power management decisions for both the
+     * system and apps.
+     *
+     * @see #BATTERY_CAPACITY_LEVEL_UNSUPPORTED
+     * @see #BATTERY_CAPACITY_LEVEL_UNKNOWN
+     * @see #BATTERY_CAPACITY_LEVEL_CRITICAL
+     * @see #BATTERY_CAPACITY_LEVEL_LOW
+     * @see #BATTERY_CAPACITY_LEVEL_NORMAL
+     * @see #BATTERY_CAPACITY_LEVEL_HIGH
+     * @see #BATTERY_CAPACITY_LEVEL_FULL
+     */
+    @FlaggedApi(FLAG_BATTERY_PART_STATUS_API)
+    public static final String EXTRA_CAPACITY_LEVEL = "android.os.extra.CAPACITY_LEVEL";
 
     /**
      * Extra for {@link android.content.Intent#ACTION_BATTERY_LEVEL_CHANGED}:
@@ -180,10 +298,101 @@ public class BatteryManager {
     public static final int BATTERY_PLUGGED_USB = OsProtoEnums.BATTERY_PLUGGED_USB; // = 2
     /** Power source is wireless. */
     public static final int BATTERY_PLUGGED_WIRELESS = OsProtoEnums.BATTERY_PLUGGED_WIRELESS; // = 4
+    /** Power source is dock. */
+    public static final int BATTERY_PLUGGED_DOCK = OsProtoEnums.BATTERY_PLUGGED_DOCK; // = 8
 
     /** @hide */
+    @IntDef(prefix = { "CHARGING_POLICY_" }, value = {
+            CHARGING_POLICY_DEFAULT,
+            CHARGING_POLICY_ADAPTIVE_AON,
+            CHARGING_POLICY_ADAPTIVE_AC,
+            CHARGING_POLICY_ADAPTIVE_LONGLIFE,
+            CHARGING_POLICY_FORCE_FULL_CHARGE
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface BatteryChargingPolicy {}
+
+
+    // values for "charge policy" property
+    /**
+     * Default policy (e.g. normal).
+     * @hide
+     */
+    @SystemApi
+    public static final int CHARGING_POLICY_DEFAULT = OsProtoEnums.CHARGING_POLICY_DEFAULT; // = 1
+    /**
+     * Optimized for battery health using static thresholds (e.g stop at 80%).
+     * @hide
+     */
+    @SystemApi
+    public static final int CHARGING_POLICY_ADAPTIVE_AON =
+                                            OsProtoEnums.CHARGING_POLICY_ADAPTIVE_AON; // = 2
+    /**
+     * Optimized for battery health using adaptive thresholds.
+     * @hide
+     */
+    @SystemApi
+    public static final int CHARGING_POLICY_ADAPTIVE_AC =
+                                            OsProtoEnums.CHARGING_POLICY_ADAPTIVE_AC; // = 3
+    /**
+     * Optimized for battery health, devices always connected to power.
+     * @hide
+     */
+    @SystemApi
+    public static final int CHARGING_POLICY_ADAPTIVE_LONGLIFE =
+                                            OsProtoEnums.CHARGING_POLICY_ADAPTIVE_LONGLIFE; // = 4
+
+    /**
+     * Bypassing the "LONGLIFE" policy to charge to full, which recalibrates the battery's capacity
+     * estimation to maintain accuracy.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(FLAG_BATTERY_CHARGING_INFO_API)
+    public static final int CHARGING_POLICY_FORCE_FULL_CHARGE =
+                                            OsProtoEnums.CHARGING_POLICY_FORCE_FULL_CHARGE; // = 5
+
+    /**
+     * Returns true if the policy is some type of adaptive charging policy.
+     * @hide
+     */
+    public static boolean isAdaptiveChargingPolicy(int policy) {
+        return policy == CHARGING_POLICY_ADAPTIVE_AC
+                || policy == CHARGING_POLICY_ADAPTIVE_AON
+                || policy == CHARGING_POLICY_ADAPTIVE_LONGLIFE;
+    }
+
+    // values for "battery part status" property
+    /**
+     * Battery part status is not supported.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(FLAG_BATTERY_PART_STATUS_API)
+    public static final int PART_STATUS_UNSUPPORTED = 0;
+
+    /**
+     * Battery is the original device battery.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(FLAG_BATTERY_PART_STATUS_API)
+    public static final int PART_STATUS_ORIGINAL = 1;
+
+    /**
+     * Battery has been replaced.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(FLAG_BATTERY_PART_STATUS_API)
+    public static final int PART_STATUS_REPLACED = 2;
+
+    /** @hide */
+    @SuppressLint("UnflaggedApi") // TestApi without associated feature.
+    @TestApi
     public static final int BATTERY_PLUGGED_ANY =
-            BATTERY_PLUGGED_AC | BATTERY_PLUGGED_USB | BATTERY_PLUGGED_WIRELESS;
+            BATTERY_PLUGGED_AC | BATTERY_PLUGGED_USB | BATTERY_PLUGGED_WIRELESS
+                    | BATTERY_PLUGGED_DOCK;
 
     /**
      * Sent when the device's battery has started charging (or has reached full charge
@@ -244,6 +453,151 @@ public class BatteryManager {
      */
     public static final int BATTERY_PROPERTY_STATUS = 6;
 
+    /**
+     * Battery manufacturing date is reported in epoch. The 0 timepoint
+     * begins at midnight Coordinated Universal Time (UTC) on January 1, 1970.
+     * It is a long integer in seconds.
+     *
+     * <p class="note">
+     * The sender must hold the {@link android.Manifest.permission#BATTERY_STATS} permission.
+     *
+     * Example: <code>
+     *  // The value returned from the API can be used to create a Date, used
+     *  // to set the time on a calendar and coverted to a string.
+     *  import java.util.Date;
+     *
+     *  mBatteryManager = mContext.getSystemService(BatteryManager.class);
+     *  final long manufacturingDate =
+     *      mBatteryManager.getLongProperty(BatteryManager.BATTERY_PROPERTY_MANUFACTURING_DATE);
+     *  Date date = new Date(manufacturingDate);
+     *  Calendar calendar = Calendar.getInstance();
+     *  calendar.setTime(date);
+     * // Convert to yyyy-MM-dd HH:mm:ss format string
+     *  SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+     *  String dateString = sdf.format(date);
+     * </code>
+     * @hide
+     */
+    @RequiresPermission(permission.BATTERY_STATS)
+    @SystemApi
+    public static final int BATTERY_PROPERTY_MANUFACTURING_DATE = 7;
+
+    /**
+     * The date of first usage is reported in epoch. The 0 timepoint
+     * begins at midnight Coordinated Universal Time (UTC) on January 1, 1970.
+     * It is a long integer in seconds.
+     *
+     * <p class="note">
+     * The sender must hold the {@link android.Manifest.permission#BATTERY_STATS} permission.
+     *
+     * {@link BATTERY_PROPERTY_MANUFACTURING_DATE for sample code}
+     * @hide
+     */
+    @RequiresPermission(permission.BATTERY_STATS)
+    @SystemApi
+    public static final int BATTERY_PROPERTY_FIRST_USAGE_DATE = 8;
+
+    /**
+     * Battery charging policy from a CHARGING_POLICY_* value..
+     *
+     * <p class="note">
+     * The sender must hold the {@link android.Manifest.permission#BATTERY_STATS} permission.
+     *
+     * @hide
+     */
+    @RequiresPermission(permission.BATTERY_STATS)
+    @SystemApi
+    public static final int BATTERY_PROPERTY_CHARGING_POLICY = 9;
+
+    /**
+     * Percentage representing the measured battery state of health.
+     * This is the remaining estimated full charge capacity relative
+     * to the rated capacity in %.
+     */
+    @FlaggedApi(FLAG_STATE_OF_HEALTH_PUBLIC)
+    public static final int BATTERY_PROPERTY_STATE_OF_HEALTH = 10;
+
+    /**
+     * Battery part serial number.
+     *
+     * <p class="note">
+     * The sender must hold the {@link android.Manifest.permission#BATTERY_STATS} permission.
+     *
+     * @hide
+     */
+    @RequiresPermission(permission.BATTERY_STATS)
+    @SystemApi
+    @FlaggedApi(FLAG_BATTERY_PART_STATUS_API)
+    public static final int BATTERY_PROPERTY_SERIAL_NUMBER = 11;
+
+    /**
+     * Battery part status from a BATTERY_PART_STATUS_* value.
+     *
+     * <p class="note">
+     * The sender must hold the {@link android.Manifest.permission#BATTERY_STATS} permission.
+     *
+     * @hide
+     */
+    @RequiresPermission(permission.BATTERY_STATS)
+    @SystemApi
+    @FlaggedApi(FLAG_BATTERY_PART_STATUS_API)
+    public static final int BATTERY_PROPERTY_PART_STATUS = 12;
+
+    /**
+     * Battery part manufacturer name, as a string.
+     *
+     * <p class="note">
+     * The sender must hold the {@link android.Manifest.permission#BATTERY_STATS} permission.
+     *
+     * @hide
+     */
+    @RequiresPermission(permission.BATTERY_STATS)
+    @SystemApi
+    @FlaggedApi(FLAG_BATTERY_MANUFACTURER_DIAGNOSTICS_API)
+    public static final int BATTERY_PROPERTY_MANUFACTURER = 13;
+
+    /**
+     * Battery part model name, assigned by its manufacturer, as a string.
+     *
+     * <p class="note">
+     * The sender must hold the {@link android.Manifest.permission#BATTERY_STATS} permission.
+     *
+     * @hide
+     */
+    @RequiresPermission(permission.BATTERY_STATS)
+    @SystemApi
+    @FlaggedApi(FLAG_BATTERY_MANUFACTURER_DIAGNOSTICS_API)
+    public static final int BATTERY_PROPERTY_MODEL_NAME = 14;
+
+    /**
+     * The minimum expected value for the battery's design voltage, as a long integer in
+     * micro-Volts.
+     *
+     * This is usually the same as the battery's actual design voltage, but may be different if the
+     * actual design voltage is not known. This represents a nominal battery voltage that has no
+     * particular relationship to absolute thresholds: the battery voltage may safely fall below or
+     * rise above this voltage with no particular battery behavior guaranteed to occur.
+     *
+     * Users should take care not to confuse this value with an absolute minimum allowed battery
+     * voltage, despite its name. 'Minimum' here allows for uncertainty in what the battery's design
+     * parameters are, allowing a system to report its design voltage when only a range of nominal
+     * values are known. A related 'maximum design voltage' property would provide the upper bound
+     * to this property's lower bound, and they would be equal if a precise design voltage were
+     * known.
+     *
+     * This value should be treated as advisory only, reflecting design goals of the battery
+     * subsystem without making any statements about the absolute limits or its guarantees.
+     *
+     * <p class="note>
+     * The sender must hold the {@link android.Manifest.permission#BATTERY_STATS} permission.
+     *
+     * @hide
+     */
+    @RequiresPermission(permission.BATTERY_STATS)
+    @SystemApi
+    @FlaggedApi(FLAG_BATTERY_MANUFACTURER_DIAGNOSTICS_API)
+    public static final int BATTERY_PROPERTY_VOLTAGE_MIN_DESIGN = 15;
+
     private final Context mContext;
     private final IBatteryStats mBatteryStats;
     private final IBatteryPropertiesRegistrar mBatteryPropertiesRegistrar;
@@ -259,7 +613,7 @@ public class BatteryManager {
                 ServiceManager.getService("batteryproperties"));
     }
 
-    /** {@hide} */
+    /** @hide */
     public BatteryManager(Context context,
             IBatteryStats batteryStats,
             IBatteryPropertiesRegistrar batteryPropertiesRegistrar) {
@@ -297,7 +651,6 @@ public class BatteryManager {
 
         try {
             BatteryProperty prop = new BatteryProperty();
-
             if (mBatteryPropertiesRegistrar.getProperty(id, prop) == 0)
                 ret = prop.getLong();
             else
@@ -307,6 +660,25 @@ public class BatteryManager {
         }
 
         return ret;
+    }
+
+    /**
+     * Same as queryProperty, but for strings.
+     */
+    private String queryStringProperty(int id) {
+        if (mBatteryPropertiesRegistrar == null) {
+            return null;
+        }
+
+        try {
+            BatteryProperty prop = new BatteryProperty();
+            if (mBatteryPropertiesRegistrar.getProperty(id, prop) == 0) {
+                return prop.getString();
+            }
+            return null;
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
     }
 
     /**
@@ -343,6 +715,21 @@ public class BatteryManager {
     }
 
     /**
+     * Return the value of a battery property of String type. If the
+     * platform does not provide the property queried, this value will
+     * be null.
+     *
+     * @param id identifier of the requested property.
+     *
+     * @return the property value, or null if not supported.
+     */
+    @Nullable
+    @FlaggedApi(FLAG_BATTERY_PART_STATUS_API)
+    public String getStringProperty(int id) {
+        return queryStringProperty(id);
+    }
+
+    /**
      * Return true if the plugType given is wired
      * @param plugType {@link #BATTERY_PLUGGED_AC}, {@link #BATTERY_PLUGGED_USB},
      *        or {@link #BATTERY_PLUGGED_WIRELESS}
@@ -365,6 +752,28 @@ public class BatteryManager {
     public long computeChargeTimeRemaining() {
         try {
             return mBatteryStats.computeChargeTimeRemaining();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Sets the delay for reporting battery state as charging after device is plugged in.
+     * This allows machine-learning or heuristics to delay the reporting and the corresponding
+     * broadcast, based on battery level, charging rate, and/or other parameters.
+     *
+     * @param delayMillis the delay in milliseconds, negative value to reset.
+     *
+     * @return True if the delay was set successfully.
+     *
+     * @see ACTION_CHARGING
+     * @hide
+     */
+    @RequiresPermission(permission.POWER_SAVER)
+    @SystemApi
+    public boolean setChargingStateUpdateDelayMillis(int delayMillis) {
+        try {
+            return mBatteryStats.setChargingStateUpdateDelayMillis(delayMillis);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

@@ -16,10 +16,17 @@
 
 package android.view.textclassifier;
 
+import android.annotation.NonNull;
 import android.annotation.WorkerThread;
 import android.view.textclassifier.SelectionEvent.InvocationMethod;
 
+import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.Preconditions;
+
+import java.util.Objects;
+import java.util.function.Supplier;
+
+import sun.misc.Cleaner;
 
 /**
  * Session-aware TextClassifier.
@@ -27,28 +34,32 @@ import com.android.internal.util.Preconditions;
 @WorkerThread
 final class TextClassificationSession implements TextClassifier {
 
-    /* package */ static final boolean DEBUG_LOG_ENABLED = true;
     private static final String LOG_TAG = "TextClassificationSession";
 
     private final TextClassifier mDelegate;
     private final SelectionEventHelper mEventHelper;
     private final TextClassificationSessionId mSessionId;
     private final TextClassificationContext mClassificationContext;
+    private final Cleaner mCleaner;
 
+    private final Object mLock = new Object();
+
+    @GuardedBy("mLock")
     private boolean mDestroyed;
 
     TextClassificationSession(TextClassificationContext context, TextClassifier delegate) {
-        mClassificationContext = Preconditions.checkNotNull(context);
-        mDelegate = Preconditions.checkNotNull(delegate);
+        mClassificationContext = Objects.requireNonNull(context);
+        mDelegate = Objects.requireNonNull(delegate);
         mSessionId = new TextClassificationSessionId();
         mEventHelper = new SelectionEventHelper(mSessionId, mClassificationContext);
         initializeRemoteSession();
+        // This ensures destroy() is called if the client forgot to do so.
+        mCleaner = Cleaner.create(this, new CleanerRunnable(mEventHelper, mDelegate));
     }
 
     @Override
     public TextSelection suggestSelection(TextSelection.Request request) {
-        checkDestroyed();
-        return mDelegate.suggestSelection(request);
+        return checkDestroyedAndRun(() -> mDelegate.suggestSelection(request));
     }
 
     private void initializeRemoteSession() {
@@ -60,46 +71,97 @@ final class TextClassificationSession implements TextClassifier {
 
     @Override
     public TextClassification classifyText(TextClassification.Request request) {
-        checkDestroyed();
-        return mDelegate.classifyText(request);
+        return checkDestroyedAndRun(() -> mDelegate.classifyText(request));
     }
 
     @Override
     public TextLinks generateLinks(TextLinks.Request request) {
-        checkDestroyed();
-        return mDelegate.generateLinks(request);
+        return checkDestroyedAndRun(() -> mDelegate.generateLinks(request));
+    }
+
+    @Override
+    public ConversationActions suggestConversationActions(ConversationActions.Request request) {
+        return checkDestroyedAndRun(() -> mDelegate.suggestConversationActions(request));
+    }
+
+    @Override
+    public TextLanguage detectLanguage(TextLanguage.Request request) {
+        return checkDestroyedAndRun(() -> mDelegate.detectLanguage(request));
+    }
+
+    @Override
+    public int getMaxGenerateLinksTextLength() {
+        return checkDestroyedAndRun(mDelegate::getMaxGenerateLinksTextLength);
     }
 
     @Override
     public void onSelectionEvent(SelectionEvent event) {
-        checkDestroyed();
-        Preconditions.checkNotNull(event);
-        if (mEventHelper.sanitizeEvent(event)) {
-            mDelegate.onSelectionEvent(event);
-        }
+        checkDestroyedAndRun(() -> {
+            try {
+                if (mEventHelper.sanitizeEvent(event)) {
+                    mDelegate.onSelectionEvent(event);
+                }
+            } catch (Exception e) {
+                // Avoid crashing for event reporting.
+                Log.e(LOG_TAG, "Error reporting text classifier selection event", e);
+            }
+            return null;
+        });
+    }
+
+    @Override
+    public void onTextClassifierEvent(TextClassifierEvent event) {
+        checkDestroyedAndRun(() -> {
+            try {
+                event.mHiddenTempSessionId = mSessionId;
+                mDelegate.onTextClassifierEvent(event);
+            } catch (Exception e) {
+                // Avoid crashing for event reporting.
+                Log.e(LOG_TAG, "Error reporting text classifier event", e);
+            }
+            return null;
+        });
     }
 
     @Override
     public void destroy() {
-        mEventHelper.endSession();
-        mDelegate.destroy();
-        mDestroyed = true;
+        synchronized (mLock) {
+            if (!mDestroyed) {
+                mCleaner.clean();
+                mDestroyed = true;
+            }
+        }
     }
 
     @Override
     public boolean isDestroyed() {
-        return mDestroyed;
+        synchronized (mLock) {
+            return mDestroyed;
+        }
     }
 
     /**
-     * @throws IllegalStateException if this TextClassification session has been destroyed.
+     * Check whether the TextClassification Session was destroyed before and after the actual API
+     * invocation, and return response if not.
+     *
+     * @param responseSupplier a Supplier that represents a TextClassifier call
+     * @return the response of the TextClassifier call
+     * @throws IllegalStateException if this TextClassification session was destroyed before the
+     *                               call returned
      * @see #isDestroyed()
      * @see #destroy()
      */
-    private void checkDestroyed() {
-        if (mDestroyed) {
-            throw new IllegalStateException("This TextClassification session has been destroyed");
+    private <T> T checkDestroyedAndRun(Supplier<T> responseSupplier) {
+        if (!isDestroyed()) {
+            T response = responseSupplier.get();
+            synchronized (mLock) {
+                if (!mDestroyed) {
+                    return response;
+                }
+            }
         }
+        throw new IllegalStateException(
+                "This TextClassification session has been destroyed");
     }
 
     /**
@@ -118,8 +180,8 @@ final class TextClassificationSession implements TextClassifier {
 
         SelectionEventHelper(
                 TextClassificationSessionId sessionId, TextClassificationContext context) {
-            mSessionId = Preconditions.checkNotNull(sessionId);
-            mContext = Preconditions.checkNotNull(context);
+            mSessionId = Objects.requireNonNull(sessionId);
+            mContext = Objects.requireNonNull(context);
         }
 
         /**
@@ -133,9 +195,7 @@ final class TextClassificationSession implements TextClassifier {
 
             if (event.getEventType() != SelectionEvent.EVENT_SELECTION_STARTED
                     && mStartEvent == null) {
-                if (DEBUG_LOG_ENABLED) {
-                    Log.d(LOG_TAG, "Selection session not yet started. Ignoring event");
-                }
+                Log.d(LOG_TAG, "Selection session not yet started. Ignoring event");
                 return false;
             }
 
@@ -148,11 +208,17 @@ final class TextClassificationSession implements TextClassifier {
                     mStartEvent = event;
                     break;
                 case SelectionEvent.EVENT_SMART_SELECTION_SINGLE:  // fall through
-                case SelectionEvent.EVENT_SMART_SELECTION_MULTI:
+                case SelectionEvent.EVENT_SMART_SELECTION_MULTI:   // fall through
+                case SelectionEvent.EVENT_AUTO_SELECTION:
                     mSmartEvent = event;
                     break;
-                case SelectionEvent.EVENT_SELECTION_MODIFIED:  // fall through
-                case SelectionEvent.EVENT_AUTO_SELECTION:
+                case SelectionEvent.ACTION_ABANDON:
+                case SelectionEvent.ACTION_OVERTYPE:
+                    if (mPrevEvent != null) {
+                        event.setEntityType(mPrevEvent.getEntityType());
+                    }
+                    break;
+                case SelectionEvent.EVENT_SELECTION_MODIFIED:
                     if (mPrevEvent != null
                             && mPrevEvent.getAbsoluteStart() == event.getAbsoluteStart()
                             && mPrevEvent.getAbsoluteEnd() == event.getAbsoluteEnd()) {
@@ -205,7 +271,8 @@ final class TextClassificationSession implements TextClassifier {
                 case SelectionEvent.EVENT_SMART_SELECTION_SINGLE:  // fall through
                 case SelectionEvent.EVENT_SMART_SELECTION_MULTI:  // fall through
                 case SelectionEvent.EVENT_AUTO_SELECTION:
-                    if (isPlatformLocalTextClassifierSmartSelection(event.getResultId())) {
+                    if (SelectionSessionLogger.isPlatformLocalTextClassifierSmartSelection(
+                            event.getResultId())) {
                         if (event.getAbsoluteEnd() - event.getAbsoluteStart() > 1) {
                             event.setEventType(SelectionEvent.EVENT_SMART_SELECTION_MULTI);
                         } else {
@@ -219,10 +286,26 @@ final class TextClassificationSession implements TextClassifier {
                     return;
             }
         }
+    }
 
-        private static boolean isPlatformLocalTextClassifierSmartSelection(String signature) {
-            return SelectionSessionLogger.CLASSIFIER_ID.equals(
-                    SelectionSessionLogger.SignatureParser.getClassifierId(signature));
+    // We use a static nested class here to avoid retaining the object reference of the outer
+    // class. Otherwise. the Cleaner would never be triggered.
+    private static class CleanerRunnable implements Runnable {
+        @NonNull
+        private final SelectionEventHelper mEventHelper;
+        @NonNull
+        private final TextClassifier mDelegate;
+
+        CleanerRunnable(
+                @NonNull SelectionEventHelper eventHelper, @NonNull TextClassifier delegate) {
+            mEventHelper = Objects.requireNonNull(eventHelper);
+            mDelegate = Objects.requireNonNull(delegate);
+        }
+
+        @Override
+        public void run() {
+            mEventHelper.endSession();
+            mDelegate.destroy();
         }
     }
 }

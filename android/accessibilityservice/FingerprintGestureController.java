@@ -48,7 +48,7 @@ import com.android.internal.annotations.VisibleForTesting;
  * should provide a way for the user to disable the use of this feature so multiple services don't
  * conflict with each other.
  * <p>
- * {@see android.hardware.fingerprint.FingerprintManager#isHardwareDetected}
+ * @see android.hardware.fingerprint.FingerprintManager#isHardwareDetected
  */
 public final class FingerprintGestureController {
     /** Identifier for a swipe right on the fingerprint sensor */

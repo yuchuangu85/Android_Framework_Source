@@ -16,6 +16,8 @@
 
 package android.net.wifi.aware;
 
+import android.os.Handler;
+
 /**
  * Base class for Aware attach callbacks. Should be extended by applications and set when calling
  * {@link WifiAwareManager#attach(AttachCallback, android.os.Handler)}. These are callbacks
@@ -40,6 +42,16 @@ public class AttachCallback {
      * {@link WifiAwareManager#attach(AttachCallback, android.os.Handler)} failed.
      */
     public void onAttachFailed() {
+        /* empty */
+    }
+
+    /**
+     * Called when Aware attach session get from {@link #onAttached(WifiAwareSession)} is
+     * terminated. Use {@link WifiAwareManager#attach(AttachCallback, Handler)} or
+     * {@link WifiAwareManager#attach(AttachCallback, IdentityChangedListener, Handler)} to get a
+     * new active session.
+     */
+    public void onAwareSessionTerminated() {
         /* empty */
     }
 }

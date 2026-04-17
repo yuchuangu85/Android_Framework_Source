@@ -16,9 +16,28 @@
 
 package android.view;
 
+import static com.android.internal.util.FrameworkStatsLog.TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__DEEP_PRESS;
+import static com.android.internal.util.FrameworkStatsLog.TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__DOUBLE_TAP;
+import static com.android.internal.util.FrameworkStatsLog.TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__FLING;
+import static com.android.internal.util.FrameworkStatsLog.TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__LONG_PRESS;
+import static com.android.internal.util.FrameworkStatsLog.TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__SCROLL;
+import static com.android.internal.util.FrameworkStatsLog.TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__SINGLE_TAP;
+
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.UiContext;
+import android.app.Activity;
+import android.companion.virtualdevice.flags.Flags;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
+import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
+import android.os.StrictMode;
+import android.os.SystemClock;
+
+import com.android.internal.util.FrameworkStatsLog;
 
 /**
  * Detects various gestures and events using the supplied {@link MotionEvent}s.
@@ -53,7 +72,7 @@ public class GestureDetector {
          *
          * @param e The down motion event.
          */
-        boolean onDown(MotionEvent e);
+        boolean onDown(@NonNull MotionEvent e);
 
         /**
          * The user has performed a down {@link MotionEvent} and not performed
@@ -63,7 +82,7 @@ public class GestureDetector {
          *
          * @param e The down motion event
          */
-        void onShowPress(MotionEvent e);
+        void onShowPress(@NonNull MotionEvent e);
 
         /**
          * Notified when a tap occurs with the up {@link MotionEvent}
@@ -72,14 +91,15 @@ public class GestureDetector {
          * @param e The up motion event that completed the first tap
          * @return true if the event is consumed, else false
          */
-        boolean onSingleTapUp(MotionEvent e);
+        boolean onSingleTapUp(@NonNull MotionEvent e);
 
         /**
          * Notified when a scroll occurs with the initial on down {@link MotionEvent} and the
          * current move {@link MotionEvent}. The distance in x and y is also supplied for
          * convenience.
          *
-         * @param e1 The first down motion event that started the scrolling.
+         * @param e1 The first down motion event that started the scrolling. A {@code null} event
+         *           indicates an incomplete event stream or error state.
          * @param e2 The move motion event that triggered the current onScroll.
          * @param distanceX The distance along the X axis that has been scrolled since the last
          *              call to onScroll. This is NOT the distance between {@code e1}
@@ -89,7 +109,8 @@ public class GestureDetector {
          *              and {@code e2}.
          * @return true if the event is consumed, else false
          */
-        boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY);
+        boolean onScroll(@Nullable MotionEvent e1, @NonNull MotionEvent e2, float distanceX,
+                float distanceY);
 
         /**
          * Notified when a long press occurs with the initial on down {@link MotionEvent}
@@ -97,14 +118,15 @@ public class GestureDetector {
          *
          * @param e The initial on down motion event that started the longpress.
          */
-        void onLongPress(MotionEvent e);
+        void onLongPress(@NonNull MotionEvent e);
 
         /**
          * Notified of a fling event when it occurs with the initial on down {@link MotionEvent}
          * and the matching up {@link MotionEvent}. The calculated velocity is supplied along
          * the x and y axis in pixels per second.
          *
-         * @param e1 The first down motion event that started the fling.
+         * @param e1 The first down motion event that started the fling. A {@code null} event
+         *           indicates an incomplete event stream or error state.
          * @param e2 The move motion event that triggered the current onFling.
          * @param velocityX The velocity of this fling measured in pixels per second
          *              along the x axis.
@@ -112,7 +134,8 @@ public class GestureDetector {
          *              along the y axis.
          * @return true if the event is consumed, else false
          */
-        boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY);
+        boolean onFling(@Nullable MotionEvent e1, @NonNull MotionEvent e2, float velocityX,
+                float velocityY);
     }
 
     /**
@@ -131,15 +154,15 @@ public class GestureDetector {
          * @param e The down motion event of the single-tap.
          * @return true if the event is consumed, else false
          */
-        boolean onSingleTapConfirmed(MotionEvent e);
+        boolean onSingleTapConfirmed(@NonNull MotionEvent e);
  
         /**
-         * Notified when a double-tap occurs.
+         * Notified when a double-tap occurs. Triggered on the down event of second tap.
          *
          * @param e The down motion event of the first tap of the double-tap.
          * @return true if the event is consumed, else false
          */
-        boolean onDoubleTap(MotionEvent e);
+        boolean onDoubleTap(@NonNull MotionEvent e);
 
         /**
          * Notified when an event within a double-tap gesture occurs, including
@@ -148,7 +171,7 @@ public class GestureDetector {
          * @param e The motion event that occurred during the double-tap gesture.
          * @return true if the event is consumed, else false
          */
-        boolean onDoubleTapEvent(MotionEvent e);
+        boolean onDoubleTapEvent(@NonNull MotionEvent e);
     }
 
     /**
@@ -163,7 +186,7 @@ public class GestureDetector {
          * @param e The motion event that occurred during the context click.
          * @return true if the event is consumed, else false
          */
-        boolean onContextClick(MotionEvent e);
+        boolean onContextClick(@NonNull MotionEvent e);
     }
 
     /**
@@ -175,57 +198,59 @@ public class GestureDetector {
     public static class SimpleOnGestureListener implements OnGestureListener, OnDoubleTapListener,
             OnContextClickListener {
 
-        public boolean onSingleTapUp(MotionEvent e) {
+        public boolean onSingleTapUp(@NonNull MotionEvent e) {
             return false;
         }
 
-        public void onLongPress(MotionEvent e) {
+        public void onLongPress(@NonNull MotionEvent e) {
         }
 
-        public boolean onScroll(MotionEvent e1, MotionEvent e2,
+        public boolean onScroll(@Nullable MotionEvent e1, @NonNull MotionEvent e2,
                 float distanceX, float distanceY) {
             return false;
         }
 
-        public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX,
+        public boolean onFling(@Nullable MotionEvent e1, @NonNull MotionEvent e2, float velocityX,
                 float velocityY) {
             return false;
         }
 
-        public void onShowPress(MotionEvent e) {
+        public void onShowPress(@NonNull MotionEvent e) {
         }
 
-        public boolean onDown(MotionEvent e) {
+        public boolean onDown(@NonNull MotionEvent e) {
             return false;
         }
 
-        public boolean onDoubleTap(MotionEvent e) {
+        public boolean onDoubleTap(@NonNull MotionEvent e) {
             return false;
         }
 
-        public boolean onDoubleTapEvent(MotionEvent e) {
+        public boolean onDoubleTapEvent(@NonNull MotionEvent e) {
             return false;
         }
 
-        public boolean onSingleTapConfirmed(MotionEvent e) {
+        public boolean onSingleTapConfirmed(@NonNull MotionEvent e) {
             return false;
         }
 
-        public boolean onContextClick(MotionEvent e) {
+        public boolean onContextClick(@NonNull MotionEvent e) {
             return false;
         }
     }
 
+    @UnsupportedAppUsage
     private int mTouchSlopSquare;
     private int mDoubleTapTouchSlopSquare;
     private int mDoubleTapSlopSquare;
+    private float mAmbiguousGestureMultiplier;
+    @UnsupportedAppUsage
     private int mMinimumFlingVelocity;
     private int mMaximumFlingVelocity;
-
-    private static final int LONGPRESS_TIMEOUT = ViewConfiguration.getLongPressTimeout();
-    private static final int TAP_TIMEOUT = ViewConfiguration.getTapTimeout();
-    private static final int DOUBLE_TAP_TIMEOUT = ViewConfiguration.getDoubleTapTimeout();
-    private static final int DOUBLE_TAP_MIN_TIME = ViewConfiguration.getDoubleTapMinTime();
+    private int mTapTimeout;
+    private int mDoubleTapTimeout;
+    private int mDoubleTapMinTime;
+    private ViewConfiguration mViewConfiguration = null;
 
     // constants for Message.what used by GestureHandler below
     private static final int SHOW_PRESS = 1;
@@ -233,6 +258,7 @@ public class GestureDetector {
     private static final int TAP = 3;
 
     private final Handler mHandler;
+    @UnsupportedAppUsage
     private final OnGestureListener mListener;
     private OnDoubleTapListener mDoubleTapListener;
     private OnContextClickListener mContextClickListener;
@@ -241,11 +267,16 @@ public class GestureDetector {
     private boolean mDeferConfirmSingleTap;
     private boolean mInLongPress;
     private boolean mInContextClick;
+    @UnsupportedAppUsage
     private boolean mAlwaysInTapRegion;
     private boolean mAlwaysInBiggerTapRegion;
     private boolean mIgnoreNextUpEvent;
+    // Whether a classification has been recorded by statsd for the current event stream. Reset on
+    // ACTION_DOWN.
+    private boolean mHasRecordedClassification;
 
     private MotionEvent mCurrentDownEvent;
+    private MotionEvent mCurrentMotionEvent;
     private MotionEvent mPreviousUpEvent;
 
     /**
@@ -267,6 +298,11 @@ public class GestureDetector {
     private VelocityTracker mVelocityTracker;
 
     /**
+     * Determines strategy for velocity calculation
+     */
+    private final @VelocityTracker.VelocityTrackerStrategy int mVelocityTrackerStrategy;
+
+    /**
      * Consistency verifier for debugging purposes.
      */
     private final InputEventConsistencyVerifier mInputEventConsistencyVerifier =
@@ -285,97 +321,132 @@ public class GestureDetector {
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
-            case SHOW_PRESS:
-                mListener.onShowPress(mCurrentDownEvent);
-                break;
-                
-            case LONG_PRESS:
-                dispatchLongPress();
-                break;
-                
-            case TAP:
-                // If the user's finger is still down, do not count it as a tap
-                if (mDoubleTapListener != null) {
-                    if (!mStillDown) {
-                        mDoubleTapListener.onSingleTapConfirmed(mCurrentDownEvent);
-                    } else {
-                        mDeferConfirmSingleTap = true;
-                    }
-                }
-                break;
+                case SHOW_PRESS:
+                    mListener.onShowPress(mCurrentDownEvent);
+                    break;
 
-            default:
-                throw new RuntimeException("Unknown message " + msg); //never
+                case LONG_PRESS:
+                    recordGestureClassification(msg.arg1);
+                    dispatchLongPress();
+                    break;
+
+                case TAP:
+                    // If the user's finger is still down, do not count it as a tap
+                    if (mDoubleTapListener != null) {
+                        if (!mStillDown) {
+                            recordGestureClassification(
+                                    TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__SINGLE_TAP);
+                            mDoubleTapListener.onSingleTapConfirmed(mCurrentDownEvent);
+                        } else {
+                            mDeferConfirmSingleTap = true;
+                        }
+                    }
+                    break;
+
+                default:
+                    throw new RuntimeException("Unknown message " + msg); //never
             }
         }
     }
 
     /**
      * Creates a GestureDetector with the supplied listener.
-     * This variant of the constructor should be used from a non-UI thread 
+     * This variant of the constructor should be used from a non-UI thread
      * (as it allows specifying the Handler).
-     * 
+     *
      * @param listener the listener invoked for all the callbacks, this must
      * not be null.
      * @param handler the handler to use
      *
-     * @throws NullPointerException if either {@code listener} or
-     * {@code handler} is null.
+     * @throws NullPointerException if {@code listener} is null.
      *
-     * @deprecated Use {@link #GestureDetector(android.content.Context,
-     *      android.view.GestureDetector.OnGestureListener, android.os.Handler)} instead.
+     * @deprecated Use {@link #GestureDetector(Context, GestureDetector.OnGestureListener, Handler)}
+     * instead.
      */
     @Deprecated
-    public GestureDetector(OnGestureListener listener, Handler handler) {
+    public GestureDetector(@NonNull OnGestureListener listener, @Nullable Handler handler) {
         this(null, listener, handler);
     }
 
     /**
      * Creates a GestureDetector with the supplied listener.
      * You may only use this constructor from a UI thread (this is the usual situation).
-     * @see android.os.Handler#Handler()
-     * 
+     * @see Handler#Handler()
+     *
      * @param listener the listener invoked for all the callbacks, this must
      * not be null.
-     * 
+     *
      * @throws NullPointerException if {@code listener} is null.
      *
-     * @deprecated Use {@link #GestureDetector(android.content.Context,
-     *      android.view.GestureDetector.OnGestureListener)} instead.
+     * @deprecated Use {@link #GestureDetector(Context, GestureDetector.OnGestureListener)} instead.
      */
     @Deprecated
-    public GestureDetector(OnGestureListener listener) {
+    public GestureDetector(@NonNull OnGestureListener listener) {
         this(null, listener, null);
     }
 
     /**
      * Creates a GestureDetector with the supplied listener.
-     * You may only use this constructor from a {@link android.os.Looper} thread.
-     * @see android.os.Handler#Handler()
+     * You may only use this constructor from a {@link Looper} thread.
+     * @see Handler#Handler()
      *
-     * @param context the application's context
+     * @param context An {@link Activity} or a {@link Context} created from
+     * {@link Context#createWindowContext(int, Bundle)}
      * @param listener the listener invoked for all the callbacks, this must
-     * not be null.
+     * not be null. If the listener implements the {@link OnDoubleTapListener} or
+     * {@link OnContextClickListener} then it will also be set as the listener for
+     * these callbacks (for example when using the {@link SimpleOnGestureListener}).
      *
      * @throws NullPointerException if {@code listener} is null.
      */
-    public GestureDetector(Context context, OnGestureListener listener) {
+    // TODO(b/182007470): Use @ConfigurationContext instead
+    public GestureDetector(@Nullable @UiContext Context context,
+            @NonNull OnGestureListener listener) {
         this(context, listener, null);
     }
 
     /**
      * Creates a GestureDetector with the supplied listener that runs deferred events on the
-     * thread associated with the supplied {@link android.os.Handler}.
-     * @see android.os.Handler#Handler()
+     * thread associated with the supplied {@link Handler}.
+     * @see Handler#Handler()
      *
-     * @param context the application's context
+     * @param context An {@link Activity} or a {@link Context} created from
+     * {@link Context#createWindowContext(int, Bundle)}
      * @param listener the listener invoked for all the callbacks, this must
-     * not be null.
+     * not be null. If the listener implements the {@link OnDoubleTapListener} or
+     * {@link OnContextClickListener} then it will also be set as the listener for
+     * these callbacks (for example when using the {@link SimpleOnGestureListener}).
      * @param handler the handler to use for running deferred listener events.
      *
      * @throws NullPointerException if {@code listener} is null.
      */
-    public GestureDetector(Context context, OnGestureListener listener, Handler handler) {
+    public GestureDetector(@Nullable @UiContext Context context,
+            @NonNull OnGestureListener listener, @Nullable Handler handler) {
+        this(context, listener, handler, VelocityTracker.VELOCITY_TRACKER_STRATEGY_DEFAULT);
+    }
+
+    /**
+     * Creates a GestureDetector with the supplied listener that runs deferred events on the
+     * thread associated with the supplied {@link Handler}.
+     * @see Handler#Handler()
+     *
+     * @param context An {@link Activity} or a {@link Context} created from
+     * {@link Context#createWindowContext(int, Bundle)}
+     * @param listener the listener invoked for all the callbacks, this must
+     * not be null. If the listener implements the {@link OnDoubleTapListener} or
+     * {@link OnContextClickListener} then it will also be set as the listener for
+     * these callbacks (for example when using the {@link SimpleOnGestureListener}).
+     * @param handler the handler to use for running deferred listener events.
+     * @param velocityTrackerStrategy strategy to use for velocity calculation of scroll/fling
+     *                                events.
+     *
+     * @throws NullPointerException if {@code listener} is null.
+     *
+     * @hide
+     */
+    public GestureDetector(@Nullable @UiContext Context context,
+            @NonNull OnGestureListener listener, @Nullable Handler handler,
+            @VelocityTracker.VelocityTrackerStrategy int velocityTrackerStrategy) {
         if (handler != null) {
             mHandler = new GestureHandler(handler);
         } else {
@@ -388,15 +459,17 @@ public class GestureDetector {
         if (listener instanceof OnContextClickListener) {
             setContextClickListener((OnContextClickListener) listener);
         }
+        mVelocityTrackerStrategy = velocityTrackerStrategy;
         init(context);
     }
-    
+
     /**
      * Creates a GestureDetector with the supplied listener that runs deferred events on the
-     * thread associated with the supplied {@link android.os.Handler}.
-     * @see android.os.Handler#Handler()
+     * thread associated with the supplied {@link Handler}.
+     * @see Handler#Handler()
      *
-     * @param context the application's context
+     * @param context An {@link Activity} or a {@link Context} created from
+     * {@link Context#createWindowContext(int, Bundle)}
      * @param listener the listener invoked for all the callbacks, this must
      * not be null.
      * @param handler the handler to use for running deferred listener events.
@@ -404,12 +477,12 @@ public class GestureDetector {
      *
      * @throws NullPointerException if {@code listener} is null.
      */
-    public GestureDetector(Context context, OnGestureListener listener, Handler handler,
-            boolean unused) {
+    public GestureDetector(@Nullable @UiContext Context context,
+            @NonNull OnGestureListener listener, @Nullable Handler handler, boolean unused) {
         this(context, listener, handler);
     }
 
-    private void init(Context context) {
+    private void init(@UiContext Context context) {
         if (mListener == null) {
             throw new NullPointerException("OnGestureListener must not be null");
         }
@@ -420,18 +493,33 @@ public class GestureDetector {
         if (context == null) {
             //noinspection deprecation
             touchSlop = ViewConfiguration.getTouchSlop();
-            doubleTapTouchSlop = touchSlop; // Hack rather than adding a hiden method for this
+            doubleTapTouchSlop = touchSlop; // Hack rather than adding a hidden method for this
             doubleTapSlop = ViewConfiguration.getDoubleTapSlop();
             //noinspection deprecation
             mMinimumFlingVelocity = ViewConfiguration.getMinimumFlingVelocity();
             mMaximumFlingVelocity = ViewConfiguration.getMaximumFlingVelocity();
+            mAmbiguousGestureMultiplier = ViewConfiguration.getAmbiguousGestureMultiplier();
+            mTapTimeout = ViewConfiguration.getTapTimeout();
+            mDoubleTapTimeout = ViewConfiguration.getDoubleTapTimeout();
+            mDoubleTapMinTime = ViewConfiguration.getDoubleTapMinTime();
         } else {
-            final ViewConfiguration configuration = ViewConfiguration.get(context);
-            touchSlop = configuration.getScaledTouchSlop();
-            doubleTapTouchSlop = configuration.getScaledDoubleTapTouchSlop();
-            doubleTapSlop = configuration.getScaledDoubleTapSlop();
-            mMinimumFlingVelocity = configuration.getScaledMinimumFlingVelocity();
-            mMaximumFlingVelocity = configuration.getScaledMaximumFlingVelocity();
+            StrictMode.assertConfigurationContext(context, "GestureDetector#init");
+            mViewConfiguration = ViewConfiguration.get(context);
+            touchSlop = mViewConfiguration.getScaledTouchSlop();
+            doubleTapTouchSlop = mViewConfiguration.getScaledDoubleTapTouchSlop();
+            doubleTapSlop = mViewConfiguration.getScaledDoubleTapSlop();
+            mMinimumFlingVelocity = mViewConfiguration.getScaledMinimumFlingVelocity();
+            mMaximumFlingVelocity = mViewConfiguration.getScaledMaximumFlingVelocity();
+            mAmbiguousGestureMultiplier = mViewConfiguration.getScaledAmbiguousGestureMultiplier();
+            if (Flags.viewconfigurationApis()) {
+                mTapTimeout = mViewConfiguration.getTapTimeoutMillis();
+                mDoubleTapTimeout = mViewConfiguration.getDoubleTapTimeoutMillis();
+                mDoubleTapMinTime = mViewConfiguration.getDoubleTapMinTimeMillis();
+            } else {
+                mTapTimeout = ViewConfiguration.getTapTimeout();
+                mDoubleTapTimeout = ViewConfiguration.getDoubleTapTimeout();
+                mDoubleTapMinTime = ViewConfiguration.getDoubleTapMinTime();
+            }
         }
         mTouchSlopSquare = touchSlop * touchSlop;
         mDoubleTapTouchSlopSquare = doubleTapTouchSlop * doubleTapTouchSlop;
@@ -445,7 +533,7 @@ public class GestureDetector {
      * @param onDoubleTapListener the listener invoked for all the callbacks, or
      *        null to stop listening for double-tap gestures.
      */
-    public void setOnDoubleTapListener(OnDoubleTapListener onDoubleTapListener) {
+    public void setOnDoubleTapListener(@Nullable OnDoubleTapListener onDoubleTapListener) {
         mDoubleTapListener = onDoubleTapListener;
     }
 
@@ -455,7 +543,7 @@ public class GestureDetector {
      * @param onContextClickListener the listener invoked for all the callbacks, or null to stop
      *            listening for context clicks.
      */
-    public void setContextClickListener(OnContextClickListener onContextClickListener) {
+    public void setContextClickListener(@Nullable OnContextClickListener onContextClickListener) {
         mContextClickListener = onContextClickListener;
     }
 
@@ -487,15 +575,20 @@ public class GestureDetector {
      * @return true if the {@link OnGestureListener} consumed the event,
      *              else false.
      */
-    public boolean onTouchEvent(MotionEvent ev) {
+    public boolean onTouchEvent(@NonNull MotionEvent ev) {
         if (mInputEventConsistencyVerifier != null) {
             mInputEventConsistencyVerifier.onTouchEvent(ev, 0);
         }
 
         final int action = ev.getAction();
 
+        if (mCurrentMotionEvent != null) {
+            mCurrentMotionEvent.recycle();
+        }
+        mCurrentMotionEvent = MotionEvent.obtain(ev);
+
         if (mVelocityTracker == null) {
-            mVelocityTracker = VelocityTracker.obtain();
+            mVelocityTracker = VelocityTracker.obtain(mVelocityTrackerStrategy);
         }
         mVelocityTracker.addMovement(ev);
 
@@ -562,13 +655,15 @@ public class GestureDetector {
                             && isConsideredDoubleTap(mCurrentDownEvent, mPreviousUpEvent, ev)) {
                         // This is a second tap
                         mIsDoubleTapping = true;
+                        recordGestureClassification(
+                                TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__DOUBLE_TAP);
                         // Give a callback with the first tap of the double-tap
                         handled |= mDoubleTapListener.onDoubleTap(mCurrentDownEvent);
                         // Give a callback with down event of the double-tap
                         handled |= mDoubleTapListener.onDoubleTapEvent(ev);
                     } else {
                         // This is a first tap
-                        mHandler.sendEmptyMessageDelayed(TAP, DOUBLE_TAP_TIMEOUT);
+                        mHandler.sendEmptyMessageDelayed(TAP, mDoubleTapTimeout);
                     }
                 }
 
@@ -583,14 +678,20 @@ public class GestureDetector {
                 mStillDown = true;
                 mInLongPress = false;
                 mDeferConfirmSingleTap = false;
+                mHasRecordedClassification = false;
 
                 if (mIsLongpressEnabled) {
                     mHandler.removeMessages(LONG_PRESS);
-                    mHandler.sendEmptyMessageAtTime(LONG_PRESS,
-                            mCurrentDownEvent.getDownTime() + LONGPRESS_TIMEOUT);
+                    mHandler.sendMessageAtTime(
+                            mHandler.obtainMessage(
+                                    LONG_PRESS,
+                                    TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__LONG_PRESS,
+                                    0 /* arg2 */),
+                            mCurrentDownEvent.getDownTime()
+                                    + getLongPressTimeoutMillis());
                 }
                 mHandler.sendEmptyMessageAtTime(SHOW_PRESS,
-                        mCurrentDownEvent.getDownTime() + TAP_TIMEOUT);
+                        mCurrentDownEvent.getDownTime() + mTapTimeout);
                 handled |= mListener.onDown(ev);
                 break;
 
@@ -598,17 +699,55 @@ public class GestureDetector {
                 if (mInLongPress || mInContextClick) {
                     break;
                 }
+
+                final int motionClassification = ev.getClassification();
+                final boolean hasPendingLongPress = mHandler.hasMessages(LONG_PRESS);
+
                 final float scrollX = mLastFocusX - focusX;
                 final float scrollY = mLastFocusY - focusY;
                 if (mIsDoubleTapping) {
                     // Give the move events of the double-tap
+                    recordGestureClassification(
+                            TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__DOUBLE_TAP);
                     handled |= mDoubleTapListener.onDoubleTapEvent(ev);
                 } else if (mAlwaysInTapRegion) {
                     final int deltaX = (int) (focusX - mDownFocusX);
                     final int deltaY = (int) (focusY - mDownFocusY);
                     int distance = (deltaX * deltaX) + (deltaY * deltaY);
                     int slopSquare = isGeneratedGesture ? 0 : mTouchSlopSquare;
+
+                    final boolean ambiguousGesture =
+                            motionClassification == MotionEvent.CLASSIFICATION_AMBIGUOUS_GESTURE;
+                    final boolean shouldInhibitDefaultAction =
+                            hasPendingLongPress && ambiguousGesture;
+                    if (shouldInhibitDefaultAction) {
+                        // Inhibit default long press
+                        if (distance > slopSquare) {
+                            // The default action here is to remove long press. But if the touch
+                            // slop below gets increased, and we never exceed the modified touch
+                            // slop while still receiving AMBIGUOUS_GESTURE, we risk that *nothing*
+                            // will happen in response to user input. To prevent this,
+                            // reschedule long press with a modified timeout.
+                            mHandler.removeMessages(LONG_PRESS);
+                            mHandler.sendMessageAtTime(
+                                    mHandler.obtainMessage(
+                                            LONG_PRESS,
+                                            TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__LONG_PRESS,
+                                            0 /* arg2 */),
+                                    ev.getDownTime()
+                                        + (long) (getLongPressTimeoutMillis()
+                                            * mAmbiguousGestureMultiplier));
+                        }
+                        // Inhibit default scroll. If a gesture is ambiguous, we prevent scroll
+                        // until the gesture is resolved.
+                        // However, for safety, simply increase the touch slop in case the
+                        // classification is erroneous. Since the value is squared, multiply twice.
+                        slopSquare *= mAmbiguousGestureMultiplier * mAmbiguousGestureMultiplier;
+                    }
+
                     if (distance > slopSquare) {
+                        recordGestureClassification(
+                                TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__SCROLL);
                         handled = mListener.onScroll(mCurrentDownEvent, ev, scrollX, scrollY);
                         mLastFocusX = focusX;
                         mLastFocusY = focusY;
@@ -622,9 +761,20 @@ public class GestureDetector {
                         mAlwaysInBiggerTapRegion = false;
                     }
                 } else if ((Math.abs(scrollX) >= 1) || (Math.abs(scrollY) >= 1)) {
+                    recordGestureClassification(TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__SCROLL);
                     handled = mListener.onScroll(mCurrentDownEvent, ev, scrollX, scrollY);
                     mLastFocusX = focusX;
                     mLastFocusY = focusY;
+                }
+                final boolean deepPress =
+                        motionClassification == MotionEvent.CLASSIFICATION_DEEP_PRESS;
+                if (deepPress && hasPendingLongPress) {
+                    mHandler.removeMessages(LONG_PRESS);
+                    mHandler.sendMessage(
+                            mHandler.obtainMessage(
+                                  LONG_PRESS,
+                                  TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__DEEP_PRESS,
+                                  0 /* arg2 */));
                 }
                 break;
 
@@ -633,17 +783,20 @@ public class GestureDetector {
                 MotionEvent currentUpEvent = MotionEvent.obtain(ev);
                 if (mIsDoubleTapping) {
                     // Finally, give the up event of the double-tap
+                    recordGestureClassification(
+                            TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__DOUBLE_TAP);
                     handled |= mDoubleTapListener.onDoubleTapEvent(ev);
                 } else if (mInLongPress) {
                     mHandler.removeMessages(TAP);
                     mInLongPress = false;
                 } else if (mAlwaysInTapRegion && !mIgnoreNextUpEvent) {
+                    recordGestureClassification(
+                            TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__SINGLE_TAP);
                     handled = mListener.onSingleTapUp(ev);
                     if (mDeferConfirmSingleTap && mDoubleTapListener != null) {
                         mDoubleTapListener.onSingleTapConfirmed(ev);
                     }
                 } else if (!mIgnoreNextUpEvent) {
-
                     // A fling must travel the minimum tap distance
                     final VelocityTracker velocityTracker = mVelocityTracker;
                     final int pointerId = ev.getPointerId(0);
@@ -653,6 +806,9 @@ public class GestureDetector {
 
                     if ((Math.abs(velocityY) > mMinimumFlingVelocity)
                             || (Math.abs(velocityX) > mMinimumFlingVelocity)) {
+                        recordGestureClassification(
+                                TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__FLING,
+                                (float) Math.hypot(velocityX, velocityY) / 1000);
                         handled = mListener.onFling(mCurrentDownEvent, ev, velocityX, velocityY);
                     }
                 }
@@ -693,7 +849,7 @@ public class GestureDetector {
      * @return true if the {@link OnGestureListener} consumed the event,
      *              else false.
      */
-    public boolean onGenericMotionEvent(MotionEvent ev) {
+    public boolean onGenericMotionEvent(@NonNull MotionEvent ev) {
         if (mInputEventConsistencyVerifier != null) {
             mInputEventConsistencyVerifier.onGenericMotionEvent(ev, 0);
         }
@@ -728,8 +884,10 @@ public class GestureDetector {
         mHandler.removeMessages(SHOW_PRESS);
         mHandler.removeMessages(LONG_PRESS);
         mHandler.removeMessages(TAP);
-        mVelocityTracker.recycle();
-        mVelocityTracker = null;
+        if (mVelocityTracker != null) {
+            mVelocityTracker.recycle();
+            mVelocityTracker = null;
+        }
         mIsDoubleTapping = false;
         mStillDown = false;
         mAlwaysInTapRegion = false;
@@ -753,14 +911,20 @@ public class GestureDetector {
         mIgnoreNextUpEvent = false;
     }
 
-    private boolean isConsideredDoubleTap(MotionEvent firstDown, MotionEvent firstUp,
-            MotionEvent secondDown) {
+    private int getLongPressTimeoutMillis() {
+        return mViewConfiguration != null && Flags.viewconfigurationApis()
+                ? mViewConfiguration.getLongPressTimeoutMillis()
+                : ViewConfiguration.getLongPressTimeout();
+    }
+
+    private boolean isConsideredDoubleTap(@NonNull MotionEvent firstDown,
+            @NonNull MotionEvent firstUp, @NonNull MotionEvent secondDown) {
         if (!mAlwaysInBiggerTapRegion) {
             return false;
         }
 
         final long deltaTime = secondDown.getEventTime() - firstUp.getEventTime();
-        if (deltaTime > DOUBLE_TAP_TIMEOUT || deltaTime < DOUBLE_TAP_MIN_TIME) {
+        if (deltaTime > mDoubleTapTimeout || deltaTime < mDoubleTapMinTime) {
             return false;
         }
 
@@ -777,5 +941,39 @@ public class GestureDetector {
         mDeferConfirmSingleTap = false;
         mInLongPress = true;
         mListener.onLongPress(mCurrentDownEvent);
+    }
+
+    private void recordGestureClassification(int classification) {
+        recordGestureClassification(classification, 0 /* velocity */);
+    }
+
+    private void recordGestureClassification(int classification, float velocity) {
+        // Only record the first classification for an event stream -- except for FLING,
+        // which can occur at the end of an event stream after a SCROLL.
+        if (mHasRecordedClassification
+                && classification != TOUCH_GESTURE_CLASSIFIED__CLASSIFICATION__FLING) {
+            return;
+        }
+        if (mCurrentDownEvent == null || mCurrentMotionEvent == null) {
+            // If the complete event stream wasn't seen, don't record anything.
+            mHasRecordedClassification = true;
+            return;
+        }
+        if (velocity == 0 && mVelocityTracker != null) {
+            // Compute velocity if it was not provided (i.e. for non-FLING gestures).
+            mVelocityTracker.computeCurrentVelocity(1000, mMaximumFlingVelocity);
+            final int pointerId = mCurrentMotionEvent.getPointerId(0);
+            velocity = (float) Math.hypot(mVelocityTracker.getXVelocity(pointerId),
+                                          mVelocityTracker.getYVelocity(pointerId)) / 1000;
+        }
+        FrameworkStatsLog.write(
+                FrameworkStatsLog.TOUCH_GESTURE_CLASSIFIED,
+                getClass().getName(),
+                classification,
+                (int) (SystemClock.uptimeMillis() - mCurrentMotionEvent.getDownTime()),
+                (float) Math.hypot(mCurrentMotionEvent.getRawX() - mCurrentDownEvent.getRawX(),
+                                   mCurrentMotionEvent.getRawY() - mCurrentDownEvent.getRawY()),
+                (float) velocity);
+        mHasRecordedClassification = true;
     }
 }

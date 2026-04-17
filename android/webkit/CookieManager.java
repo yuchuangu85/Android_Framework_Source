@@ -22,9 +22,19 @@ import android.net.WebAddress;
 
 /**
  * Manages the cookies used by an application's {@link WebView} instances.
- * Cookies are manipulated according to RFC2109.
+ * <p>
+ * CookieManager represents cookies as strings in the same format as the
+ * HTTP {@code Cookie} and {@code Set-Cookie} header fields (defined in
+ * <a href="https://tools.ietf.org/html/draft-ietf-httpbis-rfc6265bis-03">RFC6265bis</a>).
  */
 public abstract class CookieManager {
+    /**
+     * @deprecated This class should not be constructed by applications, use {@link #getInstance}
+     * instead to fetch the singleton instance.
+     */
+    // TODO(ntfschr): mark this as @SystemApi after a year.
+    @Deprecated
+    public CookieManager() {}
 
     @Override
     protected Object clone() throws CloneNotSupportedException {
@@ -88,9 +98,27 @@ public abstract class CookieManager {
     public abstract boolean acceptThirdPartyCookies(WebView webview);
 
     /**
-     * Sets a cookie for the given URL. Any existing cookie with the same host,
-     * path and name will be replaced with the new cookie. The cookie being set
-     * will be ignored if it is expired.
+     * Sets a single cookie (key-value pair) for the given URL. Any existing cookie with the same
+     * host, path and name will be replaced with the new cookie. The cookie being set
+     * will be ignored if it is expired. To set multiple cookies, your application should invoke
+     * this method multiple times.
+     *
+     * <p>The {@code value} parameter must follow the format of the {@code Set-Cookie} HTTP response
+     * header. This is a key-value pair of the form {@code "key=value"}, optionally followed by a
+     * list of cookie attributes delimited with semicolons (ex. {@code "key=value; Max-Age=123"}).
+     * For the header format and attributes supported by WebView, see the <a href=
+     * "https://developer.mozilla.org/docs/Web/HTTP/Headers/Set-Cookie">{@code Set-Cookie}
+     * documentation on MDN</a>.
+     *
+     * <p class="note">
+     * <b>Notes:</b>
+     * <ul>
+     * <li>If specifying a {@code value} containing the {@code "Secure"} attribute,
+     * {@code url} must use the {@code "https://"} scheme.</li>
+     * <li>if specifying a {@code value} containing the {@code "Partitioned"}
+     * attribute, the cookie will be set for the top-level partition of the
+     * {@code url}.</li>
+     * </ul>
      *
      * @param url the URL for which the cookie is to be set
      * @param value the cookie as a string, using the format of the 'Set-Cookie'
@@ -99,18 +127,35 @@ public abstract class CookieManager {
     public abstract void setCookie(String url, String value);
 
     /**
-     * Sets a cookie for the given URL. Any existing cookie with the same host,
-     * path and name will be replaced with the new cookie. The cookie being set
-     * will be ignored if it is expired.
-     * <p>
-     * This method is asynchronous.
-     * If a {@link ValueCallback} is provided,
-     * {@link ValueCallback#onReceiveValue(T) onReceiveValue()} will be called on the current
+     * Sets a single cookie (key-value pair) for the given URL. Any existing cookie with the same
+     * host, path and name will be replaced with the new cookie. The cookie being set
+     * will be ignored if it is expired. To set multiple cookies, your application should invoke
+     * this method multiple times.
+     *
+     * <p>The {@code value} parameter must follow the format of the {@code Set-Cookie} HTTP response
+     * header. This is a key-value pair of the form {@code "key=value"}, optionally followed by a
+     * list of cookie attributes delimited with semicolons (ex. {@code "key=value; Max-Age=123"}).
+     * For the header format and attributes supported by WebView, see the <a href=
+     * "https://developer.mozilla.org/docs/Web/HTTP/Headers/Set-Cookie">{@code Set-Cookie}
+     * documentation on MDN</a>.
+     *
+     * <p>This method is asynchronous. If a {@link ValueCallback} is provided,
+     * {@link ValueCallback#onReceiveValue} will be called on the current
      * thread's {@link android.os.Looper} once the operation is complete.
      * The value provided to the callback indicates whether the cookie was set successfully.
      * You can pass {@code null} as the callback if you don't need to know when the operation
      * completes or whether it succeeded, and in this case it is safe to call the method from a
      * thread without a Looper.
+     *
+     * <p class="note">
+     * <b>Notes:</b>
+     * <ul>
+     * <li>If specifying a {@code value} containing the {@code "Secure"} attribute,
+     * {@code url} must use the {@code "https://"} scheme.</li>
+     * <li>if specifying a {@code value} containing the {@code "Partitioned"}
+     * attribute, the cookie will be set for the top-level partition of the
+     * {@code url}.</li>
+     * </ul>
      *
      * @param url the URL for which the cookie is to be set
      * @param value the cookie as a string, using the format of the 'Set-Cookie'
@@ -121,7 +166,14 @@ public abstract class CookieManager {
             callback);
 
     /**
-     * Gets the cookies for the given URL.
+     * Gets all the cookies for the given URL. This may return multiple key-value pairs if multiple
+     * cookies are associated with this URL, in which case each cookie will be delimited by {@code
+     * "; "} characters (semicolon followed by a space). Each key-value pair will be of the form
+     * {@code "key=value"}.
+     *
+     * <p class="note">
+     * <b>Note:</b> Any cookies set with the {@code "Partitioned"} attribute will only be returned
+     * for the top-level partition of {@code url}.
      *
      * @param url the URL for which the cookies are requested
      * @return value the cookies as a string, using the format of the 'Cookie'
@@ -138,6 +190,7 @@ public abstract class CookieManager {
      *               HTTP request header
      * @hide Used by Browser and by WebViewProvider implementations.
      */
+    @SuppressWarnings("HiddenAbstractMethod")
     @SystemApi
     public abstract String getCookie(String url, boolean privateBrowsing);
 
@@ -214,6 +267,7 @@ public abstract class CookieManager {
      * @param privateBrowsing whether to use the private browsing cookie jar
      * @hide Used by Browser and WebViewProvider implementations.
      */
+    @SuppressWarnings("HiddenAbstractMethod")
     @SystemApi
     public abstract boolean hasCookies(boolean privateBrowsing);
 
@@ -248,21 +302,33 @@ public abstract class CookieManager {
      *
      * @hide Only for use by WebViewProvider implementations
      */
+    @SuppressWarnings("HiddenAbstractMethod")
     @SystemApi
     protected abstract boolean allowFileSchemeCookiesImpl();
 
     /**
-     * Sets whether the application's {@link WebView} instances should send and
-     * accept cookies for file scheme URLs.
-     * Use of cookies with file scheme URLs is potentially insecure and turned
-     * off by default.
-     * Do not use this feature unless you can be sure that no unintentional
-     * sharing of cookie data can take place.
+     * Sets whether the application's {@link WebView} instances should send and accept cookies for
+     * file scheme URLs.
      * <p>
-     * Note that calls to this method will have no effect if made after a
-     * {@link WebView} or CookieManager instance has been created.
+     * Use of cookies with file scheme URLs is potentially insecure and turned off by default. All
+     * {@code file://} URLs share all their cookies, which may lead to leaking private app cookies
+     * (ex. any malicious file can access cookies previously set by other (trusted) files).
+     * <p class="note">
+     * Loading content via {@code file://} URLs is generally discouraged. See the note in
+     * {@link WebSettings#setAllowFileAccess}.
+     * Using <a href="{@docRoot}reference/androidx/webkit/WebViewAssetLoader.html">
+     * androidx.webkit.WebViewAssetLoader</a> to load files over {@code http(s)://} URLs allows
+     * the standard web security model to be used for setting and sharing cookies for local files.
+     * <p>
+     * Note that calls to this method will have no effect if made after calling other
+     * {@link CookieManager} APIs.
+     *
+     * @deprecated This setting is not secure, please use
+     *             <a href="{@docRoot}reference/androidx/webkit/WebViewAssetLoader.html">
+     *             androidx.webkit.WebViewAssetLoader</a> instead.
      */
     // Static for backward compatibility.
+    @Deprecated
     public static void setAcceptFileSchemeCookies(boolean accept) {
         getInstance().setAcceptFileSchemeCookiesImpl(accept);
     }
@@ -272,6 +338,7 @@ public abstract class CookieManager {
      *
      * @hide Only for use by WebViewProvider implementations
      */
+    @SuppressWarnings("HiddenAbstractMethod")
     @SystemApi
     protected abstract void setAcceptFileSchemeCookiesImpl(boolean accept);
 }

@@ -33,6 +33,9 @@ import java.util.Arrays;
  * </pre>
  *
  * @see AudioStream
+ *
+ * @deprecated {@link android.net.sip.SipManager} and associated classes are no longer
+ * supported and should not be used as the basis of future VOIP apps.
  */
 public class AudioCodec {
     /**

@@ -27,7 +27,7 @@ package java.net;
 import android.system.ErrnoException;
 import android.system.GaiException;
 import android.system.StructAddrinfo;
-import android.system.StructIcmpHdr;
+import android.system.IcmpHeaders;
 
 import dalvik.system.BlockGuard;
 
@@ -36,6 +36,7 @@ import libcore.io.Libcore;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
+import libcore.net.InetAddressUtils;
 
 import static android.system.OsConstants.AF_INET;
 import static android.system.OsConstants.AF_INET6;
@@ -43,6 +44,7 @@ import static android.system.OsConstants.AF_UNSPEC;
 import static android.system.OsConstants.AI_ADDRCONFIG;
 import static android.system.OsConstants.EACCES;
 import static android.system.OsConstants.ECONNREFUSED;
+import static android.system.OsConstants.EPERM;
 import static android.system.OsConstants.NI_NAMEREQD;
 import static android.system.OsConstants.ICMP6_ECHO_REPLY;
 import static android.system.OsConstants.ICMP_ECHOREPLY;
@@ -93,12 +95,8 @@ class Inet6AddressImpl implements InetAddressImpl {
         }
 
         // Is it a numeric address?
-        InetAddress result = InetAddress.parseNumericAddressNoThrow(host);
+        InetAddress result = InetAddressUtils.parseNumericAddressNoThrowStripOptionalBrackets(host);
         if (result != null) {
-            result = InetAddress.disallowDeprecatedFormats(host, result);
-            if (result == null) {
-                throw new UnknownHostException("Deprecated IPv4 address format: " + host);
-            }
             return new InetAddress[] { result };
         }
 
@@ -147,7 +145,8 @@ class Inet6AddressImpl implements InetAddressImpl {
             // SecurityException to aid in debugging this common mistake.
             // http://code.google.com/p/android/issues/detail?id=15722
             if (gaiException.getCause() instanceof ErrnoException) {
-                if (((ErrnoException) gaiException.getCause()).errno == EACCES) {
+                int errno = ((ErrnoException) gaiException.getCause()).errno;
+                if (errno == EACCES || errno == EPERM) {
                     throw new SecurityException("Permission denied (missing INTERNET permission?)", gaiException);
                 }
             }
@@ -259,12 +258,12 @@ class Inet6AddressImpl implements InetAddressImpl {
             byte[] packet;
 
             // ICMP is unreliable, try sending requests every second until timeout.
-            for (int to = timeout, seq = 0; to > 0; ++seq) {
+            for (int to = timeout, seq = 1; to > 0; ++seq) {
                 int sockTo = to >= 1000 ? 1000 : to;
 
                 IoBridge.setSocketOption(fd, SocketOptions.SO_TIMEOUT, sockTo);
 
-                packet = StructIcmpHdr.IcmpEchoHdr(isIPv4, seq).getBytes();
+                packet = IcmpHeaders.createIcmpEchoHdr(isIPv4, seq);
                 IoBridge.sendto(fd, packet, 0, packet.length, 0, addr, 0);
                 final int icmpId = IoBridge.getLocalInetSocketAddress(fd).getPort();
 
@@ -278,11 +277,11 @@ class Inet6AddressImpl implements InetAddressImpl {
                     if (receivedPacket.getAddress().equals(addr)
                             && received[0] == expectedType
                             && received[4] == (byte) (icmpId >> 8)
-                            && received[5] == (byte) icmpId
-                            && received[6] == (byte) (seq >> 8)
-                            && received[7] == (byte) seq) {
-                        // This is the packet we're expecting.
-                        return true;
+                            && received[5] == (byte) icmpId) {
+                        int receivedSequence = ((received[6] & 0xff) << 8) + (received[7] & 0xff);
+                        if (receivedSequence <= seq) {
+                            return true;
+                        }
                     }
                 }
                 to -= sockTo;

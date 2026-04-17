@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2025, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2009 Google Inc.  All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -305,11 +305,11 @@ class ComparableTimSort {
      * @param a the array in which a run is to be counted and possibly reversed
      * @param lo index of the first element in the run
      * @param hi index after the last element that may be contained in the run.
-              It is required that {@code lo < hi}.
+     *        It is required that {@code lo < hi}.
      * @return  the length of the run beginning at the specified position in
      *          the specified array
      */
-    @SuppressWarnings({"unchecked", "rawtypes"})
+    @SuppressWarnings("unchecked")
     private static int countRunAndMakeAscending(Object[] a, int lo, int hi) {
         assert lo < hi;
         int runHi = lo + 1;
@@ -394,19 +394,23 @@ class ComparableTimSort {
      * This method is called each time a new run is pushed onto the stack,
      * so the invariants are guaranteed to hold for i < stackSize upon
      * entry to the method.
+     *
+     * Thanks to Stijn de Gouw, Jurriaan Rot, Frank S. de Boer,
+     * Richard Bubel and Reiner Hahnle, this is fixed with respect to
+     * the analysis in "On the Worst-Case Complexity of TimSort" by
+     * Nicolas Auger, Vincent Jug, Cyril Nicaud, and Carine Pivoteau.
      */
     private void mergeCollapse() {
         while (stackSize > 1) {
             int n = stackSize - 2;
-            if (n > 0 && runLen[n-1] <= runLen[n] + runLen[n+1]) {
+            if (n > 0 && runLen[n-1] <= runLen[n] + runLen[n+1] ||
+                n > 1 && runLen[n-2] <= runLen[n] + runLen[n-1]) {
                 if (runLen[n - 1] < runLen[n + 1])
                     n--;
-                mergeAt(n);
-            } else if (runLen[n] <= runLen[n + 1]) {
-                mergeAt(n);
-            } else {
+            } else if (n < 0 || runLen[n] > runLen[n + 1]) {
                 break; // Invariant is established
             }
+            mergeAt(n);
         }
     }
 
@@ -644,7 +648,7 @@ class ComparableTimSort {
      *        (must be aBase + aLen)
      * @param len2  length of second run to be merged (must be > 0)
      */
-    @SuppressWarnings({"unchecked", "rawtypes"})
+    @SuppressWarnings("unchecked")
     private void mergeLo(int base1, int len1, int base2, int len2) {
         assert len1 > 0 && len2 > 0 && base1 + len1 == base2;
 
@@ -761,7 +765,7 @@ class ComparableTimSort {
      *        (must be aBase + aLen)
      * @param len2  length of second run to be merged (must be > 0)
      */
-    @SuppressWarnings({"unchecked", "rawtypes"})
+    @SuppressWarnings("unchecked")
     private void mergeHi(int base1, int len1, int base2, int len2) {
         assert len1 > 0 && len2 > 0 && base1 + len1 == base2;
 
@@ -883,12 +887,7 @@ class ComparableTimSort {
     private Object[]  ensureCapacity(int minCapacity) {
         if (tmpLen < minCapacity) {
             // Compute smallest power of 2 > minCapacity
-            int newSize = minCapacity;
-            newSize |= newSize >> 1;
-            newSize |= newSize >> 2;
-            newSize |= newSize >> 4;
-            newSize |= newSize >> 8;
-            newSize |= newSize >> 16;
+            int newSize = -1 >>> Integer.numberOfLeadingZeros(minCapacity);
             newSize++;
 
             if (newSize < 0) // Not bloody likely!
@@ -896,7 +895,7 @@ class ComparableTimSort {
             else
                 newSize = Math.min(newSize, a.length >>> 1);
 
-            @SuppressWarnings({"unchecked", "UnnecessaryLocalVariable"})
+            @SuppressWarnings("UnnecessaryLocalVariable")
             Object[] newArray = new Object[newSize];
             tmp = newArray;
             tmpLen = newSize;

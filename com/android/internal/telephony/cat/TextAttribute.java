@@ -20,7 +20,7 @@ package com.android.internal.telephony.cat;
 /**
  * Class for representing text attributes for SIM Toolkit.
  *
- * {@hide}
+ * @hide
  */
 public class TextAttribute {
     public int start;

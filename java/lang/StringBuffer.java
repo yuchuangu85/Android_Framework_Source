@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,15 @@
 
 package java.lang;
 
+import dalvik.annotation.optimization.NeverInline;
 import java.util.Arrays;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.ObjectStreamField;
+import java.io.Serializable;
+import java.io.StreamCorruptedException;
+import jdk.internal.HotSpotIntrinsicCandidate;
 
 /**
  * A thread-safe, mutable sequence of characters.
@@ -89,21 +97,29 @@ import java.util.Arrays;
  * this one, as it supports all of the same operations but it is faster, as
  * it performs no synchronization.
  *
+ * @apiNote
+ * {@code StringBuffer} implements {@code Comparable} but does not override
+ * {@link Object#equals equals}. Thus, the natural ordering of {@code StringBuffer}
+ * is inconsistent with equals. Care should be exercised if {@code StringBuffer}
+ * objects are used as keys in a {@code SortedMap} or elements in a {@code SortedSet}.
+ * See {@link Comparable}, {@link java.util.SortedMap SortedMap}, or
+ * {@link java.util.SortedSet SortedSet} for more information.
+ *
  * @author      Arthur van Hoff
  * @see     java.lang.StringBuilder
  * @see     java.lang.String
- * @since   JDK1.0
+ * @since   1.0
  */
  public final class StringBuffer
     extends AbstractStringBuilder
-    implements java.io.Serializable, CharSequence
+    implements Serializable, Comparable<StringBuffer>, CharSequence
 {
 
     /**
      * A cache of the last value returned by toString. Cleared
      * whenever the StringBuffer is modified.
      */
-    private transient char[] toStringCache;
+    private transient String toStringCache;
 
     /** use serialVersionUID from JDK 1.0.2 for interoperability */
     static final long serialVersionUID = 3388685877147921107L;
@@ -112,6 +128,7 @@ import java.util.Arrays;
      * Constructs a string buffer with no characters in it and an
      * initial capacity of 16 characters.
      */
+    @HotSpotIntrinsicCandidate
     public StringBuffer() {
         super(16);
     }
@@ -121,9 +138,10 @@ import java.util.Arrays;
      * the specified initial capacity.
      *
      * @param      capacity  the initial capacity.
-     * @exception  NegativeArraySizeException  if the {@code capacity}
-     *               argument is less than {@code 0}.
+     * @throws     NegativeArraySizeException  if the {@code capacity}
+     *             argument is less than {@code 0}.
      */
+    @HotSpotIntrinsicCandidate
     public StringBuffer(int capacity) {
         super(capacity);
     }
@@ -135,6 +153,7 @@ import java.util.Arrays;
      *
      * @param   str   the initial contents of the buffer.
      */
+    @HotSpotIntrinsicCandidate
     public StringBuffer(String str) {
         super(str.length() + 16);
         append(str);
@@ -158,14 +177,46 @@ import java.util.Arrays;
         append(seq);
     }
 
+    /**
+     * Compares two {@code StringBuffer} instances lexicographically. This method
+     * follows the same rules for lexicographical comparison as defined in the
+     * {@linkplain java.lang.CharSequence#compare(java.lang.CharSequence,
+     * java.lang.CharSequence)  CharSequence.compare(this, another)} method.
+     *
+     * <p>
+     * For finer-grained, locale-sensitive String comparison, refer to
+     * {@link java.text.Collator}.
+     *
+     * @implNote
+     * This method synchronizes on {@code this}, the current object, but not
+     * {@code StringBuffer another} with which {@code this StringBuffer} is compared.
+     *
+     * @param another the {@code StringBuffer} to be compared with
+     *
+     * @return  the value {@code 0} if this {@code StringBuffer} contains the same
+     * character sequence as that of the argument {@code StringBuffer}; a negative integer
+     * if this {@code StringBuffer} is lexicographically less than the
+     * {@code StringBuffer} argument; or a positive integer if this {@code StringBuffer}
+     * is lexicographically greater than the {@code StringBuffer} argument.
+     *
+     * @since 11
+     */
     @Override
+    public synchronized int compareTo(StringBuffer another) {
+        return super.compareTo(another);
+    }
+
+    @Override
+    // We don't want to inline this method to be able to perform String-related
+    // optimizations with intrinsics.
+    @NeverInline
     public synchronized int length() {
         return count;
     }
 
     @Override
     public synchronized int capacity() {
-        return value.length;
+        return super.capacity();
     }
 
 
@@ -198,12 +249,11 @@ import java.util.Arrays;
      */
     @Override
     public synchronized char charAt(int index) {
-        if ((index < 0) || (index >= count))
-            throw new StringIndexOutOfBoundsException(index);
-        return value[index];
+        return super.charAt(index);
     }
 
     /**
+     * @throws IndexOutOfBoundsException {@inheritDoc}
      * @since      1.5
      */
     @Override
@@ -212,6 +262,7 @@ import java.util.Arrays;
     }
 
     /**
+     * @throws IndexOutOfBoundsException {@inheritDoc}
      * @since     1.5
      */
     @Override
@@ -220,6 +271,7 @@ import java.util.Arrays;
     }
 
     /**
+     * @throws IndexOutOfBoundsException {@inheritDoc}
      * @since     1.5
      */
     @Override
@@ -228,6 +280,7 @@ import java.util.Arrays;
     }
 
     /**
+     * @throws IndexOutOfBoundsException {@inheritDoc}
      * @since     1.5
      */
     @Override
@@ -251,10 +304,8 @@ import java.util.Arrays;
      */
     @Override
     public synchronized void setCharAt(int index, char ch) {
-        if ((index < 0) || (index >= count))
-            throw new StringIndexOutOfBoundsException(index);
         toStringCache = null;
-        value[index] = ch;
+        super.setCharAt(index, ch);
     }
 
     @Override
@@ -265,6 +316,10 @@ import java.util.Arrays;
     }
 
     @Override
+    @HotSpotIntrinsicCandidate
+    // We don't want to inline this method to be able to perform String-related
+    // optimizations with intrinsics.
+    @NeverInline
     public synchronized StringBuffer append(String str) {
         toStringCache = null;
         super.append(str);
@@ -376,6 +431,7 @@ import java.util.Arrays;
     }
 
     @Override
+    @HotSpotIntrinsicCandidate
     public synchronized StringBuffer append(char c) {
         toStringCache = null;
         super.append(c);
@@ -383,6 +439,7 @@ import java.util.Arrays;
     }
 
     @Override
+    @HotSpotIntrinsicCandidate
     public synchronized StringBuffer append(int i) {
         toStringCache = null;
         super.append(i);
@@ -654,7 +711,7 @@ import java.util.Arrays;
     }
 
     /**
-     * @since   JDK1.0.2
+     * @since   1.0.2
      */
     @Override
     public synchronized StringBuffer reverse() {
@@ -663,12 +720,40 @@ import java.util.Arrays;
         return this;
     }
 
+    /**
+     * @throws IllegalArgumentException {@inheritDoc}
+     *
+     * @since 21
+     */
     @Override
+    public synchronized StringBuffer repeat(int codePoint, int count) {
+        toStringCache = null;
+        super.repeat(codePoint, count);
+        return this;
+    }
+
+    /**
+     * @throws IllegalArgumentException {@inheritDoc}
+     *
+     * @since 21
+     */
+    @Override
+    public synchronized StringBuffer repeat(CharSequence cs, int count) {
+        toStringCache = null;
+        super.repeat(cs, count);
+        return this;
+    }
+
+    @Override
+    @HotSpotIntrinsicCandidate
+    @NeverInline
     public synchronized String toString() {
         if (toStringCache == null) {
-            toStringCache = Arrays.copyOfRange(value, 0, count);
+            return toStringCache =
+                    isLatin1() ? StringLatin1.newString(value, 0, count)
+                               : StringUTF16.newString(value, 0, count);
         }
-        return new String(toStringCache, 0, count);
+        return new String(toStringCache);
     }
 
     /**
@@ -682,34 +767,50 @@ import java.util.Arrays;
      *              A flag indicating whether the backing array is shared.
      *              The value is ignored upon deserialization.
      */
-    private static final java.io.ObjectStreamField[] serialPersistentFields =
+    private static final ObjectStreamField[] serialPersistentFields =
     {
-        new java.io.ObjectStreamField("value", char[].class),
-        new java.io.ObjectStreamField("count", Integer.TYPE),
-        new java.io.ObjectStreamField("shared", Boolean.TYPE),
+        new ObjectStreamField("value", char[].class),
+        new ObjectStreamField("count", Integer.TYPE),
+        new ObjectStreamField("shared", Boolean.TYPE),
     };
 
     /**
-     * readObject is called to restore the state of the StringBuffer from
-     * a stream.
+     * The {@code writeObject} method is called to write the state of the
+     * {@code StringBuffer} to a stream.
      */
-    private synchronized void writeObject(java.io.ObjectOutputStream s)
-        throws java.io.IOException {
-        java.io.ObjectOutputStream.PutField fields = s.putFields();
-        fields.put("value", value);
+    private synchronized void writeObject(ObjectOutputStream s)
+        throws IOException {
+        ObjectOutputStream.PutField fields = s.putFields();
+        char[] val = new char[capacity()];
+        if (isLatin1()) {
+            StringLatin1.getChars(value, 0, count, val, 0);
+        } else {
+            StringUTF16.getChars(value, 0, count, val, 0);
+        }
+        fields.put("value", val);
         fields.put("count", count);
         fields.put("shared", false);
         s.writeFields();
     }
 
     /**
-     * readObject is called to restore the state of the StringBuffer from
-     * a stream.
+     * The {@code readObject} method is called to restore the state of the
+     * {@code StringBuffer} from a stream.
      */
-    private void readObject(java.io.ObjectInputStream s)
-        throws java.io.IOException, ClassNotFoundException {
-        java.io.ObjectInputStream.GetField fields = s.readFields();
-        value = (char[])fields.get("value", null);
-        count = fields.get("count", 0);
+    private void readObject(ObjectInputStream s)
+        throws IOException, ClassNotFoundException {
+        ObjectInputStream.GetField fields = s.readFields();
+        char[] val = (char[])fields.get("value", null);
+        int c = fields.get("count", 0);
+        if (c < 0 || c > val.length) {
+            throw new StreamCorruptedException("count value invalid");
+        }
+        initBytes(val, 0, val.length);
+        count = c;
+        // ignore shared field
+    }
+
+    synchronized void getBytes(byte dst[], int dstBegin, byte coder) {
+        super.getBytes(dst, dstBegin, coder);
     }
 }

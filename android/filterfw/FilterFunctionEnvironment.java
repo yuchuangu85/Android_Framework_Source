@@ -68,7 +68,7 @@ public class FilterFunctionEnvironment extends MffEnvironment {
         return new FilterFunction(getContext(), filter);
     }
 
-    /**
+    /*
      * Convenience method to execute a sequence of filter functions. Note that every function in
      * the list MUST have one input and one output port, except the first filter (which must not
      * have any input ports) and the last filter (which may not have any output ports).

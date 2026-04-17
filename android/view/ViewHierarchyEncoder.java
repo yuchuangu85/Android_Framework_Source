@@ -2,6 +2,7 @@ package android.view;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -65,8 +66,14 @@ public class ViewHierarchyEncoder {
     private short mPropertyId = 1;
     private Charset mCharset = Charset.forName("utf-8");
 
+    private boolean mUserPropertiesEnabled = true;
+
     public ViewHierarchyEncoder(@NonNull ByteArrayOutputStream stream) {
         mStream = new DataOutputStream(stream);
+    }
+
+    public void setUserPropertiesEnabled(boolean enabled) {
+        mUserPropertiesEnabled = enabled;
     }
 
     public void beginObject(@NonNull Object o) {
@@ -90,6 +97,7 @@ public class ViewHierarchyEncoder {
         endPropertyMap();
     }
 
+    @UnsupportedAppUsage
     public void addProperty(@NonNull String name, boolean v) {
         writeShort(createPropertyIndex(name));
         writeBoolean(v);
@@ -100,19 +108,33 @@ public class ViewHierarchyEncoder {
         writeShort(s);
     }
 
+    @UnsupportedAppUsage
     public void addProperty(@NonNull String name, int v) {
         writeShort(createPropertyIndex(name));
         writeInt(v);
     }
 
+    @UnsupportedAppUsage
     public void addProperty(@NonNull String name, float v) {
         writeShort(createPropertyIndex(name));
         writeFloat(v);
     }
 
+    @UnsupportedAppUsage
     public void addProperty(@NonNull String name, @Nullable String s) {
         writeShort(createPropertyIndex(name));
         writeString(s);
+    }
+
+    /**
+     * Encodes a user defined property if they are allowed to be encoded
+     *
+     * @see #setUserPropertiesEnabled(boolean)
+     */
+    public void addUserProperty(@NonNull String name, @Nullable String s) {
+        if (mUserPropertiesEnabled) {
+            addProperty(name, s);
+        }
     }
 
     /**

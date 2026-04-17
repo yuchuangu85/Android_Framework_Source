@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.cat;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 public class CatResponseMessage {
         CommandDetails mCmdDet = null;
         ResultCode mResCode  = ResultCode.OK;
@@ -44,6 +46,7 @@ public class CatResponseMessage {
             mUsersInput = input;
         }
 
+        @UnsupportedAppUsage
         public void setEventDownload(int event, byte[] addedInfo) {
             this.mEventValue = event;
             this.mAddedInfo = addedInfo;

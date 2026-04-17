@@ -16,6 +16,18 @@
 
 package android.media;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 /**
  * An audio port is a node of the audio framework or hardware that can be connected to or
  * disconnect from another audio node to create a specific audio routing configuration.
@@ -35,6 +47,7 @@ package android.media;
  *
  * @hide
  */
+@RavenwoodKeepWholeClass
 public class AudioPort {
     private static final String TAG = "AudioPort";
 
@@ -66,28 +79,71 @@ public class AudioPort {
     public static final int TYPE_SESSION = 3;
 
 
+    @UnsupportedAppUsage
     AudioHandle mHandle;
+    @UnsupportedAppUsage
     protected final int mRole;
     private final String mName;
     private final int[] mSamplingRates;
-    private final int[] mChannelMasks;
-    private final int[] mChannelIndexMasks;
+    private final AudioFormat.ChannelMasksArray mChannelMasks;
     private final int[] mFormats;
+    private final List<AudioProfile> mProfiles;
+    private final List<AudioDescriptor> mDescriptors;
+    @UnsupportedAppUsage
     private final AudioGain[] mGains;
+    @UnsupportedAppUsage
     private AudioPortConfig mActiveConfig;
 
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     AudioPort(AudioHandle handle, int role, String name,
             int[] samplingRates, int[] channelMasks, int[] channelIndexMasks,
             int[] formats, AudioGain[] gains) {
+        this(handle, role, name, samplingRates,
+                new AudioFormat.ChannelMasksArray(channelMasks, channelIndexMasks),
+                formats, gains);
+    }
 
+    AudioPort(AudioHandle handle, int role, String name,
+            int[] samplingRates, AudioFormat.ChannelMasksArray channelMasks,
+            int[] formats, AudioGain[] gains) {
         mHandle = handle;
         mRole = role;
         mName = name;
         mSamplingRates = samplingRates;
-        mChannelMasks = channelMasks;
-        mChannelIndexMasks = channelIndexMasks;
+        mChannelMasks = channelMasks != null ? channelMasks : new AudioFormat.ChannelMasksArray();
         mFormats = formats;
         mGains = gains;
+        mProfiles = new ArrayList<>();
+        if (mFormats != null) {
+            for (int format : mFormats) {
+                mProfiles.add(new AudioProfile(format, samplingRates, channelMasks,
+                                               AudioProfile.AUDIO_ENCAPSULATION_TYPE_NONE));
+            }
+        }
+        mDescriptors = new ArrayList<>();
+    }
+
+    AudioPort(AudioHandle handle, int role, String name,
+              List<AudioProfile> profiles, AudioGain[] gains,
+              List<AudioDescriptor> descriptors) {
+        mHandle = handle;
+        mRole = role;
+        mName = name;
+        mProfiles = profiles;
+        mDescriptors = descriptors;
+        mGains = gains;
+        Set<Integer> formats = new HashSet<>();
+        Set<Integer> samplingRates = new HashSet<>();
+        for (AudioProfile profile : profiles) {
+            formats.add(profile.getFormat());
+            samplingRates.addAll(Arrays.stream(profile.getSampleRates()).boxed()
+                    .collect(Collectors.toList()));
+        }
+        mSamplingRates = samplingRates.stream().mapToInt(Number::intValue).toArray();
+        mChannelMasks = AudioFormat.ChannelMasksArray.mergeLists(
+                profiles.stream().map(AudioProfile::getChannelMasksArray).collect(
+                        Collectors.toList()));
+        mFormats = formats.stream().mapToInt(Number::intValue).toArray();
     }
 
     AudioHandle handle() {
@@ -97,6 +153,7 @@ public class AudioPort {
     /**
      * Get the system unique device ID.
      */
+    @UnsupportedAppUsage
     public int id() {
         return mHandle.id();
     }
@@ -105,6 +162,7 @@ public class AudioPort {
     /**
      * Get the audio port role
      */
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public int role() {
         return mRole;
     }
@@ -131,7 +189,7 @@ public class AudioPort {
      * Empty array if channel mask is not relevant for this audio port
      */
     public int[] channelMasks() {
-        return mChannelMasks;
+        return mChannelMasks.getPositionMasks();
     }
 
     /**
@@ -140,7 +198,25 @@ public class AudioPort {
      * Empty array if channel index mask is not relevant for this audio port
      */
     public int[] channelIndexMasks() {
-        return mChannelIndexMasks;
+        return mChannelMasks.getIndexMasks();
+    }
+
+    /**
+     * Get the list of supported Ambisonics channel mask configurations
+     * (e.g AudioFormat.CHANNEL_ACN_ORDER_1)
+     * Empty array if Ambisonics channel mask is not relevant for this audio port
+     * @hide
+     */
+    public int[] channelAcnMasks() {
+        return mChannelMasks.getAcnMasks();
+    }
+
+    /**
+     * Get the channel masks.
+     * @hide
+     */
+    public AudioFormat.ChannelMasksArray getChannelMasks() {
+        return mChannelMasks;
     }
 
     /**
@@ -150,6 +226,20 @@ public class AudioPort {
      */
     public int[] formats() {
         return mFormats;
+    }
+
+    /**
+     * Get the list of supported audio profiles
+     */
+    public List<AudioProfile> profiles() {
+        return mProfiles;
+    }
+
+    /**
+     * Get the list of audio descriptor
+     */
+    public List<AudioDescriptor> audioDescriptors() {
+        return mDescriptors;
     }
 
     /**
@@ -183,6 +273,23 @@ public class AudioPort {
     public AudioPortConfig buildConfig(int samplingRate, int channelMask, int format,
                                         AudioGainConfig gain) {
         return new AudioPortConfig(this, samplingRate, channelMask, format, gain);
+    }
+
+    /**
+     * Build a specific configuration of this audio port for use by methods
+     * like AudioManager.connectAudioPatch().
+     * @param samplingRate The sampling rate.
+     * @param channelMasks The desired channel mask. Use AudioFormat.ChannelMasks(
+     * AudioFormat.CHANNEL_OUT_DEFAULT, AudioFormat.CHANNEL_INVALID) if no change
+     * from active configuration requested.
+     * @param format The desired audio format. AudioFormat.ENCODING_DEFAULT if no change
+     * from active configuration requested.
+     * @param gain The desired gain. null if no gain changed requested.
+     */
+    public AudioPortConfig buildConfig(int samplingRate,
+                                        @NonNull AudioFormat.ChannelMasks channelMasks, int format,
+                                        AudioGainConfig gain) {
+        return new AudioPortConfig(this, samplingRate, channelMasks, format, gain);
     }
 
     /**

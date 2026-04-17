@@ -20,7 +20,7 @@ package com.android.internal.telephony.cat;
 /**
  * Enumeration for representing text alignment.
  *
- * {@hide}
+ * @hide
  */
 public enum TextAlignment {
     LEFT(0x0),

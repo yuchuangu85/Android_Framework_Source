@@ -16,6 +16,11 @@
 
 package android.media;
 
+import android.annotation.NonNull;
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Build;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
+
 /**
  * An AudioPortConfig contains a possible configuration of an audio port chosen
  * among all possible attributes described by an AudioPort.
@@ -29,11 +34,17 @@ package android.media;
  * @hide
  */
 
+@RavenwoodKeepWholeClass
 public class AudioPortConfig {
+    @UnsupportedAppUsage
     final AudioPort mPort;
+    @UnsupportedAppUsage
     private final int mSamplingRate;
-    private final int mChannelMask;
+    @UnsupportedAppUsage
+    @NonNull private final AudioFormat.ChannelMasks mChannelMasks;
+    @UnsupportedAppUsage
     private final int mFormat;
+    @UnsupportedAppUsage
     private final AudioGainConfig mGain;
 
     // mConfigMask indicates which fields in this configuration should be
@@ -43,13 +54,21 @@ public class AudioPortConfig {
     static final int CHANNEL_MASK = 0x2;
     static final int FORMAT       = 0x4;
     static final int GAIN         = 0x8;
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     int mConfigMask;
 
+    @UnsupportedAppUsage
     AudioPortConfig(AudioPort port, int samplingRate, int channelMask, int format,
             AudioGainConfig gain) {
+        this(port, samplingRate, new AudioFormat.ChannelMasks(channelMask), format, gain);
+    }
+
+    @UnsupportedAppUsage
+    AudioPortConfig(AudioPort port, int samplingRate,
+            @NonNull AudioFormat.ChannelMasks channelMasks, int format, AudioGainConfig gain) {
         mPort = port;
         mSamplingRate = samplingRate;
-        mChannelMask = channelMask;
+        mChannelMasks = channelMasks;
         mFormat = format;
         mGain = gain;
         mConfigMask = 0;
@@ -58,6 +77,7 @@ public class AudioPortConfig {
     /**
      * Returns the audio port this AudioPortConfig is issued from.
      */
+    @UnsupportedAppUsage
     public AudioPort port() {
         return mPort;
     }
@@ -73,7 +93,14 @@ public class AudioPortConfig {
      * Channel mask configuration (e.g AudioFormat.CHANNEL_CONFIGURATION_STEREO).
      */
     public int channelMask() {
-        return mChannelMask;
+        return mChannelMasks.getPositionMask();
+    }
+
+    /**
+     * Channel mask configuration.
+     */
+    public @NonNull AudioFormat.ChannelMasks channelMasks() {
+        return mChannelMasks;
     }
 
     /**
@@ -85,7 +112,6 @@ public class AudioPortConfig {
 
     /**
      * The gain configuration if this port supports gain control, null otherwise
-     * @see AudioGainConfig.
      */
     public AudioGainConfig gain() {
         return mGain;
@@ -95,7 +121,7 @@ public class AudioPortConfig {
     public String toString() {
         return "{mPort:" + mPort
                 + ", mSamplingRate:" + mSamplingRate
-                + ", mChannelMask: " + mChannelMask
+                + ", m" + mChannelMasks
                 + ", mFormat:" + mFormat
                 + ", mGain:" + mGain
                 + "}";

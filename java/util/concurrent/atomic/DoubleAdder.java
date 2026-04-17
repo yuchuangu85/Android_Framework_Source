@@ -87,18 +87,19 @@ public class DoubleAdder extends Striped64 implements Serializable {
      * @param x the value to add
      */
     public void add(double x) {
-        Cell[] as; long b, v; int m; Cell a;
-        if ((as = cells) != null ||
+        Cell[] cs; long b, v; int m; Cell c;
+        if ((cs = cells) != null ||
             !casBase(b = base,
                      Double.doubleToRawLongBits
                      (Double.longBitsToDouble(b) + x))) {
+            int index = getProbe();
             boolean uncontended = true;
-            if (as == null || (m = as.length - 1) < 0 ||
-                (a = as[getProbe() & m]) == null ||
-                !(uncontended = a.cas(v = a.value,
+            if (cs == null || (m = cs.length - 1) < 0 ||
+                (c = cs[index & m]) == null ||
+                !(uncontended = c.cas(v = c.value,
                                       Double.doubleToRawLongBits
                                       (Double.longBitsToDouble(v) + x))))
-                doubleAccumulate(x, null, uncontended);
+                doubleAccumulate(x, null, uncontended, index);
         }
     }
 
@@ -115,12 +116,12 @@ public class DoubleAdder extends Striped64 implements Serializable {
      * @return the sum
      */
     public double sum() {
-        Cell[] as = cells;
+        Cell[] cs = cells;
         double sum = Double.longBitsToDouble(base);
-        if (as != null) {
-            for (Cell a : as)
-                if (a != null)
-                    sum += Double.longBitsToDouble(a.value);
+        if (cs != null) {
+            for (Cell c : cs)
+                if (c != null)
+                    sum += Double.longBitsToDouble(c.value);
         }
         return sum;
     }
@@ -133,12 +134,12 @@ public class DoubleAdder extends Striped64 implements Serializable {
      * known that no threads are concurrently updating.
      */
     public void reset() {
-        Cell[] as = cells;
+        Cell[] cs = cells;
         base = 0L; // relies on fact that double 0 must have same rep as long
-        if (as != null) {
-            for (Cell a : as)
-                if (a != null)
-                    a.reset();
+        if (cs != null) {
+            for (Cell c : cs)
+                if (c != null)
+                    c.reset();
         }
     }
 
@@ -153,16 +154,12 @@ public class DoubleAdder extends Striped64 implements Serializable {
      * @return the sum
      */
     public double sumThenReset() {
-        Cell[] as = cells;
-        double sum = Double.longBitsToDouble(base);
-        base = 0L;
-        if (as != null) {
-            for (Cell a : as) {
-                if (a != null) {
-                    long v = a.value;
-                    a.reset();
-                    sum += Double.longBitsToDouble(v);
-                }
+        Cell[] cs = cells;
+        double sum = Double.longBitsToDouble(getAndSetBase(0L));
+        if (cs != null) {
+            for (Cell c : cs) {
+                if (c != null)
+                    sum += Double.longBitsToDouble(c.getAndSet(0L));
             }
         }
         return sum;
@@ -243,7 +240,7 @@ public class DoubleAdder extends Striped64 implements Serializable {
 
     /**
      * Returns a
-     * <a href="../../../../serialized-form.html#java.util.concurrent.atomic.DoubleAdder.SerializationProxy">
+     * <a href="{@docRoot}/serialized-form.html#java.util.concurrent.atomic.DoubleAdder.SerializationProxy">
      * SerializationProxy</a>
      * representing the state of this instance.
      *

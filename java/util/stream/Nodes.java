@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,11 +24,12 @@
  */
 package java.util.stream;
 
+import jdk.internal.util.ArraysSupport;
+
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Deque;
-import java.util.List;
 import java.util.Objects;
 import java.util.Spliterator;
 import java.util.Spliterators;
@@ -58,7 +59,7 @@ final class Nodes {
     /**
      * The maximum size of an array that can be allocated.
      */
-    static final long MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8;
+    static final long MAX_ARRAY_SIZE = ArraysSupport.SOFT_MAX_ARRAY_LENGTH;
 
     // IllegalArgumentException messages
     static final String BAD_SIZE = "Stream size exceeds max array size";
@@ -68,6 +69,14 @@ final class Nodes {
     private static final Node.OfInt EMPTY_INT_NODE = new EmptyNode.OfInt();
     private static final Node.OfLong EMPTY_LONG_NODE = new EmptyNode.OfLong();
     private static final Node.OfDouble EMPTY_DOUBLE_NODE = new EmptyNode.OfDouble();
+
+    /**
+     * @return an array generator for an array whose elements are of type T.
+     */
+    @SuppressWarnings("unchecked")
+    static <T> IntFunction<T[]> castingArray() {
+        return size -> (T[]) new Object[size];
+    }
 
     // General shape-based node creation methods
 
@@ -170,7 +179,7 @@ final class Nodes {
     }
 
     /**
-     * Produces a variable size @{link Node.Builder}.
+     * Produces a variable size {@link Node.Builder}.
      *
      * @param <T> the type of elements of the node builder
      * @return a {@code Node.Builder}
@@ -208,7 +217,7 @@ final class Nodes {
     }
 
     /**
-     * Produces a variable size @{link Node.Builder.OfInt}.
+     * Produces a variable size {@link Node.Builder.OfInt}.
      *
      * @return a {@code Node.Builder.OfInt}
      */
@@ -245,7 +254,7 @@ final class Nodes {
     }
 
     /**
-     * Produces a variable size @{link Node.Builder.OfLong}.
+     * Produces a variable size {@link Node.Builder.OfLong}.
      *
      * @return a {@code Node.Builder.OfLong}
      */
@@ -282,7 +291,7 @@ final class Nodes {
     }
 
     /**
-     * Produces a variable size @{link Node.Builder.OfDouble}.
+     * Produces a variable size {@link Node.Builder.OfDouble}.
      *
      * @return a {@code Node.Builder.OfDouble}
      */
@@ -554,7 +563,7 @@ final class Nodes {
 
     // Implementations
 
-    private static abstract class EmptyNode<T, T_ARR, T_CONS> implements Node<T> {
+    private abstract static class EmptyNode<T, T_ARR, T_CONS> implements Node<T> {
         EmptyNode() { }
 
         @Override
@@ -582,6 +591,7 @@ final class Nodes {
             }
         }
 
+        @SuppressWarnings("overloads")
         private static final class OfInt
                 extends EmptyNode<Integer, int[], IntConsumer>
                 implements Node.OfInt {
@@ -599,6 +609,7 @@ final class Nodes {
             }
         }
 
+        @SuppressWarnings("overloads")
         private static final class OfLong
                 extends EmptyNode<Long, long[], LongConsumer>
                 implements Node.OfLong {
@@ -616,6 +627,7 @@ final class Nodes {
             }
         }
 
+        @SuppressWarnings("overloads")
         private static final class OfDouble
                 extends EmptyNode<Double, double[], DoubleConsumer>
                 implements Node.OfDouble {
@@ -639,7 +651,6 @@ final class Nodes {
         final T[] array;
         int curSize;
 
-        @SuppressWarnings("unchecked")
         ArrayNode(long size, IntFunction<T[]> generator) {
             if (size >= MAX_ARRAY_SIZE)
                 throw new IllegalArgumentException(BAD_SIZE);
@@ -716,7 +727,6 @@ final class Nodes {
         }
 
         @Override
-        @SuppressWarnings("unchecked")
         public T[] asArray(IntFunction<T[]> generator) {
             return c.toArray(generator.apply(c.size()));
         }
@@ -742,7 +752,7 @@ final class Nodes {
     /**
      * Node class for an internal node with two or more children
      */
-    private static abstract class AbstractConcNode<T, T_NODE extends Node<T>> implements Node<T> {
+    private abstract static class AbstractConcNode<T, T_NODE extends Node<T>> implements Node<T> {
         protected final T_NODE left;
         protected final T_NODE right;
         private final long size;
@@ -880,6 +890,7 @@ final class Nodes {
             }
         }
 
+        @SuppressWarnings("overloads")
         static final class OfInt
                 extends ConcNode.OfPrimitive<Integer, IntConsumer, int[], Spliterator.OfInt, Node.OfInt>
                 implements Node.OfInt {
@@ -894,6 +905,7 @@ final class Nodes {
             }
         }
 
+        @SuppressWarnings("overloads")
         static final class OfLong
                 extends ConcNode.OfPrimitive<Long, LongConsumer, long[], Spliterator.OfLong, Node.OfLong>
                 implements Node.OfLong {
@@ -908,6 +920,7 @@ final class Nodes {
             }
         }
 
+        @SuppressWarnings("overloads")
         static final class OfDouble
                 extends ConcNode.OfPrimitive<Double, DoubleConsumer, double[], Spliterator.OfDouble, Node.OfDouble>
                 implements Node.OfDouble {
@@ -924,7 +937,7 @@ final class Nodes {
     }
 
     /** Abstract class for spliterator for all internal node classes */
-    private static abstract class InternalNodeSpliterator<T,
+    private abstract static class InternalNodeSpliterator<T,
                                                           S extends Spliterator<T>,
                                                           N extends Node<T>>
             implements Spliterator<T> {
@@ -1106,7 +1119,7 @@ final class Nodes {
             }
         }
 
-        private static abstract class OfPrimitive<T, T_CONS, T_ARR,
+        private abstract static class OfPrimitive<T, T_CONS, T_ARR,
                                                   T_SPLITR extends Spliterator.OfPrimitive<T, T_CONS, T_SPLITR>,
                                                   N extends Node.OfPrimitive<T, T_CONS, T_ARR, T_SPLITR, N>>
                 extends InternalNodeSpliterator<T, T_SPLITR, N>
@@ -1160,6 +1173,7 @@ final class Nodes {
             }
         }
 
+        @SuppressWarnings("overloads")
         private static final class OfInt
                 extends OfPrimitive<Integer, IntConsumer, int[], Spliterator.OfInt, Node.OfInt>
                 implements Spliterator.OfInt {
@@ -1169,6 +1183,7 @@ final class Nodes {
             }
         }
 
+        @SuppressWarnings("overloads")
         private static final class OfLong
                 extends OfPrimitive<Long, LongConsumer, long[], Spliterator.OfLong, Node.OfLong>
                 implements Spliterator.OfLong {
@@ -1178,6 +1193,7 @@ final class Nodes {
             }
         }
 
+        @SuppressWarnings("overloads")
         private static final class OfDouble
                 extends OfPrimitive<Double, DoubleConsumer, double[], Spliterator.OfDouble, Node.OfDouble>
                 implements Spliterator.OfDouble {
@@ -1819,7 +1835,7 @@ final class Nodes {
      * This and subclasses are not intended to be serializable
      */
     @SuppressWarnings("serial")
-    private static abstract class SizedCollectorTask<P_IN, P_OUT, T_SINK extends Sink<P_OUT>,
+    private abstract static class SizedCollectorTask<P_IN, P_OUT, T_SINK extends Sink<P_OUT>,
                                                      K extends SizedCollectorTask<P_IN, P_OUT, T_SINK, K>>
             extends CountedCompleter<Void>
             implements Sink<P_OUT> {
@@ -2022,7 +2038,7 @@ final class Nodes {
     }
 
     @SuppressWarnings("serial")
-    private static abstract class ToArrayTask<T, T_NODE extends Node<T>,
+    private abstract static class ToArrayTask<T, T_NODE extends Node<T>,
                                               K extends ToArrayTask<T, T_NODE, K>>
             extends CountedCompleter<Void> {
         protected final T_NODE node;
@@ -2055,14 +2071,14 @@ final class Nodes {
                 else {
                     task.setPendingCount(task.node.getChildCount() - 1);
 
-                    int size = 0;
+                    long size = 0;
                     int i = 0;
                     for (;i < task.node.getChildCount() - 1; i++) {
-                        K leftTask = task.makeChild(i, task.offset + size);
+                        K leftTask = task.makeChild(i, (int) (task.offset + size));
                         size += leftTask.node.count();
                         leftTask.fork();
                     }
-                    task = task.makeChild(i, task.offset + size);
+                    task = task.makeChild(i, (int) (task.offset + size));
                 }
             }
         }

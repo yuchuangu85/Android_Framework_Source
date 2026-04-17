@@ -16,6 +16,7 @@
 package android.telephony.euicc;
 
 import android.annotation.IntDef;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.os.Parcel;
@@ -35,7 +36,11 @@ import java.util.Objects;
  */
 @SystemApi
 public final class EuiccNotification implements Parcelable {
-    /** Event */
+    /**
+     * Event
+     *
+     * @removed mistakenly exposed previously
+     */
     @Retention(RetentionPolicy.SOURCE)
     @IntDef(flag = true, prefix = { "EVENT_" }, value = {
             EVENT_INSTALL,
@@ -43,7 +48,6 @@ public final class EuiccNotification implements Parcelable {
             EVENT_DISABLE,
             EVENT_DELETE
     })
-    /** @hide */
     public @interface Event {}
 
     /** A profile is downloaded and installed. */
@@ -107,7 +111,7 @@ public final class EuiccNotification implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (this == obj) {
             return true;
         }
@@ -132,6 +136,7 @@ public final class EuiccNotification implements Parcelable {
         return result;
     }
 
+    @NonNull
     @Override
     public String toString() {
         return "EuiccNotification (seq="
@@ -165,7 +170,7 @@ public final class EuiccNotification implements Parcelable {
         mData = source.createByteArray();
     }
 
-    public static final Creator<EuiccNotification> CREATOR =
+    public static final @android.annotation.NonNull Creator<EuiccNotification> CREATOR =
             new Creator<EuiccNotification>() {
                 @Override
                 public EuiccNotification createFromParcel(Parcel source) {

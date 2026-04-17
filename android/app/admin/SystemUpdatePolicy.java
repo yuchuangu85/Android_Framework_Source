@@ -27,9 +27,10 @@ import android.os.Parcelable;
 import android.util.Log;
 import android.util.Pair;
 
-import org.xmlpull.v1.XmlPullParser;
+import com.android.modules.utils.TypedXmlPullParser;
+import com.android.modules.utils.TypedXmlSerializer;
+
 import org.xmlpull.v1.XmlPullParserException;
-import org.xmlpull.v1.XmlSerializer;
 
 import java.io.IOException;
 import java.lang.annotation.Retention;
@@ -49,8 +50,8 @@ import java.util.stream.Collectors;
 
 /**
  * Determines when over-the-air system updates are installed on a device. Only a device policy
- * controller (DPC) running in device owner mode can set an update policy for the device—by calling
- * the {@code DevicePolicyManager} method
+ * controller (DPC) running in device owner mode or in profile owner mode for an organization-owned
+ * device can set an update policy for the device by calling the {@code DevicePolicyManager} method
  * {@link DevicePolicyManager#setSystemUpdatePolicy setSystemUpdatePolicy()}. An update
  * policy affects the pending system update (if there is one) and any future updates for the device.
  *
@@ -76,9 +77,12 @@ import java.util.stream.Collectors;
  * </code></pre>
  *
  * <h3>Developer guide</h3>
- * To learn more about managing system updates, read
- * <a href="{@docRoot}/work/dpc/security.html#control_remote_software_updates">Control remote
- * software updates</a>.
+ * To learn more, read <a href="{@docRoot}work/dpc/system-updates">Manage system updates</a>.
+ * <p><strong>Note:</strong> <a href="https://source.android.com/docs/core/ota/modular-system">
+ * Google Play system updates</a> (also called Mainline updates) are automatically downloaded
+ * but require a device reboot to be installed. Refer to the mainline section in
+ * <a href="{@docRoot}work/dpc/system-updates#mainline">Manage system
+ * updates</a> for further details.</p>
  *
  * @see DevicePolicyManager#setSystemUpdatePolicy
  * @see DevicePolicyManager#getSystemUpdatePolicy
@@ -126,7 +130,7 @@ public final class SystemUpdatePolicy implements Parcelable {
      *
      * <p>The system limits each update to one 30-day postponement. The period begins when the
      * system first postpones the update and setting new {@code TYPE_POSTPONE} policies won’t extend
-     * the period. If, after 30 days the update isn’t installed (through policy changes), the system
+     * the period. If, after 30 days the update isn't installed (through policy changes), the system
      * prompts the user to install the update.
      *
      * <p><strong>Note</strong>: Device manufacturers or carriers might choose to exempt important
@@ -282,7 +286,7 @@ public final class SystemUpdatePolicy implements Parcelable {
             dest.writeString(getMessage());
         }
 
-        public static final Parcelable.Creator<ValidationFailedException> CREATOR =
+        public static final @android.annotation.NonNull Parcelable.Creator<ValidationFailedException> CREATOR =
                 new Parcelable.Creator<ValidationFailedException>() {
             @Override
             public ValidationFailedException createFromParcel(Parcel source) {
@@ -691,13 +695,11 @@ public final class SystemUpdatePolicy implements Parcelable {
                 mFreezePeriods.stream().map(n -> n.toString()).collect(Collectors.joining(",")));
     }
 
-    @SystemApi
     @Override
     public int describeContents() {
         return 0;
     }
 
-    @SystemApi
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeInt(mPolicyType);
@@ -714,8 +716,7 @@ public final class SystemUpdatePolicy implements Parcelable {
         }
     }
 
-    @SystemApi
-    public static final Parcelable.Creator<SystemUpdatePolicy> CREATOR =
+    public static final @android.annotation.NonNull Parcelable.Creator<SystemUpdatePolicy> CREATOR =
             new Parcelable.Creator<SystemUpdatePolicy>() {
 
                 @Override
@@ -746,38 +747,31 @@ public final class SystemUpdatePolicy implements Parcelable {
      * system server from a validated policy object previously.
      * @hide
      */
-    public static SystemUpdatePolicy restoreFromXml(XmlPullParser parser) {
+    public static SystemUpdatePolicy restoreFromXml(TypedXmlPullParser parser) {
         try {
             SystemUpdatePolicy policy = new SystemUpdatePolicy();
-            String value = parser.getAttributeValue(null, KEY_POLICY_TYPE);
-            if (value != null) {
-                policy.mPolicyType = Integer.parseInt(value);
+            policy.mPolicyType =
+                    parser.getAttributeInt(null, KEY_POLICY_TYPE, TYPE_UNKNOWN);
+            policy.mMaintenanceWindowStart =
+                    parser.getAttributeInt(null, KEY_INSTALL_WINDOW_START, 0);
+            policy.mMaintenanceWindowEnd =
+                    parser.getAttributeInt(null, KEY_INSTALL_WINDOW_END, 0);
 
-                value = parser.getAttributeValue(null, KEY_INSTALL_WINDOW_START);
-                if (value != null) {
-                    policy.mMaintenanceWindowStart = Integer.parseInt(value);
+            int outerDepth = parser.getDepth();
+            int type;
+            while ((type = parser.next()) != END_DOCUMENT
+                    && (type != END_TAG || parser.getDepth() > outerDepth)) {
+                if (type == END_TAG || type == TEXT) {
+                    continue;
                 }
-                value = parser.getAttributeValue(null, KEY_INSTALL_WINDOW_END);
-                if (value != null) {
-                    policy.mMaintenanceWindowEnd = Integer.parseInt(value);
+                if (!parser.getName().equals(KEY_FREEZE_TAG)) {
+                    continue;
                 }
-
-                int outerDepth = parser.getDepth();
-                int type;
-                while ((type = parser.next()) != END_DOCUMENT
-                        && (type != END_TAG || parser.getDepth() > outerDepth)) {
-                    if (type == END_TAG || type == TEXT) {
-                        continue;
-                    }
-                    if (!parser.getName().equals(KEY_FREEZE_TAG)) {
-                        continue;
-                    }
-                    policy.mFreezePeriods.add(new FreezePeriod(
-                            MonthDay.parse(parser.getAttributeValue(null, KEY_FREEZE_START)),
-                            MonthDay.parse(parser.getAttributeValue(null, KEY_FREEZE_END))));
-                }
-                return policy;
+                policy.mFreezePeriods.add(new FreezePeriod(
+                        MonthDay.parse(parser.getAttributeValue(null, KEY_FREEZE_START)),
+                        MonthDay.parse(parser.getAttributeValue(null, KEY_FREEZE_END))));
             }
+            return policy;
         } catch (NumberFormatException | XmlPullParserException | IOException e) {
             // Fail through
             Log.w(TAG, "Load xml failed", e);
@@ -788,10 +782,10 @@ public final class SystemUpdatePolicy implements Parcelable {
     /**
      * @hide
      */
-    public void saveToXml(XmlSerializer out) throws IOException {
-        out.attribute(null, KEY_POLICY_TYPE, Integer.toString(mPolicyType));
-        out.attribute(null, KEY_INSTALL_WINDOW_START, Integer.toString(mMaintenanceWindowStart));
-        out.attribute(null, KEY_INSTALL_WINDOW_END, Integer.toString(mMaintenanceWindowEnd));
+    public void saveToXml(TypedXmlSerializer out) throws IOException {
+        out.attributeInt(null, KEY_POLICY_TYPE, mPolicyType);
+        out.attributeInt(null, KEY_INSTALL_WINDOW_START, mMaintenanceWindowStart);
+        out.attributeInt(null, KEY_INSTALL_WINDOW_END, mMaintenanceWindowEnd);
         for (int i = 0; i < mFreezePeriods.size(); i++) {
             FreezePeriod interval = mFreezePeriods.get(i);
             out.startTag(null, KEY_FREEZE_TAG);

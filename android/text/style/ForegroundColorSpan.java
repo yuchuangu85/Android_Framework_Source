@@ -34,6 +34,7 @@ import android.text.TextUtils;
  * <img src="{@docRoot}reference/android/images/text/style/foregroundcolorspan.png" />
  * <figcaption>Set a text color.</figcaption>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class ForegroundColorSpan extends CharacterStyle
         implements UpdateAppearance, ParcelableSpan {
 
@@ -100,5 +101,10 @@ public class ForegroundColorSpan extends CharacterStyle
     @Override
     public void updateDrawState(@NonNull TextPaint textPaint) {
         textPaint.setColor(mColor);
+    }
+
+    @Override
+    public String toString() {
+        return "ForegroundColorSpan{color=#" + String.format("%08X", getForegroundColor()) + '}';
     }
 }

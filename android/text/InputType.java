@@ -16,6 +16,14 @@
 
 package android.text;
 
+import android.annotation.FlaggedApi;
+import android.view.accessibility.Flags;
+import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.TextAttribute;
+import android.view.inputmethod.TextAttribute.Builder;
+
+import java.util.List;
+
 /**
  * Bit definitions for an integer defining the basic content type of text
  * held in an {@link Editable} object. Supported classes may be combined
@@ -38,6 +46,7 @@ package android.text;
  *     TYPE_DATETIME_VARIATION_TIME
  * </dl>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface InputType {
     /**
      * Mask of bits that determine the overall class
@@ -187,6 +196,39 @@ public interface InputType {
      * mean they do not need to try to auto-correct what the user is typing.
      */
     public static final int TYPE_TEXT_FLAG_NO_SUGGESTIONS = 0x00080000;
+
+    /**
+     * Flag for {@link #TYPE_CLASS_TEXT}: Let the IME know the text conversion suggestions are
+     * required by the application. Text conversion suggestion is for the transliteration languages
+     * which has pronunciation characters and target characters. When the user is typing the
+     * pronunciation charactes, the IME could provide the possible target characters to the user.
+     * When this flag is set, the IME should insert the text conversion suggestions through
+     * {@link Builder#setTextConversionSuggestions(List)} and
+     * the {@link TextAttribute} with initialized with the text conversion suggestions is provided
+     * by the IME to the application. To receive the additional information, the application needs
+     * to implement {@link InputConnection#setComposingText(CharSequence, int, TextAttribute)},
+     * {@link InputConnection#setComposingRegion(int, int, TextAttribute)}, and
+     * {@link InputConnection#commitText(CharSequence, int, TextAttribute)}.
+     */
+    public static final int TYPE_TEXT_FLAG_ENABLE_TEXT_CONVERSION_SUGGESTIONS = 0x00100000;
+
+    /**
+     * Flag for {@link #TYPE_CLASS_TEXT}: Let the IME know that conversion candidate
+     * selection information is requested by the application.
+     * Text conversion suggestion is for the transliteration languages, which have the notions of
+     * pronunciation and target characters. When the user actively selects a candidate
+     * from the conversion suggestions, notifying when candidate selection is occurring helps
+     * assistive technologies generate more effective feedback.
+     * When this flag is set, and there is an active selected suggestion, the IME should set that
+     * a conversion suggestion is selected {@link Builder#setSuggestionSelected(boolean)} when
+     * initializing the {@link TextAttribute}.
+     * To receive this information, the application should implement
+     * {@link InputConnection#setComposingText(CharSequence, int, TextAttribute)},
+     * {@link InputConnection#setComposingRegion(int, int, TextAttribute)}, and
+     * {@link InputConnection#commitText(CharSequence, int, TextAttribute)}.
+     */
+    @FlaggedApi(Flags.FLAG_A11Y_TEXT_CHANGE_TYPES_API)
+    public static final int TYPE_TEXT_FLAG_ENABLE_TEXT_SUGGESTION_SELECTED = 0x00200000;
 
     // ----------------------------------------------------------------------
 

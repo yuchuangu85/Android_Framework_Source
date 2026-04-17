@@ -51,6 +51,7 @@ import java.io.ByteArrayOutputStream;
  * @see DigestInputStream
  *
  * @author Benjamin Renaud
+ * @since 1.2
  */
 public class DigestOutputStream extends FilterOutputStream {
 
@@ -150,7 +151,7 @@ public class DigestOutputStream extends FilterOutputStream {
         if (off < 0 || len < 0) {
             throw new IndexOutOfBoundsException("wrong index for write");
         }
-        // END Android-added
+        // END Android-added: perform checks for parameters first.
         out.write(b, off, len);
         if (on) {
             digest.update(b, off, len);

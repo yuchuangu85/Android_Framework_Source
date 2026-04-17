@@ -32,6 +32,7 @@ import android.widget.TextView;
  * directly by applications.
  * </p>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public interface MovementMethod {
     public void initialize(TextView widget, Spannable text);
     public boolean onKeyDown(TextView widget, Spannable text, int keyCode, KeyEvent event);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2025, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -24,8 +24,11 @@
  */
 package java.util.stream;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Spliterator;
@@ -35,15 +38,19 @@ import java.util.function.BiFunction;
 import java.util.function.BinaryOperator;
 import java.util.function.Consumer;
 import java.util.function.DoubleConsumer;
+import java.util.function.DoublePredicate;
 import java.util.function.Function;
 import java.util.function.IntConsumer;
 import java.util.function.IntFunction;
+import java.util.function.IntPredicate;
 import java.util.function.LongConsumer;
+import java.util.function.LongPredicate;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.function.ToDoubleFunction;
 import java.util.function.ToIntFunction;
 import java.util.function.ToLongFunction;
+import jdk.internal.access.SharedSecrets;
 
 /**
  * Abstract base class for an intermediate pipeline stage or pipeline source
@@ -55,6 +62,7 @@ import java.util.function.ToLongFunction;
  * @since 1.8
  * @hide Visible for CTS testing only (OpenJDK8 tests).
  */
+// Android-changed: Made public for CTS tests only.
 public abstract class ReferencePipeline<P_IN, P_OUT>
         extends AbstractPipeline<P_IN, P_OUT, Stream<P_OUT>>
         implements Stream<P_OUT>  {
@@ -89,20 +97,37 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
      * Constructor for appending an intermediate operation onto an existing
      * pipeline.
      *
-     * @param upstream the upstream element source.
+     * @param upstream the upstream element source
+     * @param opFlags The operation flags for this operation, described in
+     *        {@link StreamOpFlag}
      */
     ReferencePipeline(AbstractPipeline<?, P_IN, ?> upstream, int opFlags) {
         super(upstream, opFlags);
     }
 
+     /**
+      * Constructor for appending an intermediate operation onto an existing
+      * pipeline.
+      *
+      * @param upupstream the upstream of the upstream element source
+      * @param upstream the upstream element source
+      * @param opFlags The operation flags for this operation, described in
+      *        {@link StreamOpFlag}
+      */
+     protected ReferencePipeline(AbstractPipeline<?, P_IN, ?> upupstream, AbstractPipeline<?, P_IN, ?> upstream, int opFlags) {
+         super(upupstream, upstream, opFlags);
+     }
+
     // Shape-specific methods
 
     @Override
+    // Android-changed: Make public, to match the method it's overriding.
     public final StreamShape getOutputShape() {
         return StreamShape.REFERENCE;
     }
 
     @Override
+    // Android-changed: Make public, to match the method it's overriding.
     public final <P_IN> Node<P_OUT> evaluateToNode(PipelineHelper<P_OUT> helper,
                                         Spliterator<P_IN> spliterator,
                                         boolean flattenTree,
@@ -111,6 +136,7 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     }
 
     @Override
+    // Android-changed: Make public, to match the method it's overriding.
     public final <P_IN> Spliterator<P_OUT> wrap(PipelineHelper<P_OUT> ph,
                                      Supplier<Spliterator<P_IN>> supplier,
                                      boolean isParallel) {
@@ -118,16 +144,21 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     }
 
     @Override
+    // Android-changed: Make public, to match the method it's overriding.
     public final Spliterator<P_OUT> lazySpliterator(Supplier<? extends Spliterator<P_OUT>> supplier) {
         return new StreamSpliterators.DelegatingSpliterator<>(supplier);
     }
 
     @Override
-    public final void forEachWithCancel(Spliterator<P_OUT> spliterator, Sink<P_OUT> sink) {
-        do { } while (!sink.cancellationRequested() && spliterator.tryAdvance(sink));
+    // Android-changed: Make public, to match the method it's overriding.
+    public final boolean forEachWithCancel(Spliterator<P_OUT> spliterator, Sink<P_OUT> sink) {
+        boolean cancelled;
+        do { } while (!(cancelled = sink.cancellationRequested()) && spliterator.tryAdvance(sink));
+        return cancelled;
     }
 
     @Override
+    // Android-changed: Make public, to match the method it's overriding.
     public final Node.Builder<P_OUT> makeNodeBuilder(long exactSizeIfKnown, IntFunction<P_OUT[]> generator) {
         return Nodes.builder(exactSizeIfKnown, generator);
     }
@@ -149,8 +180,9 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     public Stream<P_OUT> unordered() {
         if (!isOrdered())
             return this;
-        return new StatelessOp<P_OUT, P_OUT>(this, StreamShape.REFERENCE, StreamOpFlag.NOT_ORDERED) {
+        return new StatelessOp<>(this, StreamShape.REFERENCE, StreamOpFlag.NOT_ORDERED) {
             @Override
+            // Android-changed: Make public, to match the method it's overriding.
             public Sink<P_OUT> opWrapSink(int flags, Sink<P_OUT> sink) {
                 return sink;
             }
@@ -160,11 +192,12 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     @Override
     public final Stream<P_OUT> filter(Predicate<? super P_OUT> predicate) {
         Objects.requireNonNull(predicate);
-        return new StatelessOp<P_OUT, P_OUT>(this, StreamShape.REFERENCE,
-                                     StreamOpFlag.NOT_SIZED) {
+        return new StatelessOp<>(this, StreamShape.REFERENCE,
+                StreamOpFlag.NOT_SIZED) {
             @Override
+            // Android-changed: Make public, to match the method it's overriding.
             public Sink<P_OUT> opWrapSink(int flags, Sink<P_OUT> sink) {
-                return new Sink.ChainedReference<P_OUT, P_OUT>(sink) {
+                return new Sink.ChainedReference<>(sink) {
                     @Override
                     public void begin(long size) {
                         downstream.begin(-1);
@@ -181,14 +214,14 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public final <R> Stream<R> map(Function<? super P_OUT, ? extends R> mapper) {
         Objects.requireNonNull(mapper);
-        return new StatelessOp<P_OUT, R>(this, StreamShape.REFERENCE,
-                                     StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT) {
+        return new StatelessOp<>(this, StreamShape.REFERENCE,
+                StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT) {
             @Override
+            // Android-changed: Make public, to match the method it's overriding.
             public Sink<P_OUT> opWrapSink(int flags, Sink<R> sink) {
-                return new Sink.ChainedReference<P_OUT, R>(sink) {
+                return new Sink.ChainedReference<>(sink) {
                     @Override
                     public void accept(P_OUT u) {
                         downstream.accept(mapper.apply(u));
@@ -201,11 +234,12 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     @Override
     public final IntStream mapToInt(ToIntFunction<? super P_OUT> mapper) {
         Objects.requireNonNull(mapper);
-        return new IntPipeline.StatelessOp<P_OUT>(this, StreamShape.REFERENCE,
-                                              StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT) {
+        return new IntPipeline.StatelessOp<>(this, StreamShape.REFERENCE,
+                StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT) {
             @Override
+            // Android-changed: Make public, to match the method it's overriding.
             public Sink<P_OUT> opWrapSink(int flags, Sink<Integer> sink) {
-                return new Sink.ChainedReference<P_OUT, Integer>(sink) {
+                return new Sink.ChainedReference<>(sink) {
                     @Override
                     public void accept(P_OUT u) {
                         downstream.accept(mapper.applyAsInt(u));
@@ -218,11 +252,12 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     @Override
     public final LongStream mapToLong(ToLongFunction<? super P_OUT> mapper) {
         Objects.requireNonNull(mapper);
-        return new LongPipeline.StatelessOp<P_OUT>(this, StreamShape.REFERENCE,
-                                      StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT) {
+        return new LongPipeline.StatelessOp<>(this, StreamShape.REFERENCE,
+                StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT) {
             @Override
+            // Android-changed: Make public, to match the method it's overriding.
             public Sink<P_OUT> opWrapSink(int flags, Sink<Long> sink) {
-                return new Sink.ChainedReference<P_OUT, Long>(sink) {
+                return new Sink.ChainedReference<>(sink) {
                     @Override
                     public void accept(P_OUT u) {
                         downstream.accept(mapper.applyAsLong(u));
@@ -235,11 +270,12 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     @Override
     public final DoubleStream mapToDouble(ToDoubleFunction<? super P_OUT> mapper) {
         Objects.requireNonNull(mapper);
-        return new DoublePipeline.StatelessOp<P_OUT>(this, StreamShape.REFERENCE,
-                                        StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT) {
+        return new DoublePipeline.StatelessOp<>(this, StreamShape.REFERENCE,
+                StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT) {
             @Override
+            // Android-changed: Make public, to match the method it's overriding.
             public Sink<P_OUT> opWrapSink(int flags, Sink<Double> sink) {
-                return new Sink.ChainedReference<P_OUT, Double>(sink) {
+                return new Sink.ChainedReference<>(sink) {
                     @Override
                     public void accept(P_OUT u) {
                         downstream.accept(mapper.applyAsDouble(u));
@@ -252,26 +288,46 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     @Override
     public final <R> Stream<R> flatMap(Function<? super P_OUT, ? extends Stream<? extends R>> mapper) {
         Objects.requireNonNull(mapper);
-        // We can do better than this, by polling cancellationRequested when stream is infinite
-        return new StatelessOp<P_OUT, R>(this, StreamShape.REFERENCE,
-                                     StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
+        return new StatelessOp<>(this, StreamShape.REFERENCE,
+                StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
             @Override
+            // Android-changed: Make public, to match the method it's overriding.
             public Sink<P_OUT> opWrapSink(int flags, Sink<R> sink) {
-                return new Sink.ChainedReference<P_OUT, R>(sink) {
+                boolean shorts = isShortCircuitingPipeline();
+                final class FlatMap implements Sink<P_OUT>, Predicate<R> {
+                    boolean cancel;
+
+                    @Override public void begin(long size) { sink.begin(-1); }
+                    @Override public void end() { sink.end(); }
+
                     @Override
-                    public void begin(long size) {
-                        downstream.begin(-1);
+                    public void accept(P_OUT e) {
+                        try (Stream<? extends R> result = mapper.apply(e)) {
+                            if (result != null) {
+                                if (shorts)
+                                    result.sequential().allMatch(this);
+                                else
+                                    result.sequential().forEach(sink);
+                            }
+                        }
                     }
 
                     @Override
-                    public void accept(P_OUT u) {
-                        try (Stream<? extends R> result = mapper.apply(u)) {
-                            // We can do better that this too; optimize for depth=0 case and just grab spliterator and forEach it
-                            if (result != null)
-                                result.sequential().forEach(downstream);
+                    public boolean cancellationRequested() {
+                        return cancel || (cancel |= sink.cancellationRequested());
+                    }
+
+                    @Override
+                    public boolean test(R output) {
+                        if (!cancel) {
+                            sink.accept(output);
+                            return !(cancel |= sink.cancellationRequested());
+                        } else {
+                            return false;
                         }
                     }
-                };
+                }
+                return new FlatMap();
             }
         };
     }
@@ -279,27 +335,51 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     @Override
     public final IntStream flatMapToInt(Function<? super P_OUT, ? extends IntStream> mapper) {
         Objects.requireNonNull(mapper);
-        // We can do better than this, by polling cancellationRequested when stream is infinite
-        return new IntPipeline.StatelessOp<P_OUT>(this, StreamShape.REFERENCE,
-                                              StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
+        return new IntPipeline.StatelessOp<>(this, StreamShape.REFERENCE,
+                StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
             @Override
+            // Android-changed: Make public, to match the method it's overriding.
             public Sink<P_OUT> opWrapSink(int flags, Sink<Integer> sink) {
-                return new Sink.ChainedReference<P_OUT, Integer>(sink) {
-                    IntConsumer downstreamAsInt = downstream::accept;
+                IntConsumer fastPath =
+                    isShortCircuitingPipeline()
+                        ? null
+                        : (sink instanceof IntConsumer ic)
+                            ? ic
+                            : sink::accept;
+                final class FlatMap implements Sink<P_OUT>, IntPredicate {
+                    boolean cancel;
+
+                    @Override public void begin(long size) { sink.begin(-1); }
+                    @Override public void end() { sink.end(); }
+
                     @Override
-                    public void begin(long size) {
-                        downstream.begin(-1);
+                    public void accept(P_OUT e) {
+                        try (IntStream result = mapper.apply(e)) {
+                            if (result != null) {
+                                if (fastPath == null)
+                                    result.sequential().allMatch(this);
+                                else
+                                    result.sequential().forEach(fastPath);
+                            }
+                        }
                     }
 
                     @Override
-                    public void accept(P_OUT u) {
-                        try (IntStream result = mapper.apply(u)) {
-                            // We can do better that this too; optimize for depth=0 case and just grab spliterator and forEach it
-                            if (result != null)
-                                result.sequential().forEach(downstreamAsInt);
+                    public boolean cancellationRequested() {
+                        return cancel || (cancel |= sink.cancellationRequested());
+                    }
+
+                    @Override
+                    public boolean test(int output) {
+                        if (!cancel) {
+                            sink.accept(output);
+                            return !(cancel |= sink.cancellationRequested());
+                        } else {
+                            return false;
                         }
                     }
-                };
+                }
+                return new FlatMap();
             }
         };
     }
@@ -307,27 +387,51 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     @Override
     public final DoubleStream flatMapToDouble(Function<? super P_OUT, ? extends DoubleStream> mapper) {
         Objects.requireNonNull(mapper);
-        // We can do better than this, by polling cancellationRequested when stream is infinite
-        return new DoublePipeline.StatelessOp<P_OUT>(this, StreamShape.REFERENCE,
-                                                     StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
+        return new DoublePipeline.StatelessOp<>(this, StreamShape.REFERENCE,
+                StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
             @Override
+            // Android-changed: Make public, to match the method it's overriding.
             public Sink<P_OUT> opWrapSink(int flags, Sink<Double> sink) {
-                return new Sink.ChainedReference<P_OUT, Double>(sink) {
-                    DoubleConsumer downstreamAsDouble = downstream::accept;
+                DoubleConsumer fastPath =
+                    isShortCircuitingPipeline()
+                        ? null
+                        : (sink instanceof DoubleConsumer dc)
+                            ? dc
+                            : sink::accept;
+                final class FlatMap implements Sink<P_OUT>, DoublePredicate {
+                    boolean cancel;
+
+                    @Override public void begin(long size) { sink.begin(-1); }
+                    @Override public void end() { sink.end(); }
+
                     @Override
-                    public void begin(long size) {
-                        downstream.begin(-1);
+                    public void accept(P_OUT e) {
+                        try (DoubleStream result = mapper.apply(e)) {
+                            if (result != null) {
+                                if (fastPath == null)
+                                    result.sequential().allMatch(this);
+                                else
+                                    result.sequential().forEach(fastPath);
+                            }
+                        }
                     }
 
                     @Override
-                    public void accept(P_OUT u) {
-                        try (DoubleStream result = mapper.apply(u)) {
-                            // We can do better that this too; optimize for depth=0 case and just grab spliterator and forEach it
-                            if (result != null)
-                                result.sequential().forEach(downstreamAsDouble);
+                    public boolean cancellationRequested() {
+                        return cancel || (cancel |= sink.cancellationRequested());
+                    }
+
+                    @Override
+                    public boolean test(double output) {
+                        if (!cancel) {
+                            sink.accept(output);
+                            return !(cancel |= sink.cancellationRequested());
+                        } else {
+                            return false;
                         }
                     }
-                };
+                }
+                return new FlatMap();
             }
         };
     }
@@ -336,12 +440,90 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     public final LongStream flatMapToLong(Function<? super P_OUT, ? extends LongStream> mapper) {
         Objects.requireNonNull(mapper);
         // We can do better than this, by polling cancellationRequested when stream is infinite
-        return new LongPipeline.StatelessOp<P_OUT>(this, StreamShape.REFERENCE,
-                                                   StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
+        return new LongPipeline.StatelessOp<>(this, StreamShape.REFERENCE,
+                StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
             @Override
+            // Android-changed: Make public, to match the method it's overriding.
             public Sink<P_OUT> opWrapSink(int flags, Sink<Long> sink) {
-                return new Sink.ChainedReference<P_OUT, Long>(sink) {
-                    LongConsumer downstreamAsLong = downstream::accept;
+                LongConsumer fastPath =
+                    isShortCircuitingPipeline()
+                        ? null
+                        : (sink instanceof LongConsumer lc)
+                            ? lc
+                            : sink::accept;
+                final class FlatMap implements Sink<P_OUT>, LongPredicate {
+                    boolean cancel;
+
+                    @Override public void begin(long size) { sink.begin(-1); }
+                    @Override public void end() { sink.end(); }
+
+                    @Override
+                    public void accept(P_OUT e) {
+                        try (LongStream result = mapper.apply(e)) {
+                            if (result != null) {
+                                if (fastPath == null)
+                                    result.sequential().allMatch(this);
+                                else
+                                    result.sequential().forEach(fastPath);
+                            }
+                        }
+                    }
+
+                    @Override
+                    public boolean cancellationRequested() {
+                        return cancel || (cancel |= sink.cancellationRequested());
+                    }
+
+                    @Override
+                    public boolean test(long output) {
+                        if (!cancel) {
+                            sink.accept(output);
+                            return !(cancel |= sink.cancellationRequested());
+                        } else {
+                            return false;
+                        }
+                    }
+                }
+                return new FlatMap();
+            }
+        };
+    }
+
+    @Override
+    public final <R> Stream<R> mapMulti(BiConsumer<? super P_OUT, ? super Consumer<R>> mapper) {
+        Objects.requireNonNull(mapper);
+        return new StatelessOp<>(this, StreamShape.REFERENCE,
+                StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
+            @Override
+            // Android-changed: Make public, to match the method it's overriding.
+            public Sink<P_OUT> opWrapSink(int flags, Sink<R> sink) {
+                return new Sink.ChainedReference<>(sink) {
+
+                    @Override
+                    public void begin(long size) {
+                        downstream.begin(-1);
+                    }
+
+                    @Override
+                    @SuppressWarnings("unchecked")
+                    public void accept(P_OUT u) {
+                        mapper.accept(u, (Consumer<R>) downstream);
+                    }
+                };
+            }
+        };
+    }
+
+    @Override
+    public final IntStream mapMultiToInt(BiConsumer<? super P_OUT, ? super IntConsumer> mapper) {
+        Objects.requireNonNull(mapper);
+        return new IntPipeline.StatelessOp<>(this, StreamShape.REFERENCE,
+                StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
+            @Override
+            // Android-changed: Make public, to match the method it's overriding.
+            public Sink<P_OUT> opWrapSink(int flags, Sink<Integer> sink) {
+                return new Sink.ChainedReference<>(sink) {
+
                     @Override
                     public void begin(long size) {
                         downstream.begin(-1);
@@ -349,11 +531,56 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
 
                     @Override
                     public void accept(P_OUT u) {
-                        try (LongStream result = mapper.apply(u)) {
-                            // We can do better that this too; optimize for depth=0 case and just grab spliterator and forEach it
-                            if (result != null)
-                                result.sequential().forEach(downstreamAsLong);
-                        }
+                        mapper.accept(u, (IntConsumer)downstream);
+                    }
+                };
+            }
+        };
+    }
+
+    @Override
+    public final LongStream mapMultiToLong(BiConsumer<? super P_OUT, ? super LongConsumer> mapper) {
+        Objects.requireNonNull(mapper);
+        return new LongPipeline.StatelessOp<>(this, StreamShape.REFERENCE,
+                StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
+            @Override
+            // Android-changed: Make public, to match the method it's overriding.
+            public Sink<P_OUT> opWrapSink(int flags, Sink<Long> sink) {
+                return new Sink.ChainedReference<>(sink) {
+
+                    @Override
+                    public void begin(long size) {
+                        downstream.begin(-1);
+                    }
+
+                    @Override
+                    public void accept(P_OUT u) {
+                        mapper.accept(u, (LongConsumer) downstream);
+                    }
+                };
+            }
+        };
+    }
+
+
+    @Override
+    public final DoubleStream mapMultiToDouble(BiConsumer<? super P_OUT, ? super DoubleConsumer> mapper) {
+        Objects.requireNonNull(mapper);
+        return new DoublePipeline.StatelessOp<>(this, StreamShape.REFERENCE,
+                StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
+            @Override
+            // Android-changed: Make public, to match the method it's overriding.
+            public Sink<P_OUT> opWrapSink(int flags, Sink<Double> sink) {
+                return new Sink.ChainedReference<>(sink) {
+
+                    @Override
+                    public void begin(long size) {
+                        downstream.begin(-1);
+                    }
+
+                    @Override
+                    public void accept(P_OUT u) {
+                        mapper.accept(u, (DoubleConsumer) downstream);
                     }
                 };
             }
@@ -363,11 +590,12 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     @Override
     public final Stream<P_OUT> peek(Consumer<? super P_OUT> action) {
         Objects.requireNonNull(action);
-        return new StatelessOp<P_OUT, P_OUT>(this, StreamShape.REFERENCE,
-                                     0) {
+        return new StatelessOp<>(this, StreamShape.REFERENCE,
+                0) {
             @Override
+            // Android-changed: Make public, to match the method it's overriding.
             public Sink<P_OUT> opWrapSink(int flags, Sink<P_OUT> sink) {
-                return new Sink.ChainedReference<P_OUT, P_OUT>(sink) {
+                return new Sink.ChainedReference<>(sink) {
                     @Override
                     public void accept(P_OUT u) {
                         action.accept(u);
@@ -412,6 +640,16 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
             return SliceOps.makeRef(this, n, -1);
     }
 
+    @Override
+    public final Stream<P_OUT> takeWhile(Predicate<? super P_OUT> predicate) {
+        return WhileOps.makeTakeWhileRef(this, predicate);
+    }
+
+    @Override
+    public final Stream<P_OUT> dropWhile(Predicate<? super P_OUT> predicate) {
+        return WhileOps.makeDropWhileRef(this, predicate);
+    }
+
     // Terminal operations from Stream
 
     @Override
@@ -435,15 +673,19 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
         // Runtime checking will be performed when an element is stored in A[], thus if A is not a
         // super type of U an ArrayStoreException will be thrown.
         @SuppressWarnings("rawtypes")
-        IntFunction rawGenerator = (IntFunction) generator;
-        // TODO(b/29399275): Eclipse compiler requires explicit (Node<A[]>) cast below.
-        return (A[]) Nodes.flatten((Node<A[]>) evaluateToArrayNode(rawGenerator), rawGenerator)
-                .asArray(rawGenerator);
+        IntFunction rawGenerator = generator;
+        return (A[]) Nodes.flatten(evaluateToArrayNode(rawGenerator), rawGenerator)
+                              .asArray(rawGenerator);
     }
 
     @Override
     public final Object[] toArray() {
         return toArray(Object[]::new);
+    }
+
+    @Override
+    public List<P_OUT> toList() {
+        return SharedSecrets.getJavaUtilCollectionAccess().listFromTrustedArrayNullsAllowed(this.toArray());
     }
 
     @Override
@@ -487,8 +729,13 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     }
 
     @Override
+    public final <R> Stream<R> gather(Gatherer<? super P_OUT, ?, R> gatherer) {
+        return GathererOp.of(this, gatherer);
+    }
+
+    @Override
     @SuppressWarnings("unchecked")
-    public final <R, A> R collect(Collector<? super P_OUT, A, R> collector) {
+    public <R, A> R collect(Collector<? super P_OUT, A, R> collector) {
         A container;
         if (isParallel()
                 && (collector.characteristics().contains(Collector.Characteristics.CONCURRENT))
@@ -506,7 +753,7 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
     }
 
     @Override
-    public final <R> R collect(Supplier<R> supplier,
+    public <R> R collect(Supplier<R> supplier,
                                BiConsumer<R, ? super P_OUT> accumulator,
                                BiConsumer<R, R> combiner) {
         return evaluate(ReduceOps.makeRef(supplier, accumulator, combiner));
@@ -525,9 +772,8 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
 
     @Override
     public final long count() {
-        return mapToLong(e -> 1L).sum();
+        return evaluate(ReduceOps.makeRefCounting());
     }
-
 
     //
 
@@ -539,6 +785,7 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
      * @since 1.8
      * @hide Visible for CTS testing only (OpenJDK8 tests).
      */
+    // Android-changed: Made public for CTS tests only.
     public static class Head<E_IN, E_OUT> extends ReferencePipeline<E_IN, E_OUT> {
         /**
          * Constructor for the source stage of a Stream.
@@ -548,6 +795,7 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
          * @param sourceFlags the source flags for the stream source, described
          *                    in {@link StreamOpFlag}
          */
+        // Android-changed: Made public for CTS tests only.
         public Head(Supplier<? extends Spliterator<?>> source,
              int sourceFlags, boolean parallel) {
             super(source, sourceFlags, parallel);
@@ -560,17 +808,20 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
          * @param sourceFlags the source flags for the stream source, described
          *                    in {@link StreamOpFlag}
          */
+        // Android-changed: Made public for CTS tests only.
         public Head(Spliterator<?> source,
              int sourceFlags, boolean parallel) {
             super(source, sourceFlags, parallel);
         }
 
         @Override
+        // Android-changed: Make public, to match the method it's overriding.
         public final boolean opIsStateful() {
             throw new UnsupportedOperationException();
         }
 
         @Override
+        // Android-changed: Make public, to match the method it's overriding.
         public final Sink<E_IN> opWrapSink(int flags, Sink<E_OUT> sink) {
             throw new UnsupportedOperationException();
         }
@@ -606,6 +857,7 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
      * @since 1.8
      * @hide Visible for CTS testing only (OpenJDK8 tests).
      */
+    // Android-changed: Made public for CTS tests only.
     public abstract static class StatelessOp<E_IN, E_OUT>
             extends ReferencePipeline<E_IN, E_OUT> {
         /**
@@ -616,6 +868,7 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
          * @param inputShape The stream shape for the upstream pipeline stage
          * @param opFlags Operation flags for the new stage
          */
+        // Android-changed: Made public for CTS tests only.
         public StatelessOp(AbstractPipeline<?, E_IN, ?> upstream,
                     StreamShape inputShape,
                     int opFlags) {
@@ -624,6 +877,7 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
         }
 
         @Override
+        // Android-changed: Make public, to match the method it's overriding.
         public final boolean opIsStateful() {
             return false;
         }
@@ -637,6 +891,7 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
      * @since 1.8
      * @hide Visible for CTS testing only (OpenJDK8 tests).
      */
+    // Android-changed: Made public for CTS tests only.
     public abstract static class StatefulOp<E_IN, E_OUT>
             extends ReferencePipeline<E_IN, E_OUT> {
         /**
@@ -646,6 +901,7 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
          * @param inputShape The stream shape for the upstream pipeline stage
          * @param opFlags Operation flags for the new stage
          */
+        // Android-changed: Made public for CTS tests only.
         public StatefulOp(AbstractPipeline<?, E_IN, ?> upstream,
                    StreamShape inputShape,
                    int opFlags) {
@@ -654,11 +910,13 @@ public abstract class ReferencePipeline<P_IN, P_OUT>
         }
 
         @Override
+        // Android-changed: Make public, to match the method it's overriding.
         public final boolean opIsStateful() {
             return true;
         }
 
         @Override
+        // Android-changed: Make public, to match the method it's overriding.
         public abstract <P_IN> Node<E_OUT> opEvaluateParallel(PipelineHelper<E_OUT> helper,
                                                        Spliterator<P_IN> spliterator,
                                                        IntFunction<E_OUT[]> generator);

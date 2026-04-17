@@ -28,7 +28,7 @@ import static java.lang.annotation.RetentionPolicy.SOURCE;
  * Denotes that a integer parameter, field or method return value is expected
  * to be a styleable resource reference (e.g. {@link android.R.styleable#TextView_text}).
  *
- * {@hide}
+ * @hide
  */
 @Documented
 @Retention(SOURCE)

@@ -6,7 +6,7 @@
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -43,9 +43,93 @@ public abstract class DocumentBuilderFactory {
     }
 
     /**
+     * Creates a new NamespaceAware instance of the {@code DocumentBuilderFactory}
+     * builtin system-default implementation. Parsers produced by the factory
+     * instance provides support for XML namespaces by default.
+     *
+     * @implSpec
+     * In addition to creating a factory instance using the same process as
+     * {@link #newDefaultInstance()}, this method must set NamespaceAware to true.
+     *
+     * @return a new instance of the {@code DocumentBuilderFactory} builtin
+     *         system-default implementation.
+     *
+     * @since 13
+     */
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_OPENJDK_25_V1_APIS)
+    public static DocumentBuilderFactory newDefaultNSInstance() {
+        return makeNSAware(new DocumentBuilderFactoryImpl());
+    }
+
+    /**
+     * Creates a new NamespaceAware, Android-specific instance of a {@code DocumentBuilderFactory}.
+     * Unlike other Java implementations, this method does not consult system
+     * properties, property files, or the services API. On Android this is the same as {@link
+     * #newDefaultNSInstance}.
+     *
+     * @implSpec
+     * In addition to creating a factory instance using the same process as
+     * {@link #newInstance()}, this method must set NamespaceAware to true.
+     *
+     * @return a new instance of a {@code DocumentBuilderFactory}
+     *
+     * @since 13
+     */
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_OPENJDK_25_V1_APIS)
+    public static DocumentBuilderFactory newNSInstance() {
+        return makeNSAware(new DocumentBuilderFactoryImpl());
+    }
+
+    /**
+     * Creates a new NamespaceAware instance of a {@code DocumentBuilderFactory}
+     * from the class name. Parsers produced by the factory instance provides
+     * support for XML namespaces by default.
+     *
+     * @implSpec
+     * In addition to creating a factory instance using the same process as
+     * {@link #newInstance(java.lang.String, java.lang.ClassLoader)}, this method
+     * must set NamespaceAware to true.
+     *
+     * @param factoryClassName a fully qualified factory class name that provides
+     *                         implementation of
+     *                         {@code javax.xml.parsers.DocumentBuilderFactory}.
+     *
+     * @param classLoader the {@code ClassLoader} used to load the factory class.
+     *                    If it is {@code null}, the current {@code Thread}'s
+     *                    context classLoader is used to load the factory class.
+     *
+     * @return a new instance of a {@code DocumentBuilderFactory}
+     *
+     * @throws FactoryConfigurationError if {@code factoryClassName} is {@code null}, or
+     *                                   the factory class cannot be loaded, instantiated.
+     *
+     * @since 13
+     */
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_OPENJDK_25_V1_APIS)
+    public static DocumentBuilderFactory newNSInstance(String factoryClassName,
+            ClassLoader classLoader) {
+            return makeNSAware(newInstance(factoryClassName, classLoader));
+    }
+
+    /**
+     * Creates a new instance of the {@code DocumentBuilderFactory} builtin
+     * system-default implementation.
+     *
+     * @return A new instance of the {@code DocumentBuilderFactory} builtin
+     *         system-default implementation.
+     *
+     * @since 9
+     */
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_OPENJDK_25_V1_APIS)
+    public static DocumentBuilderFactory newDefaultInstance() {
+        return new DocumentBuilderFactoryImpl();
+    }
+
+    /**
      * Returns Android's implementation of {@code DocumentBuilderFactory}.
      * Unlike other Java implementations, this method does not consult system
-     * properties, property files, or the services API.
+     * properties, property files, or the services API. On Android this is the same as {@link
+     * #newDefaultInstance}.
      *
      * @return a new DocumentBuilderFactory.
      */
@@ -81,6 +165,11 @@ public abstract class DocumentBuilderFactory {
         } catch (IllegalAccessException e) {
             throw new FactoryConfigurationError(e);
         }
+    }
+
+    private static DocumentBuilderFactory makeNSAware(DocumentBuilderFactory dbf) {
+        dbf.setNamespaceAware(true);
+        return dbf;
     }
 
     /**
@@ -307,21 +396,10 @@ public abstract class DocumentBuilderFactory {
      * </p>
      *
      * <p>
-     * All implementations are required to support the {@link javax.xml.XMLConstants#FEATURE_SECURE_PROCESSING} feature.
-     * When the feature is:</p>
-     * <ul>
-     *   <li>
-     *     <code>true</code>: the implementation will limit XML processing to conform to implementation limits.
-     *     Examples include entity expansion limits and XML Schema constructs that would consume large amounts of resources.
-     *     If XML processing is limited for security reasons, it will be reported via a call to the registered
-     *    {@link org.xml.sax.ErrorHandler#fatalError(SAXParseException exception)}.
-     *     See {@link  DocumentBuilder#setErrorHandler(org.xml.sax.ErrorHandler errorHandler)}.
-     *   </li>
-     *   <li>
-     *     <code>false</code>: the implementation will processing XML according to the XML specifications without
-     *     regard to possible implementation limits.
-     *   </li>
-     * </ul>
+     * Earlier versions of this documentation have mandated support for the
+     * {@link javax.xml.XMLConstants#FEATURE_SECURE_PROCESSING} feature, but this is not a
+     * supported feature on any version of Android.
+     * </p>
      *
      * @param name Feature name.
      * @param value Is feature state <code>true</code> or <code>false</code>.

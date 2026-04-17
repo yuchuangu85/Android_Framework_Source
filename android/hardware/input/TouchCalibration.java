@@ -16,6 +16,7 @@
 
 package android.hardware.input;
 
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -28,7 +29,7 @@ public class TouchCalibration implements Parcelable {
 
     public static final TouchCalibration IDENTITY = new TouchCalibration();
 
-    public static final Parcelable.Creator<TouchCalibration> CREATOR
+    public static final @android.annotation.NonNull Parcelable.Creator<TouchCalibration> CREATOR
             = new Parcelable.Creator<TouchCalibration>() {
         public TouchCalibration createFromParcel(Parcel in) {
             return new TouchCalibration(in);
@@ -97,7 +98,7 @@ public class TouchCalibration implements Parcelable {
     }
 
     @Override
-    public boolean equals(Object obj) {
+    public boolean equals(@Nullable Object obj) {
         if (obj == this) {
             return true;
         } else if (obj instanceof TouchCalibration) {

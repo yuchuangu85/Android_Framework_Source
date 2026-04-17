@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -86,7 +86,6 @@ import java.time.temporal.UnsupportedTemporalTypeException;
 import java.time.temporal.ValueRange;
 import java.util.Objects;
 
-// Android-changed: removed ValueBased paragraph.
 /**
  * A month-day in the ISO-8601 calendar system, such as {@code --12-03}.
  * <p>
@@ -112,18 +111,27 @@ import java.util.Objects;
  * For most applications written today, the ISO-8601 rules are entirely suitable.
  * However, any application that makes use of historical dates, and requires them
  * to be accurate will find the ISO-8601 approach unsuitable.
+ * <p>
+ * This is a <a href="{@docRoot}/java.base/java/lang/doc-files/ValueBased.html">value-based</a>
+ * class; programmers should treat instances that are
+ * {@linkplain #equals(Object) equal} as interchangeable and should not
+ * use instances for synchronization, or unpredictable behavior may
+ * occur. For example, in a future release, synchronization may fail.
+ * The {@code equals} method should be used for comparisons.
  *
  * @implSpec
  * This class is immutable and thread-safe.
  *
  * @since 1.8
  */
+@jdk.internal.ValueBased
 public final class MonthDay
         implements TemporalAccessor, TemporalAdjuster, Comparable<MonthDay>, Serializable {
 
     /**
      * Serialization version.
      */
+    @java.io.Serial
     private static final long serialVersionUID = -939150713474957432L;
     /**
      * Parser.
@@ -436,8 +444,8 @@ public final class MonthDay
      */
     @Override
     public long getLong(TemporalField field) {
-        if (field instanceof ChronoField) {
-            switch ((ChronoField) field) {
+        if (field instanceof ChronoField chronoField) {
+            switch (chronoField) {
                 // alignedDOW and alignedWOM not supported because they cannot be set in with()
                 case DAY_OF_MONTH: return day;
                 case MONTH_OF_YEAR: return month;
@@ -712,11 +720,9 @@ public final class MonthDay
         if (this == obj) {
             return true;
         }
-        if (obj instanceof MonthDay) {
-            MonthDay other = (MonthDay) obj;
-            return month == other.month && day == other.day;
-        }
-        return false;
+        return (obj instanceof MonthDay other)
+                && month == other.month
+                && day == other.day;
     }
 
     /**
@@ -748,7 +754,7 @@ public final class MonthDay
     //-----------------------------------------------------------------------
     /**
      * Writes the object using a
-     * <a href="../../serialized-form.html#java.time.Ser">dedicated serialized form</a>.
+     * <a href="{@docRoot}/serialized-form.html#java.time.Ser">dedicated serialized form</a>.
      * @serialData
      * <pre>
      *  out.writeByte(13);  // identifies a MonthDay
@@ -758,6 +764,7 @@ public final class MonthDay
      *
      * @return the instance of {@code Ser}, not null
      */
+    @java.io.Serial
     private Object writeReplace() {
         return new Ser(Ser.MONTH_DAY_TYPE, this);
     }
@@ -768,6 +775,7 @@ public final class MonthDay
      * @param s the stream to read
      * @throws InvalidObjectException always
      */
+    @java.io.Serial
     private void readObject(ObjectInputStream s) throws InvalidObjectException {
         throw new InvalidObjectException("Deserialization via serialization delegate");
     }

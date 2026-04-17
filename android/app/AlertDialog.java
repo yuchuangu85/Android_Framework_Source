@@ -21,9 +21,11 @@ import android.annotation.AttrRes;
 import android.annotation.DrawableRes;
 import android.annotation.StringRes;
 import android.annotation.StyleRes;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.res.ResourceId;
+import android.content.res.Resources;
 import android.database.Cursor;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
@@ -69,6 +71,7 @@ import com.android.internal.app.AlertController;
  * </div>
  */
 public class AlertDialog extends Dialog implements DialogInterface {
+    @UnsupportedAppUsage
     private AlertController mAlert;
 
     /**
@@ -322,7 +325,7 @@ public class AlertDialog extends Dialog implements DialogInterface {
     }
 
     /**
-     * Set a listener to be invoked when the positive button of the dialog is pressed.
+     * Set a listener to be invoked when the specified button of the dialog is pressed.
      *
      * @param whichButton Which button to set the listener on, can be one of
      *            {@link DialogInterface#BUTTON_POSITIVE},
@@ -395,7 +398,7 @@ public class AlertDialog extends Dialog implements DialogInterface {
      * @param listener The {@link DialogInterface.OnClickListener} to use.
      * @deprecated Use
      *             {@link #setButton(int, CharSequence, android.content.DialogInterface.OnClickListener)}
-     *             with {@link DialogInterface#BUTTON_POSITIVE}
+     *             with {@link DialogInterface#BUTTON_NEUTRAL}
      */
     @Deprecated
     public void setButton3(CharSequence text, final OnClickListener listener) {
@@ -449,6 +452,7 @@ public class AlertDialog extends Dialog implements DialogInterface {
     }
 
     public static class Builder {
+        @UnsupportedAppUsage
         private final AlertController.AlertParams P;
 
         /**
@@ -462,7 +466,7 @@ public class AlertDialog extends Dialog implements DialogInterface {
          * @param context the parent context
          */
         public Builder(Context context) {
-            this(context, resolveDialogTheme(context, ResourceId.ID_NULL));
+            this(context, resolveDialogTheme(context, Resources.ID_NULL));
         }
 
         /**
@@ -1049,6 +1053,7 @@ public class AlertDialog extends Dialog implements DialogInterface {
          * @deprecated Set the padding on the view itself.
          */
         @Deprecated
+        @UnsupportedAppUsage
         public Builder setView(View view, int viewSpacingLeft, int viewSpacingTop,
                 int viewSpacingRight, int viewSpacingBottom) {
             P.mView = view;
@@ -1080,6 +1085,7 @@ public class AlertDialog extends Dialog implements DialogInterface {
         /**
          * @hide
          */
+        @UnsupportedAppUsage
         public Builder setRecycleOnMeasureEnabled(boolean enabled) {
             P.mRecycleOnMeasure = enabled;
             return this;

@@ -16,37 +16,50 @@
 
 package android.os;
 
+import android.compat.annotation.UnsupportedAppUsage;
 import android.util.Slog;
 
-import java.io.IOException;
 import java.io.File;
 import java.io.FileDescriptor;
+import java.io.IOException;
 
 /**
  * This class provides access to the centralized jni bindings for
  * SELinux interaction.
- * {@hide}
+ * @hide
  */
 public class SELinux {
     private static final String TAG = "SELinux";
 
-    /** Keep in sync with ./external/libselinux/include/selinux/android.h */
+    /** Keep in sync with ./external/selinux/libselinux/include/selinux/android.h */
     private static final int SELINUX_ANDROID_RESTORECON_NOCHANGE = 1;
     private static final int SELINUX_ANDROID_RESTORECON_VERBOSE = 2;
     private static final int SELINUX_ANDROID_RESTORECON_RECURSE = 4;
     private static final int SELINUX_ANDROID_RESTORECON_FORCE = 8;
     private static final int SELINUX_ANDROID_RESTORECON_DATADATA = 16;
+    private static final int SELINUX_ANDROID_RESTORECON_SKIPCE = 32;
+    private static final int SELINUX_ANDROID_RESTORECON_CROSS_FILESYSTEMS = 64;
+    private static final int SELINUX_ANDROID_RESTORECON_SKIP_SEHASH = 128;
+
+    /**
+     * Get context associated with path by file_contexts.
+     * @param path path to the regular file to get the security context for.
+     * @return a String representing the security context or null on failure.
+     */
+    public static final native String fileSelabelLookup(String path);
 
     /**
      * Determine whether SELinux is disabled or enabled.
      * @return a boolean indicating whether SELinux is enabled.
      */
+    @UnsupportedAppUsage
     public static final native boolean isSELinuxEnabled();
 
     /**
      * Determine whether SELinux is permissive or enforcing.
      * @return a boolean indicating whether SELinux is enforcing.
      */
+    @UnsupportedAppUsage
     public static final native boolean isSELinuxEnforced();
 
     /**
@@ -69,6 +82,7 @@ public class SELinux {
      * @param path the pathname of the file object.
      * @return a security context given as a String.
      */
+    @UnsupportedAppUsage
     public static final native String getFileContext(String path);
 
     /**
@@ -79,9 +93,17 @@ public class SELinux {
     public static final native String getPeerContext(FileDescriptor fd);
 
     /**
+     * Get the security context of a file descriptor of a file.
+     * @param fd FileDescriptor of a file.
+     * @return a String representing the file descriptor security context.
+     */
+    public static final native String getFileContext(FileDescriptor fd);
+
+    /**
      * Gets the security context of the current process.
      * @return a String representing the security context of the current process.
      */
+    @UnsupportedAppUsage
     public static final native String getContext();
 
     /**
@@ -89,6 +111,7 @@ public class SELinux {
      * @param pid an int representing the process id to check.
      * @return a String representing the security context of the given pid.
      */
+    @UnsupportedAppUsage
     public static final native String getPidContext(int pid);
 
     /**
@@ -99,6 +122,7 @@ public class SELinux {
      * @param perm The permission name.
      * @return a boolean indicating whether permission was granted.
      */
+    @UnsupportedAppUsage
     public static final native boolean checkSELinuxAccess(String scon, String tcon, String tclass, String perm);
 
     /**
@@ -158,13 +182,42 @@ public class SELinux {
      *
      * @return a boolean indicating whether the relabeling succeeded.
      */
+    @UnsupportedAppUsage
     public static boolean restoreconRecursive(File file) {
         try {
-            return native_restorecon(file.getCanonicalPath(), SELINUX_ANDROID_RESTORECON_RECURSE);
+            return native_restorecon(file.getCanonicalPath(),
+                SELINUX_ANDROID_RESTORECON_RECURSE | SELINUX_ANDROID_RESTORECON_SKIP_SEHASH);
         } catch (IOException e) {
             Slog.e(TAG, "Error getting canonical path. Restorecon failed for " +
                     file.getPath(), e);
             return false;
         }
     }
+
+    /**
+     * Gets the genfs labels version of the vendor. The genfs labels version is
+     * specified in {@code /vendor/etc/selinux/genfs_labels_version.txt}. The
+     * version follows the VINTF version format "YYYYMM" and affects how {@code
+     * genfs_contexts} entries are applied.
+     *
+     * <p>The genfs labels version indicates changes in the SELinux labeling
+     * scheme over time. For example:
+     * <ul>
+     *   <li>For version 202504 and later, {@code /sys/class/udc} is labeled as
+     *   {@code sysfs_udc}.
+     *   <li>For version 202404 and earlier, {@code /sys/class/udc} is labeled
+     *   as {@code sysfs}.
+     * </ul>
+     * Check {@code /system/etc/selinux/plat_sepolicy_genfs_{version}.cil} to
+     * see which labels are new in {version}.
+     *
+     * <p>Older vendors may override {@code genfs_contexts} with vendor-specific
+     * extensions. The framework must not break such labellings to maintain
+     * compatibility with such vendors, by checking the genfs labels version and
+     * implementing a fallback mechanism.
+     *
+     * @return an integer representing the genfs labels version of /vendor, in
+     *         the format YYYYMM.
+     */
+    public static final native int getGenfsLabelsVersion();
 }

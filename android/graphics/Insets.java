@@ -16,6 +16,12 @@
 
 package android.graphics;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.os.Parcel;
+import android.os.Parcelable;
+import android.util.proto.ProtoOutputStream;
+
 /**
  * An Insets instance holds four integer offsets which describe changes to the four
  * edges of a Rectangle. By convention, positive values move edges towards the
@@ -23,10 +29,10 @@ package android.graphics;
  * <p>
  * Insets are immutable so may be treated as values.
  *
- * @hide
  */
-public class Insets {
-    public static final Insets NONE = new Insets(0, 0, 0, 0);
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
+public final class Insets implements Parcelable {
+    public static final @NonNull Insets NONE = new Insets(0, 0, 0, 0);
 
     public final int left;
     public final int top;
@@ -52,7 +58,7 @@ public class Insets {
      *
      * @return Insets instance with the appropriate values
      */
-    public static Insets of(int left, int top, int right, int bottom) {
+    public static @NonNull Insets of(int left, int top, int right, int bottom) {
         if (left == 0 && top == 0 && right == 0 && bottom == 0) {
             return NONE;
         }
@@ -66,8 +72,83 @@ public class Insets {
      *
      * @return an Insets instance with the appropriate values
      */
-    public static Insets of(Rect r) {
+    public static @NonNull Insets of(@Nullable Rect r) {
         return (r == null) ? NONE : of(r.left, r.top, r.right, r.bottom);
+    }
+
+    /**
+     * Returns a Rect instance with the appropriate values.
+     *
+     * @hide
+     */
+    public @NonNull Rect toRect() {
+        return new Rect(left, top, right, bottom);
+    }
+
+    /**
+     * Add two Insets.
+     *
+     * @param a The first Insets to add.
+     * @param b The second Insets to add.
+     * @return a + b, i. e. all insets on every side are added together.
+     */
+    public static @NonNull Insets add(@NonNull Insets a, @NonNull Insets b) {
+        return Insets.of(a.left + b.left, a.top + b.top, a.right + b.right, a.bottom + b.bottom);
+    }
+
+    /**
+     * Subtract two Insets.
+     *
+     * @param a The minuend.
+     * @param b The subtrahend.
+     * @return a - b, i. e. all insets on every side are subtracted from each other.
+     */
+    public static @NonNull Insets subtract(@NonNull Insets a, @NonNull Insets b) {
+        return Insets.of(a.left - b.left, a.top - b.top, a.right - b.right, a.bottom - b.bottom);
+    }
+
+    /**
+     * Retrieves the maximum of two Insets.
+     *
+     * @param a The first Insets.
+     * @param b The second Insets.
+     * @return max(a, b), i. e. the larger of every inset on every side is taken for the result.
+     */
+    public static @NonNull Insets max(@NonNull Insets a, @NonNull Insets b) {
+        return Insets.of(Math.max(a.left, b.left), Math.max(a.top, b.top),
+                Math.max(a.right, b.right), Math.max(a.bottom, b.bottom));
+    }
+
+    /**
+     * Retrieves the minimum of two Insets.
+     *
+     * @param a The first Insets.
+     * @param b The second Insets.
+     * @return min(a, b), i. e. the smaller of every inset on every side is taken for the result.
+     */
+    public static @NonNull Insets min(@NonNull Insets a, @NonNull Insets b) {
+        return Insets.of(Math.min(a.left, b.left), Math.min(a.top, b.top),
+                Math.min(a.right, b.right), Math.min(a.bottom, b.bottom));
+    }
+
+    /**
+     * Returns an Insets instance of scaled values. The rounding logic exactly matches
+     * {@link Rect#scale(float)}.
+     *
+     * @param insets The given Insets.
+     * @param scale The given scale.
+     * @return a new instance of Insets if the scale is not 1, or the given insets is returned.
+     * @hide
+     */
+    public static @NonNull Insets scale(@NonNull Insets insets, float scale) {
+        if (scale == 1.0f) {
+            return insets;
+        }
+        return Insets.of(
+                (int) (insets.left * scale + 0.5f),
+                (int) (insets.top * scale + 0.5f),
+                (int) (insets.right * scale + 0.5f),
+                (int) (insets.bottom * scale + 0.5f));
     }
 
     /**
@@ -111,4 +192,46 @@ public class Insets {
                 ", bottom=" + bottom +
                 '}';
     }
+
+    @Override
+    public int describeContents() {
+        return 0;
+    }
+
+    @Override
+    public void writeToParcel(Parcel out, int flags) {
+        out.writeInt(left);
+        out.writeInt(top);
+        out.writeInt(right);
+        out.writeInt(bottom);
+    }
+
+    /**
+     * Write to a protocol buffer output stream.
+     * Protocol buffer message definition at {@link android.graphics.InsetsProto}
+     *
+     * @param protoOutputStream Stream to write the Insets object to.
+     * @param fieldId           Field Id of the Insets as defined in the parent message
+     * @hide
+     */
+    public void dumpDebug(@NonNull ProtoOutputStream protoOutputStream, long fieldId) {
+        final long token = protoOutputStream.start(fieldId);
+        protoOutputStream.write(InsetsProto.LEFT, left);
+        protoOutputStream.write(InsetsProto.TOP, top);
+        protoOutputStream.write(InsetsProto.RIGHT, right);
+        protoOutputStream.write(InsetsProto.BOTTOM, bottom);
+        protoOutputStream.end(token);
+    }
+
+    public static final @android.annotation.NonNull Parcelable.Creator<Insets> CREATOR = new Parcelable.Creator<Insets>() {
+        @Override
+        public Insets createFromParcel(Parcel in) {
+            return new Insets(in.readInt(), in.readInt(), in.readInt(), in.readInt());
+        }
+
+        @Override
+        public Insets[] newArray(int size) {
+            return new Insets[size];
+        }
+    };
 }

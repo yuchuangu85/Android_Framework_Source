@@ -57,6 +57,7 @@ import android.util.AttributeSet;
  * @attr ref android.R.styleable#LevelListDrawableItem_maxLevel
  * @attr ref android.R.styleable#LevelListDrawableItem_drawable
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class LevelListDrawable extends DrawableContainer {
     private LevelListState mLevelListState;
     private boolean mMutated;

@@ -25,6 +25,7 @@ import android.widget.TextView;
 /**
  * A movement method that interprets movement keys by scrolling the text buffer.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class ScrollingMovementMethod extends BaseMovementMethod implements MovementMethod {
     @Override
     protected boolean left(TextView widget, Spannable buffer) {

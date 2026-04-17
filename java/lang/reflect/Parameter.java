@@ -176,7 +176,7 @@ public final class Parameter implements AnnotatedElement {
      *         a name.
      */
     public String getName() {
-        // Note: empty strings as paramete names are now outlawed.
+        // Note: empty strings as parameter names are now outlawed.
         // The .equals("") is for compatibility with current JVM
         // behavior.  It may be removed at some point.
         if(name == null || name.equals(""))
@@ -208,7 +208,7 @@ public final class Parameter implements AnnotatedElement {
         return tmp;
     }
 
-    private transient volatile Type parameterTypeCache = null;
+    private transient volatile Type parameterTypeCache;
 
     /**
      * Returns a {@code Class} object that identifies the

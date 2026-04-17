@@ -16,7 +16,11 @@
 
 package android.widget;
 
+import static android.view.flags.Flags.enableArrowIconOnHoverWhenClickable;
+import static android.view.flags.Flags.FLAG_ENABLE_ARROW_ICON_ON_HOVER_WHEN_CLICKABLE;
+
 import android.animation.ObjectAnimator;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.content.Context;
 import android.content.res.ColorStateList;
@@ -38,6 +42,7 @@ import android.util.MathUtils;
 import android.util.StateSet;
 import android.util.TypedValue;
 import android.view.HapticFeedbackConstants;
+import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.PointerIcon;
 import android.view.View;
@@ -404,6 +409,8 @@ public class RadialTimePickerView extends View {
         final Context context = getContext();
         final TypedArray a = getContext().obtainStyledAttributes(attrs,
                 R.styleable.TimePicker, defStyleAttr, defStyleRes);
+        saveAttributeDataForStyleable(context, R.styleable.TimePicker,
+                attrs, a, defStyleAttr, defStyleRes);
 
         final ColorStateList numbersTextColor = a.getColorStateList(
                 R.styleable.TimePicker_numbersTextColor);
@@ -1053,14 +1060,20 @@ public class RadialTimePickerView extends View {
         invalidate();
     }
 
+    @FlaggedApi(FLAG_ENABLE_ARROW_ICON_ON_HOVER_WHEN_CLICKABLE)
     @Override
     public PointerIcon onResolvePointerIcon(MotionEvent event, int pointerIndex) {
         if (!isEnabled()) {
             return null;
         }
-        final int degrees = getDegreesFromXY(event.getX(), event.getY(), false);
-        if (degrees != -1) {
-            return PointerIcon.getSystemIcon(getContext(), PointerIcon.TYPE_HAND);
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+            final int degrees = getDegreesFromXY(event.getX(), event.getY(), false);
+            if (degrees != -1) {
+                int pointerIcon = enableArrowIconOnHoverWhenClickable()
+                        ? PointerIcon.TYPE_ARROW
+                        : PointerIcon.TYPE_HAND;
+                return PointerIcon.getSystemIcon(getContext(), pointerIcon);
+            }
         }
         return super.onResolvePointerIcon(event, pointerIndex);
     }

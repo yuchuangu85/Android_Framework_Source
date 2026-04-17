@@ -16,36 +16,87 @@
 
 package android.view;
 
+import android.compat.annotation.UnsupportedAppUsage;
+import android.os.Handler;
 import android.os.Looper;
+import android.os.Trace;
 
 /**
  * Similar to {@link InputEventReceiver}, but batches events to vsync boundaries when possible.
  * @hide
  */
 public class BatchedInputEventReceiver extends InputEventReceiver {
-    Choreographer mChoreographer;
+    private final Choreographer mChoreographer;
+    private boolean mBatchingEnabled;
     private boolean mBatchedInputScheduled;
+    private final String mTag;
+    private final Handler mHandler;
+    private final Runnable mConsumeBatchedInputEvents = new Runnable() {
+        @Override
+        public void run() {
+            consumeBatchedInputEvents(-1);
+        }
+    };
 
+    @UnsupportedAppUsage
     public BatchedInputEventReceiver(
             InputChannel inputChannel, Looper looper, Choreographer choreographer) {
         super(inputChannel, looper);
         mChoreographer = choreographer;
+        mBatchingEnabled = true;
+        mTag = getClass().getName();
+        traceBoolVariable("mBatchingEnabled", mBatchingEnabled);
+        traceBoolVariable("mBatchedInputScheduled", mBatchedInputScheduled);
+        mHandler = new Handler(looper);
     }
 
     @Override
-    public void onBatchedInputEventPending() {
-        scheduleBatchedInput();
+    public void onBatchedInputEventPending(int source) {
+        if (mBatchingEnabled) {
+            scheduleBatchedInput();
+        } else {
+            consumeBatchedInputEvents(-1);
+        }
     }
 
     @Override
     public void dispose() {
         unscheduleBatchedInput();
+        consumeBatchedInputEvents(-1);
         super.dispose();
     }
 
-    void doConsumeBatchedInput(long frameTimeNanos) {
+    /**
+     * Sets whether to enable batching on this input event receiver.
+     * @hide
+     */
+    public void setBatchingEnabled(boolean batchingEnabled) {
+        if (mBatchingEnabled == batchingEnabled) {
+            return;
+        }
+
+        mBatchingEnabled = batchingEnabled;
+        traceBoolVariable("mBatchingEnabled", mBatchingEnabled);
+        if (mHandler.hasCallbacks(mConsumeBatchedInputEvents)) {
+            mHandler.removeCallbacks(mConsumeBatchedInputEvents);
+            // Existence of `mConsumeBatchedInputEvents` implies that there are pending batched
+            // input events from the last time batching was enabled that need to be consumed -
+            // consume them so the receiver keeps getting `onBatchedInputEventPending()`
+            // notifications.
+            if (batchingEnabled) {
+                scheduleBatchedInput();
+            }
+        }
+        if (!batchingEnabled) {
+            unscheduleBatchedInput();
+            mHandler.post(mConsumeBatchedInputEvents);
+        }
+    }
+
+    protected void doConsumeBatchedInput(long frameTimeNanos) {
         if (mBatchedInputScheduled) {
             mBatchedInputScheduled = false;
+            traceBoolVariable("mBatchedInputScheduled", mBatchedInputScheduled);
             if (consumeBatchedInputEvents(frameTimeNanos) && frameTimeNanos != -1) {
                 // If we consumed a batch here, we want to go ahead and schedule the
                 // consumption of batched input events on the next frame. Otherwise, we would
@@ -60,23 +111,70 @@ public class BatchedInputEventReceiver extends InputEventReceiver {
     private void scheduleBatchedInput() {
         if (!mBatchedInputScheduled) {
             mBatchedInputScheduled = true;
-            mChoreographer.postCallback(Choreographer.CALLBACK_INPUT, mBatchedInputRunnable, null);
+            traceBoolVariable("mBatchedInputScheduled", mBatchedInputScheduled);
+            mChoreographer.postVsyncCallback(Choreographer.CALLBACK_INPUT, mBatchedInputCallback);
         }
     }
 
     private void unscheduleBatchedInput() {
         if (mBatchedInputScheduled) {
             mBatchedInputScheduled = false;
-            mChoreographer.removeCallbacks(
-                    Choreographer.CALLBACK_INPUT, mBatchedInputRunnable, null);
+            traceBoolVariable("mBatchedInputScheduled", mBatchedInputScheduled);
+            mChoreographer.removeVsyncCallback(
+                    Choreographer.CALLBACK_INPUT, mBatchedInputCallback);
         }
     }
 
-    private final class BatchedInputRunnable implements Runnable {
+    // @TODO(b/311142655): Delete this temporary tracing. It's only used here to debug a very
+    // specific issue.
+    private void traceBoolVariable(String name, boolean value) {
+        Trace.traceCounter(Trace.TRACE_TAG_INPUT, name, value ? 1 : 0);
+    }
+
+    private final class BatchedInputCallback implements Choreographer.VsyncCallback {
         @Override
-        public void run() {
-            doConsumeBatchedInput(mChoreographer.getFrameTimeNanos());
+        public void onVsync(Choreographer.FrameData frameData) {
+            try {
+                Trace.traceBegin(Trace.TRACE_TAG_INPUT, mTag);
+                doConsumeBatchedInput(frameData.getFrameTimeNanos());
+            } finally {
+                Trace.traceEnd(Trace.TRACE_TAG_INPUT);
+            }
         }
     }
-    private final BatchedInputRunnable mBatchedInputRunnable = new BatchedInputRunnable();
+    private final BatchedInputCallback mBatchedInputCallback = new BatchedInputCallback();
+
+    /**
+     * A {@link BatchedInputEventReceiver} that reports events to an {@link InputEventListener}.
+     * @hide
+     */
+    public static class SimpleBatchedInputEventReceiver extends BatchedInputEventReceiver {
+
+        /** @hide */
+        public interface InputEventListener {
+            /**
+             * Process the input event.
+             * @return handled
+             */
+            boolean onInputEvent(InputEvent event);
+        }
+
+        protected InputEventListener mListener;
+
+        public SimpleBatchedInputEventReceiver(InputChannel inputChannel, Looper looper,
+                Choreographer choreographer, InputEventListener listener) {
+            super(inputChannel, looper, choreographer);
+            mListener = listener;
+        }
+
+        @Override
+        public void onInputEvent(InputEvent event) {
+            boolean handled = false;
+            try {
+                handled = mListener.onInputEvent(event);
+            } finally {
+                finishInputEvent(event, handled);
+            }
+        }
+    }
 }

@@ -22,6 +22,7 @@ package android.graphics;
  * inside, or straddles, the original mask's border, is controlled by the
  * Blur enum.
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class BlurMaskFilter extends MaskFilter {
 
     public enum Blur {

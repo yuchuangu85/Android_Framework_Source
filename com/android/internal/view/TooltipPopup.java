@@ -71,7 +71,17 @@ public class TooltipPopup {
         computePosition(anchorView, anchorX, anchorY, fromTouch, mLayoutParams);
 
         WindowManager wm = (WindowManager)mContext.getSystemService(Context.WINDOW_SERVICE);
-        wm.addView(mContentView, mLayoutParams);
+        try {
+            wm.addView(mContentView, mLayoutParams);
+        } catch (WindowManager.BadTokenException e) {
+            // As the window token can be invalidated at any moment
+            // (e.g., due to Activity finishing or app backgrounding)
+            // there is an inherent race between scheduling the tooltip and adding its view.
+            // We may attempt to add the view after the token has been invalidated.
+            // Catching this prevents a crash.
+            Slog.w(TAG, "Failed to add tooltip for " + mContext.getPackageName()
+                    + ": " + e.getMessage());
+        }
     }
 
     public void hide() {

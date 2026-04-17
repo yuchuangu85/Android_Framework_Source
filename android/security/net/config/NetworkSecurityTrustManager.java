@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2025 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,18 @@
 
 package android.security.net.config;
 
+import android.util.ArrayMap;
+
+import com.android.org.conscrypt.ConscryptNetworkSecurityPolicy;
 import com.android.org.conscrypt.TrustManagerImpl;
 
-import android.util.ArrayMap;
 import java.io.IOException;
 import java.net.Socket;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
 import java.security.MessageDigest;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -105,27 +107,51 @@ public class NetworkSecurityTrustManager extends X509ExtendedTrustManager {
 
     /**
      * Hostname aware version of {@link #checkServerTrusted(X509Certificate[], String)}.
-     * This interface is used by conscrypt and android.net.http.X509TrustManagerExtensions do not
+     * This interface is used by Conscrypt and android.net.http.X509TrustManagerExtensions do not
      * modify without modifying those callers.
      */
     public List<X509Certificate> checkServerTrusted(X509Certificate[] certs, String authType,
-            String host) throws CertificateException {
+                                                    String host) throws CertificateException {
         List<X509Certificate> trustedChain = mDelegate.checkServerTrusted(certs, authType, host);
         checkPins(trustedChain);
         return trustedChain;
     }
 
+    /**
+     * This interface is used by Conscrypt and android.net.http.X509TrustManagerExtensions do not
+     * modify without modifying those callers.
+     */
+    public List<X509Certificate> checkServerTrusted(X509Certificate[] certs, byte[] ocspData,
+                                                    byte[] tlsSctData, String authType, String host)
+            throws CertificateException {
+        List<X509Certificate> trustedChain =
+                mDelegate.checkServerTrusted(certs, ocspData, tlsSctData, authType, host);
+        checkPins(trustedChain);
+        return trustedChain;
+    }
+
+    /** Sets the policy attached to this TrustManager */
+    public void setNetworkSecurityPolicy(ConscryptNetworkSecurityPolicy policy) {
+        mDelegate.setNetworkSecurityPolicy(policy);
+    }
+
+    /**
+     * This interface is used by Conscrypt, do not modify without modifying those callers.
+     */
+    public ConscryptNetworkSecurityPolicy getNetworkSecurityPolicy() {
+        return mDelegate.getNetworkSecurityPolicy();
+    }
+
     private void checkPins(List<X509Certificate> chain) throws CertificateException {
         PinSet pinSet = mNetworkSecurityConfig.getPins();
-        if (pinSet.pins.isEmpty()
-                || System.currentTimeMillis() > pinSet.expirationTime
-                || !isPinningEnforced(chain)) {
+        if (pinSet.pins.isEmpty() || System.currentTimeMillis() > pinSet.expirationTime
+            || !isPinningEnforced(chain)) {
             return;
         }
         Set<String> pinAlgorithms = pinSet.getPinAlgorithms();
-        Map<String, MessageDigest> digestMap = new ArrayMap<String, MessageDigest>(
-                pinAlgorithms.size());
-        for (int i = chain.size() - 1; i >= 0 ; i--) {
+        Map<String, MessageDigest> digestMap =
+                new ArrayMap<String, MessageDigest>(pinAlgorithms.size());
+        for (int i = chain.size() - 1; i >= 0; i--) {
             X509Certificate cert = chain.get(i);
             byte[] encodedSPKI = cert.getPublicKey().getEncoded();
             for (String algorithm : pinAlgorithms) {

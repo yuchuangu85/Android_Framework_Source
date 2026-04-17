@@ -25,10 +25,10 @@ import java.util.UUID;
  * A class for storing Upnp service information that is advertised
  * over a Wi-Fi peer-to-peer setup.
  *
- * {@see android.net.wifi.p2p.WifiP2pManager#addLocalService}
- * {@see android.net.wifi.p2p.WifiP2pManager#removeLocalService}
- * {@see WifiP2pServiceInfo}
- * {@see WifiP2pDnsSdServiceInfo}
+ * @see android.net.wifi.p2p.WifiP2pManager#addLocalService
+ * @see android.net.wifi.p2p.WifiP2pManager#removeLocalService
+ * @see WifiP2pServiceInfo
+ * @see WifiP2pDnsSdServiceInfo
  */
 public class WifiP2pUpnpServiceInfo extends WifiP2pServiceInfo {
 

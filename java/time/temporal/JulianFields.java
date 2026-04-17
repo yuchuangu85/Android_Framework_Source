@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -115,9 +115,15 @@ public final class JulianFields {
      * the Julian Day value is validated against the range of valid values.
      * In {@linkplain ResolverStyle#LENIENT lenient mode} no validation occurs.
      *
-     * <h3>Astronomical and Scientific Notes</h3>
+     * <h4>Astronomical and Scientific Notes</h4>
      * The standard astronomical definition uses a fraction to indicate the time-of-day,
-     * thus 3.25 would represent the time 18:00, since days start at midday.
+     * where each day is counted from midday to midday. For example,
+     * a fraction of 0 represents midday, a fraction of 0.25
+     * represents 18:00, a fraction of 0.5 represents midnight and a fraction
+     * of 0.75 represents 06:00.
+     * <p>
+     * By contrast, this implementation has no fractional part, and counts
+     * days from midnight to midnight.
      * This implementation uses an integer and days starting at midnight.
      * The integer value for the Julian Day Number is the astronomical Julian Day value at midday
      * of the date in question.
@@ -163,7 +169,7 @@ public final class JulianFields {
      * the Modified Julian Day value is validated against the range of valid values.
      * In {@linkplain ResolverStyle#LENIENT lenient mode} no validation occurs.
      *
-     * <h3>Astronomical and Scientific Notes</h3>
+     * <h4>Astronomical and Scientific Notes</h4>
      * <pre>
      *  | ISO date          | Modified Julian Day |      Decimal MJD |
      *  | 1970-01-01T00:00  |             40,587  |       40,587.0   |
@@ -215,8 +221,6 @@ public final class JulianFields {
         JULIAN_DAY("JulianDay", DAYS, FOREVER, JULIAN_DAY_OFFSET),
         MODIFIED_JULIAN_DAY("ModifiedJulianDay", DAYS, FOREVER, 40587L),
         RATA_DIE("RataDie", DAYS, FOREVER, 719163L);
-
-        private static final long serialVersionUID = -7501623920830201812L;
 
         private final transient String name;
         private final transient TemporalUnit baseUnit;

@@ -16,20 +16,23 @@
 
 package android.graphics;
 
+import android.compat.annotation.UnsupportedAppUsage;
+
 /**
  * The NinePatch class permits drawing a bitmap in nine or more sections.
  * Essentially, it allows the creation of custom graphics that will scale the
  * way that you define, when content added within the image exceeds the normal
- * bounds of the graphic. For a thorough explanation of a NinePatch image, 
- * read the discussion in the 
+ * bounds of the graphic. For a thorough explanation of a NinePatch image,
+ * read the discussion in the
  * <a href="{@docRoot}guide/topics/graphics/2d-graphics.html#nine-patch">2D
  * Graphics</a> document.
  * <p>
- * The <a href="{@docRoot}guide/developing/tools/draw9patch.html">Draw 9-Patch</a> 
+ * The <a href="{@docRoot}guide/developing/tools/draw9patch.html">Draw 9-Patch</a>
  * tool offers an extremely handy way to create your NinePatch images,
  * using a WYSIWYG graphics editor.
  * </p>
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class NinePatch {
     /**
      * Struct of inset information attached to a 9 patch bitmap.
@@ -37,7 +40,7 @@ public class NinePatch {
      * Present on a 9 patch bitmap if it optical insets were manually included,
      * or if outline insets were automatically included by aapt.
      *
-     * @hide
+     * @hide For use by NinePatchDrawable, but must not be used outside the module.
      */
     public static class InsetStruct {
         @SuppressWarnings({"UnusedDeclaration"}) // called from JNI
@@ -77,13 +80,15 @@ public class NinePatch {
         }
     }
 
+    @UnsupportedAppUsage
     private final Bitmap mBitmap;
 
     /**
      * Used by native code. This pointer is an instance of Res_png_9patch*.
      *
-     * @hide
+     * @hide for use by android.graphics, but must not be used outside the module.
      */
+    @UnsupportedAppUsage
     public long mNativeChunk;
 
     private Paint mPaint;
@@ -100,7 +105,7 @@ public class NinePatch {
         this(bitmap, chunk, null);
     }
 
-    /** 
+    /**
      * Create a drawable projection from a bitmap to nine patches.
      *
      * @param bitmap The bitmap describing the patches.
@@ -114,25 +119,11 @@ public class NinePatch {
         mNativeChunk = validateNinePatchChunk(chunk);
     }
 
-    /**
-     * @hide
-     */
-    public NinePatch(NinePatch patch) {
-        mBitmap = patch.mBitmap;
-        mSrcName = patch.mSrcName;
-        if (patch.mPaint != null) {
-            mPaint = new Paint(patch.mPaint);
-        }
-        // No need to validate the 9patch chunk again, it was done by
-        // the instance we're copying from
-        mNativeChunk = patch.mNativeChunk;
-    }
-
     @Override
     protected void finalize() throws Throwable {
         try {
             if (mNativeChunk != 0) {
-                // only attempt to destroy correctly initilized chunks
+                // only attempt to destroy correctly initialized chunks
                 nativeFinalize(mNativeChunk);
                 mNativeChunk = 0;
             }
@@ -179,8 +170,8 @@ public class NinePatch {
     public Bitmap getBitmap() {
         return mBitmap;
     }
-    
-    /** 
+
+    /**
      * Draws the NinePatch. This method will use the paint returned by {@link #getPaint()}.
      *
      * @param canvas A container for the current matrix and clip used to draw the NinePatch.
@@ -190,7 +181,7 @@ public class NinePatch {
         canvas.drawPatch(this, location, mPaint);
     }
 
-    /** 
+    /**
      * Draws the NinePatch. This method will use the paint returned by {@link #getPaint()}.
      *
      * @param canvas A container for the current matrix and clip used to draw the NinePatch.
@@ -200,7 +191,7 @@ public class NinePatch {
         canvas.drawPatch(this, location, mPaint);
     }
 
-    /** 
+    /**
      * Draws the NinePatch. This method will ignore the paint returned
      * by {@link #getPaint()} and use the specified paint instead.
      *
@@ -256,7 +247,8 @@ public class NinePatch {
      * that are transparent.
      */
     public final Region getTransparentRegion(Rect bounds) {
-        long r = nativeGetTransparentRegion(mBitmap, mNativeChunk, bounds);
+        long r = nativeGetTransparentRegion(mBitmap.getNativeInstance(),
+                mNativeChunk, bounds);
         return r != 0 ? new Region(r) : null;
     }
 
@@ -277,5 +269,6 @@ public class NinePatch {
      */
     private static native long validateNinePatchChunk(byte[] chunk);
     private static native void nativeFinalize(long chunk);
-    private static native long nativeGetTransparentRegion(Bitmap bitmap, long chunk, Rect location);
+    private static native long nativeGetTransparentRegion(long bitmapHandle, long chunk,
+        Rect location);
 }

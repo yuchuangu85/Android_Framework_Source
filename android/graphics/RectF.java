@@ -16,25 +16,29 @@
 
 package android.graphics;
 
-import java.io.PrintWriter;
-
+import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
+
 import com.android.internal.util.FastMath;
+
+import java.io.PrintWriter;
 
 /**
  * RectF holds four float coordinates for a rectangle. The rectangle is
- * represented by the coordinates of its 4 edges (left, top, right bottom).
+ * represented by the coordinates of its 4 edges (left, top, right, bottom).
  * These fields can be accessed directly. Use width() and height() to retrieve
  * the rectangle's width and height. Note: most methods do not check to see that
  * the coordinates are sorted correctly (i.e. left <= right and top <= bottom).
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public class RectF implements Parcelable {
     public float left;
     public float top;
     public float right;
     public float bottom;
-    
+
     /**
      * Create a new empty RectF. All coordinates are initialized to 0.
      */
@@ -64,7 +68,7 @@ public class RectF implements Parcelable {
      * @param r The rectangle whose coordinates are copied into the new
      *          rectangle.
      */
-    public RectF(RectF r) {
+    public RectF(@Nullable RectF r) {
         if (r == null) {
             left = top = right = bottom = 0.0f;
         } else {
@@ -74,8 +78,8 @@ public class RectF implements Parcelable {
             bottom = r.bottom;
         }
     }
-    
-    public RectF(Rect r) {
+
+    public RectF(@Nullable Rect r) {
         if (r == null) {
             left = top = right = bottom = 0.0f;
         } else {
@@ -104,6 +108,7 @@ public class RectF implements Parcelable {
         return result;
     }
 
+    @Override
     public String toString() {
         return "RectF(" + left + ", " + top + ", "
                       + right + ", " + bottom + ")";
@@ -112,27 +117,29 @@ public class RectF implements Parcelable {
     /**
      * Return a string representation of the rectangle in a compact form.
      */
+    @NonNull
     public String toShortString() {
         return toShortString(new StringBuilder(32));
     }
-    
+
     /**
      * Return a string representation of the rectangle in a compact form.
      * @hide
      */
-    public String toShortString(StringBuilder sb) {
+    @NonNull
+    public String toShortString(@NonNull StringBuilder sb) {
         sb.setLength(0);
         sb.append('['); sb.append(left); sb.append(',');
         sb.append(top); sb.append("]["); sb.append(right);
         sb.append(','); sb.append(bottom); sb.append(']');
         return sb.toString();
     }
-    
+
     /**
      * Print short representation to given writer.
      * @hide
      */
-    public void printShortString(PrintWriter pw) {
+    public void printShortString(@NonNull PrintWriter pw) {
         pw.print('['); pw.print(left); pw.print(',');
         pw.print(top); pw.print("]["); pw.print(right);
         pw.print(','); pw.print(bottom); pw.print(']');
@@ -176,14 +183,14 @@ public class RectF implements Parcelable {
     public final float centerY() {
         return (top + bottom) * 0.5f;
     }
-    
+
     /**
      * Set the rectangle to (0,0,0,0)
      */
     public void setEmpty() {
         left = right = top = bottom = 0;
     }
-    
+
     /**
      * Set the rectangle's coordinates to the specified values. Note: no range
      * checking is performed, so it is up to the caller to ensure that
@@ -207,20 +214,20 @@ public class RectF implements Parcelable {
      * @param src The rectangle whose coordinates are copied into this
      *           rectangle.
      */
-    public void set(RectF src) {
+    public void set(@NonNull RectF src) {
         this.left   = src.left;
         this.top    = src.top;
         this.right  = src.right;
         this.bottom = src.bottom;
     }
-    
+
     /**
      * Copy the coordinates from src into this rectangle.
      *
      * @param src The rectangle whose coordinates are copied into this
      *           rectangle.
      */
-    public void set(Rect src) {
+    public void set(@NonNull Rect src) {
         this.left   = src.left;
         this.top    = src.top;
         this.right  = src.right;
@@ -254,7 +261,7 @@ public class RectF implements Parcelable {
         left = newLeft;
         top = newTop;
     }
-    
+
     /**
      * Inset the rectangle by (dx,dy). If dx is positive, then the sides are
      * moved inwards, making the rectangle narrower. If dx is negative, then the
@@ -286,7 +293,7 @@ public class RectF implements Parcelable {
         return left < right && top < bottom  // check for empty first
                 && x >= left && x < right && y >= top && y < bottom;
     }
-    
+
     /**
      * Returns true iff the 4 specified sides of a rectangle are inside or equal
      * to this rectangle. i.e. is this rectangle a superset of the specified
@@ -296,7 +303,7 @@ public class RectF implements Parcelable {
      * @param top The top of the rectangle being tested for containment
      * @param right The right side of the rectangle being tested for containment
      * @param bottom The bottom of the rectangle being tested for containment
-     * @return true iff the the 4 specified sides of a rectangle are inside or
+     * @return true iff the 4 specified sides of a rectangle are inside or
      *              equal to this rectangle
      */
     public boolean contains(float left, float top, float right, float bottom) {
@@ -306,7 +313,7 @@ public class RectF implements Parcelable {
                 && this.left <= left && this.top <= top
                 && this.right >= right && this.bottom >= bottom;
     }
-    
+
     /**
      * Returns true iff the specified rectangle r is inside or equal to this
      * rectangle. An empty rectangle never contains another rectangle.
@@ -315,14 +322,14 @@ public class RectF implements Parcelable {
      * @return true iff the specified rectangle r is inside or equal to this
      *              rectangle
      */
-    public boolean contains(RectF r) {
+    public boolean contains(@NonNull RectF r) {
                 // check for empty first
         return this.left < this.right && this.top < this.bottom
                 // now check for containment
                 && left <= r.left && top <= r.top
                 && right >= r.right && bottom >= r.bottom;
     }
-    
+
     /**
      * If the rectangle specified by left,top,right,bottom intersects this
      * rectangle, return true and set this rectangle to that intersection,
@@ -360,7 +367,7 @@ public class RectF implements Parcelable {
         }
         return false;
     }
-    
+
     /**
      * If the specified rectangle intersects this rectangle, return true and set
      * this rectangle to that intersection, otherwise return false and do not
@@ -372,10 +379,10 @@ public class RectF implements Parcelable {
      *              (and this rectangle is then set to that intersection) else
      *              return false and do not change this rectangle.
      */
-    public boolean intersect(RectF r) {
+    public boolean intersect(@NonNull RectF r) {
         return intersect(r.left, r.top, r.right, r.bottom);
     }
-    
+
     /**
      * If rectangles a and b intersect, return true and set this rectangle to
      * that intersection, otherwise return false and do not change this
@@ -388,7 +395,7 @@ public class RectF implements Parcelable {
      *              this rectangle to that intersection. If they do not, return
      *              false and do not change this rectangle.
      */
-    public boolean setIntersect(RectF a, RectF b) {
+    public boolean setIntersect(@NonNull RectF a, @NonNull RectF b) {
         if (a.left < b.right && b.left < a.right
                 && a.top < b.bottom && b.top < a.bottom) {
             left = Math.max(a.left, b.left);
@@ -399,7 +406,7 @@ public class RectF implements Parcelable {
         }
         return false;
     }
-    
+
     /**
      * Returns true if this rectangle intersects the specified rectangle.
      * In no event is this rectangle modified. No check is performed to see
@@ -419,7 +426,7 @@ public class RectF implements Parcelable {
         return this.left < right && left < this.right
                 && this.top < bottom && top < this.bottom;
     }
-    
+
     /**
      * Returns true iff the two specified rectangles intersect. In no event are
      * either of the rectangles modified. To record the intersection,
@@ -430,16 +437,16 @@ public class RectF implements Parcelable {
      * @return true iff the two specified rectangles intersect. In no event are
      *              either of the rectangles modified.
      */
-    public static boolean intersects(RectF a, RectF b) {
+    public static boolean intersects(@NonNull RectF a, @NonNull RectF b) {
         return a.left < b.right && b.left < a.right
                 && a.top < b.bottom && b.top < a.bottom;
     }
-    
+
     /**
      * Set the dst integer Rect by rounding this rectangle's coordinates
      * to their nearest integer values.
      */
-    public void round(Rect dst) {
+    public void round(@NonNull Rect dst) {
         dst.set(FastMath.round(left), FastMath.round(top),
                 FastMath.round(right), FastMath.round(bottom));
     }
@@ -448,7 +455,7 @@ public class RectF implements Parcelable {
      * Set the dst integer Rect by rounding "out" this rectangle, choosing the
      * floor of top and left, and the ceiling of right and bottom.
      */
-    public void roundOut(Rect dst) {
+    public void roundOut(@NonNull Rect dst) {
         dst.set((int) Math.floor(left), (int) Math.floor(top),
                 (int) Math.ceil(right), (int) Math.ceil(bottom));
     }
@@ -482,7 +489,7 @@ public class RectF implements Parcelable {
             }
         }
     }
-    
+
     /**
      * Update this Rect to enclose itself and the specified rectangle. If the
      * specified rectangle is empty, nothing is done. If this rectangle is empty
@@ -490,10 +497,10 @@ public class RectF implements Parcelable {
      *
      * @param r The rectangle being unioned with this rectangle
      */
-    public void union(RectF r) {
+    public void union(@NonNull RectF r) {
         union(r.left, r.top, r.right, r.bottom);
     }
-    
+
     /**
      * Update this Rect to enclose itself and the [x,y] coordinate. There is no
      * check to see that this rectangle is non-empty.
@@ -513,7 +520,7 @@ public class RectF implements Parcelable {
             bottom = y;
         }
     }
-    
+
     /**
      * Swap top/bottom or left/right if there are flipped (i.e. left > right
      * and/or top > bottom). This can be called if
@@ -537,47 +544,51 @@ public class RectF implements Parcelable {
     /**
      * Parcelable interface methods
      */
+    @Override
     public int describeContents() {
         return 0;
     }
-    
+
     /**
      * Write this rectangle to the specified parcel. To restore a rectangle from
      * a parcel, use readFromParcel()
      * @param out The parcel to write the rectangle's coordinates into
      */
+    @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeFloat(left);
         out.writeFloat(top);
         out.writeFloat(right);
         out.writeFloat(bottom);
     }
-    
-    public static final Parcelable.Creator<RectF> CREATOR = new Parcelable.Creator<RectF>() {
+
+    public static final @android.annotation.NonNull Parcelable.Creator<RectF> CREATOR = new Parcelable.Creator<RectF>() {
         /**
          * Return a new rectangle from the data in the specified parcel.
          */
+        @Override
         public RectF createFromParcel(Parcel in) {
             RectF r = new RectF();
             r.readFromParcel(in);
             return r;
         }
-        
+
         /**
          * Return an array of rectangles of the specified size.
          */
+        @Override
         public RectF[] newArray(int size) {
             return new RectF[size];
         }
     };
-    
+
     /**
      * Set the rectangle's coordinates from the data stored in the specified
      * parcel. To write a rectangle to a parcel, call writeToParcel().
      *
      * @param in The parcel to read the rectangle's coordinates from
      */
-    public void readFromParcel(Parcel in) {
+    public void readFromParcel(@NonNull Parcel in) {
         left = in.readFloat();
         top = in.readFloat();
         right = in.readFloat();
